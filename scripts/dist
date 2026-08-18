@@ -32,8 +32,12 @@
 #
 # The default version derives from the latest semantic version tag:
 # v1.2.3 gives 1.2.3, and an untagged tree gives 0.0.0. There is no
-# VERSION file and no $VERSION in a module. CI passes --version so
-# that the tag and the tarball agree.
+# VERSION file and no $VERSION in a source module: the tag is the one
+# source of the version, and the script stamps our $VERSION into
+# every package of the staged modules. PAUSE then indexes each
+# package with its version, and a consumer can assert a minimum,
+# e.g. use Fugu::Daemon 0.1.0. CI passes --version so that the tag
+# and the tarball agree.
 #
 # The PM map lists every module and every share file. Share files
 # install under auto/share/dist/<dist>/, the File::ShareDir layout,
@@ -183,6 +187,25 @@ my @docs    = grep { -f } qw(README.md LICENSE cpanfile);
 @modules or die "dist: no modules under lib/\n";
 
 _stage($_) for @modules, @share, @tests, @manuals, @docs, @exe_files;
+
+# Stamp the version into every package of the staged modules. Only
+# the staged copies change: the source modules carry no $VERSION.
+for my $module ( grep { /\.pm\z/ } @modules ) {
+	my $target = File::Spec->catfile( $stage, $module );
+
+	open my $rfh, '<', $target or die "dist: read $target: $!\n";
+	local $/ = undef;
+	my $code = <$rfh>;
+	close $rfh;
+
+	$code =~
+	    s/^(package[ \t]+[\w:]+[ \t]*;)/$1\nour \$VERSION = '$version';/mg
+	    or die "dist: no package statement in $module\n";
+
+	open my $wfh, '>', $target or die "dist: write $target: $!\n";
+	print $wfh $code;
+	close $wfh or die "dist: close $target: $!\n";
+}
 
 # The PM map. Modules keep their lib/ path. Share files install under
 # the File::ShareDir layout, so Fugu::File->share_path finds them in an

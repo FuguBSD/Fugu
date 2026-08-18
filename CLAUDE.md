@@ -181,7 +181,8 @@ installed, and macOS still ships perl 5.34. It uses `use v5.34` plus explicit
 
 Releases use semantic versioning: the tag is `v<MAJOR>.<MINOR>.<PATCH>` and the
 dist version drops the `v`. There is no VERSION file and no `$VERSION` in a
-module — the version derives from the latest `v*` tag. `make dist` builds a
+source module — the version derives from the latest `v*` tag, and the dist build
+stamps `our $VERSION` into every package it stages. `make dist` builds a
 standard Perl distribution tarball (`scripts/dist` writes its `Makefile.PL` and
 `MANIFEST` into the staged tree only).
 
