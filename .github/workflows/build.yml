@@ -1,0 +1,22 @@
+name: Build
+
+# Every merged commit proves that the dist still builds, and the
+# result stays on the workflow run as an artifact for inspection. The
+# shared perl-build workflow of FuguBSD/Tooling does the work; this
+# caller keeps the trigger and the success gate.
+on:
+  workflow_run:
+    # The test suite gates builds. The same suite filters this
+    # workflow, because workflow_run takes no paths of its own.
+    workflows: ["Test"]
+    types:
+      - completed
+    branches:
+      - main
+
+jobs:
+  build:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    uses: FuguBSD/Tooling/.github/workflows/perl-build.yml@main
+    with:
+      dist: Fugu

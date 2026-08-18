@@ -1,0 +1,25 @@
+name: Release
+
+# A release is deliberate: a maintainer pushes a semantic version tag
+# v<MAJOR>.<MINOR>.<PATCH>, and the shared perl-release workflow of
+# FuguBSD/Tooling answers it. The job binds this repository's release
+# environment through the called workflow; permissions and secrets
+# stay here in the caller. PAUSE is on: pause is true.
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: FuguBSD/Tooling/.github/workflows/perl-release.yml@main
+    with:
+      dist: Fugu
+      name: Fugu
+      pause: true
+    secrets: inherit

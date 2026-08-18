@@ -1,0 +1,10 @@
+test pkg libssh2
+test cpan Perl::Critic
+test cpan Perl::Tidy
+test cpan Net::SSH2
+test cpan URI
+
+develop cpan HTTP::Daemon
+develop cpan HTTP::Message
+develop cpan LWP::UserAgent
+develop cpan Net::MQTT::Simple

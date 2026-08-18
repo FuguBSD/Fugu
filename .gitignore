@@ -1,0 +1,20 @@
+# Build artifacts
+build/
+local/
+
+# Exploratory testing
+explore/
+
+# Editor/IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Agent files
+SCRATCHPAD*.md
+.claude/worktrees/
+
+# External projects
+external/
