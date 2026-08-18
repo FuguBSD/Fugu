@@ -25,10 +25,11 @@
 # repository. It carries no repository identity of its own: the
 # identity comes from .toolingrc at the repository root.
 #
-# The script stages build/<dist>-<VERSION>/ with the sources, writes a
-# Makefile.PL and a MANIFEST into the staged tree, and tars it. The
-# Makefile.PL never exists at the repository root: ExtUtils::MakeMaker
-# would write its Makefile over the hand-written one there.
+# The script stages build/<dist>-<VERSION>/ with the sources, writes
+# a Makefile.PL, a META.json and a MANIFEST into the staged tree, and
+# tars it. The Makefile.PL never exists at the repository root:
+# ExtUtils::MakeMaker would write its Makefile over the hand-written
+# one there.
 #
 # The default version derives from the latest semantic version tag:
 # v1.2.3 gives 1.2.3, and an untagged tree gives 0.0.0. There is no
@@ -45,6 +46,7 @@
 
 use v5.36;
 
+use CPAN::Meta   ();
 use Cwd          qw(getcwd);
 use File::Find   ();
 use File::Path   qw(make_path remove_tree);
@@ -61,6 +63,8 @@ use Getopt::Long qw(GetOptions);
 #	  dist.name         App-FuguVM      required
 #	  dist.module       App::FuguVM     required
 #	  dist.abstract     one line        required
+#	  dist.author       Name <mail>     required; the META.json
+#	                                    author entry
 #	  dist.exe          bin/fuguvm      repeatable
 #	  dist.testdir      t/fuguvm        repeatable
 #	  dist.share-extra  scripts/ftp     repeatable; files outside
@@ -74,7 +78,7 @@ sub _read_toolingrc ($file)
 	open my $fh, '<', $file
 	    or die "dist: cannot read $file: $!\n";
 
-	my %single = map { $_ => 1 } qw(name module abstract);
+	my %single = map { $_ => 1 } qw(name module abstract author);
 	my %list   = map { $_ => 1 } qw(exe testdir share-extra prereq);
 
 	my %conf;
@@ -107,7 +111,7 @@ sub _read_toolingrc ($file)
 	}
 	close $fh;
 
-	for my $required (qw(name module abstract)) {
+	for my $required (qw(name module abstract author)) {
 		defined $conf{$required}
 		    or die "dist: $file: missing 'dist.$required'\n";
 	}
@@ -120,6 +124,7 @@ my $conf = _read_toolingrc('.toolingrc');
 my $dist        = $conf->{name};
 my $module      = $conf->{module};
 my $abstract    = $conf->{abstract};
+my $author      = $conf->{author};
 my @exe_files   = @{ $conf->{exe} };
 my @test_dirs   = @{ $conf->{testdir} };
 my @share_extra = @{ $conf->{'share-extra'} };
@@ -254,6 +259,32 @@ $pm_lines
 );
 EOF
 close $mfpl or die "dist: close Makefile.PL: $!\n";
+
+# The META.json makes the index: PAUSE refuses to index a
+# distribution that ships neither META.json nor META.yml. CPAN::Meta
+# is core perl and validates the structure before it saves.
+my $meta = CPAN::Meta->create( {
+		name           => $dist,
+		version        => $version,
+		abstract       => $abstract,
+		author         => [$author],
+		license        => ['open_source'],
+		release_status => 'stable',
+		generated_by   => 'scripts/dist',
+
+		# The generated Makefile.PL computes nothing at install
+		# time: the prereqs here are complete.
+		dynamic_config => 0,
+		prereqs        => {
+			runtime => {
+				requires => {
+					perl => '5.036',
+					map { $_ => 0 } @prereqs,
+				},
+			},
+		},
+	} );
+$meta->save("$stage/META.json");
 
 # The MANIFEST lists every file of the staged tree, itself included.
 my @manifest;

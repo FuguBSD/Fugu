@@ -3,6 +3,7 @@
 dist.name     Fugu
 dist.module   Fugu
 dist.abstract OpenBSD-style daemon utilities for Perl
+dist.author   Dick Olsson <hi@senzilla.io>
 dist.testdir  t/fugu
 dist.testdir  t/protocol
 dist.testdir  t/conformance
