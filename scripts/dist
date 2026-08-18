@@ -61,7 +61,10 @@ use Getopt::Long qw(GetOptions);
 #	dist keys:
 #
 #	  dist.name         App-FuguVM      required
-#	  dist.module       App::FuguVM     required
+#	  dist.module       App::FuguVM     required; a module under
+#	                                    lib/ must declare this
+#	                                    package (see the lead-module
+#	                                    check below)
 #	  dist.abstract     one line        required
 #	  dist.author       Name <mail>     required; the META.json
 #	                                    author entry
@@ -190,6 +193,25 @@ my @manuals = _files_under( 'man', qr/\.[0-9]p?\z/ );
 my @docs    = grep { -f } qw(README.md LICENSE cpanfile);
 
 @modules or die "dist: no modules under lib/\n";
+
+# The lead-module check. PAUSE grants a new distribution name only
+# through a package that matches it, and indexes nothing without
+# one. Fail here, not in the indexer mail.
+my $lead = 0;
+for my $file ( grep { /\.pm\z/ } @modules ) {
+	open my $rfh, '<', $file or die "dist: read $file: $!\n";
+	local $/ = undef;
+	my $code = <$rfh>;
+	close $rfh;
+
+	if ( $code =~ /^package[ \t]+\Q$module\E[ \t]*;/m ) {
+		$lead = 1;
+		last;
+	}
+}
+$lead
+    or die "dist: no module declares 'package $module;'"
+    . " (PAUSE indexes the distribution through it)\n";
 
 _stage($_) for @modules, @share, @tests, @manuals, @docs, @exe_files;
 
