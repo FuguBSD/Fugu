@@ -16,9 +16,10 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-# deps: install the OS packages and CPAN modules that deps/<OS>.txt names.
+# deps: install the OS packages, CPAN modules and prebuilt binaries
+# that deps/<OS>.txt names.
 #
-# usage: deps [--dry-run] [--os NAME] <runtime|test|develop>
+# usage: deps [--dry-run] [--arch NAME] [--os NAME] <runtime|test|develop>
 #
 # The script reads deps/<OS>.txt relative to the current directory,
 # not relative to this script. The guest runs
@@ -41,19 +42,24 @@ use File::Temp   qw(tempdir);
 use Getopt::Long qw(GetOptions);
 use POSIX        qw(uname);
 
+my $USAGE =
+"usage: deps [--dry-run] [--arch NAME] [--os NAME] <runtime|test|develop>\n";
+
 my $dry_run = 0;
 my $os;
+my $arch;
 
 GetOptions(
 	'dry-run' => \$dry_run,
+	'arch=s'  => \$arch,
 	'os=s'    => \$os,
-) or die "usage: deps [--dry-run] [--os NAME] <runtime|test|develop>\n";
+) or die $USAGE;
 
 use constant ENVIRONMENTS => qw(runtime test develop);
 
 my $env = shift @ARGV;
 defined $env
-    or die "usage: deps [--dry-run] [--os NAME] <runtime|test|develop>\n";
+    or die $USAGE;
 
 # An unrecognized environment selects nothing. The shell version then
 # reported success for having installed it. Say so instead.
@@ -61,7 +67,8 @@ grep { $_ eq $env } ENVIRONMENTS
     or die "deps: unknown environment '$env' (expected "
     . join( ', ', ENVIRONMENTS ) . ")\n";
 
-$os //= ( uname() )[0];
+$os   //= ( uname() )[0];
+$arch //= ( uname() )[4];
 
 # _run(@cmd):
 #	Run a command in list form. Die on anything but a clean exit.
@@ -120,9 +127,9 @@ sub _which ($program)
 }
 
 # _read_manifest($file, $want):
-#	Parse deps/<OS>.txt into (\@pkgs, \@dists, \@cpan) for
-#	environment $want. Whitespace separates the fields, as sh's
-#	'read env type name' read them.
+#	Parse deps/<OS>.txt into (\@pkgs, \@dists, \@cpan, \@bins)
+#	for environment $want. Whitespace separates the fields, as
+#	sh's 'read env type name' read them.
 #
 #	The function validates every non-comment line, not only the
 #	lines that match $want. The shell version filtered first. Thus a
@@ -133,7 +140,7 @@ sub _read_manifest ( $file, $want )
 	open my $fh, '<', $file
 	    or die "deps: open $file: $!\n";
 
-	my %by_type = ( pkg => [], dist => [], cpan => [] );
+	my %by_type = ( pkg => [], dist => [], cpan => [], bin => [] );
 	while ( my $line = <$fh> ) {
 		chomp $line;
 		my ( $env, $type, $name ) = split ' ', $line, 3;
@@ -152,7 +159,19 @@ sub _read_manifest ( $file, $want )
 		}
 		if ( !exists $by_type{$type} ) {
 			die "ERROR: Unknown type '$type' "
-			    . "(expected 'pkg', 'dist' or 'cpan')\n";
+			    . "(expected 'pkg', 'dist', 'cpan' or 'bin')\n";
+		}
+
+		# A bin name carries two words: the command and its URL.
+		# Validate the shape here, with the other format checks,
+		# so a bad line in any environment fails at once.
+		if ( $type eq 'bin' ) {
+			my ( undef, $url ) = split ' ', $name, 2;
+			if ( !defined $url || $url eq '' ) {
+				warn "ERROR: Invalid format in $file: $line\n";
+				die
+"Expected: <environment> bin <name> <url>\n";
+			}
 		}
 
 		next unless $env eq $want;
@@ -161,7 +180,7 @@ sub _read_manifest ( $file, $want )
 	}
 	close $fh;
 
-	return ( $by_type{pkg}, $by_type{dist}, $by_type{cpan} );
+	return ( $by_type{pkg}, $by_type{dist}, $by_type{cpan}, $by_type{bin} );
 }
 
 # _install_packages($os, @pkgs):
@@ -259,6 +278,50 @@ sub _install_dists (@urls)
 	return;
 }
 
+# _target_arch($machine):
+#	The architecture word that a release-asset name uses. Linux
+#	and Darwin report x86_64 and aarch64. Release assets, like
+#	OpenBSD, use amd64 and arm64. Other names pass through.
+sub _target_arch ($machine)
+{
+	return 'amd64' if $machine eq 'x86_64';
+	return 'arm64' if $machine eq 'aarch64';
+
+	return $machine;
+}
+
+# _install_bins($os, $arch, @bins):
+#	Install prebuilt binaries into ~/.local/bin. A bin entry
+#	holds a command name and a download URL. In the URL, {os}
+#	becomes the OS name in lower case, and {arch} becomes the
+#	machine architecture in the release-asset spelling. The fetch
+#	goes through scripts/ftp, and chmod sets the execute bit.
+sub _install_bins ( $os, $arch, @bins )
+{
+	say 'Installing binaries: ',
+	    join ' ', map { ( split ' ', $_, 2 )[0] } @bins;
+
+	my $home = $ENV{HOME};
+	if ( !defined $home || $home eq '' ) {
+		die "deps: HOME is not set\n";
+	}
+
+	my $bindir = File::Spec->catdir( $home, '.local', 'bin' );
+	_run( 'mkdir', '-p', $bindir );
+
+	for my $bin (@bins) {
+		my ( $name, $url ) = split ' ', $bin, 2;
+		$url =~ s/\{os\}/lc $os/ge;
+		$url =~ s/\{arch\}/_target_arch($arch)/ge;
+
+		my $file = File::Spec->catfile( $bindir, $name );
+		_run( _ftp_path(), $file, $url );
+		_run( 'chmod',     '755', $file );
+	}
+
+	return;
+}
+
 # _install_cpan(@modules):
 #	Install CPAN modules with cpanm.
 sub _install_cpan (@modules)
@@ -281,11 +344,13 @@ if ( !-f $manifest ) {
 
 # dist runs between pkg and cpan: the packages may provide the
 # toolchain a dist build needs, and a dist may provide modules the
-# cpan list builds on.
-my ( $pkgs, $dists, $cpan ) = _read_manifest( $manifest, $env );
+# cpan list builds on. bin runs last: a prebuilt binary depends on
+# nothing here, and nothing here depends on it.
+my ( $pkgs, $dists, $cpan, $bins ) = _read_manifest( $manifest, $env );
 
-_install_packages( $os, @$pkgs ) if @$pkgs;
-_install_dists(@$dists)          if @$dists;
-_install_cpan(@$cpan)            if @$cpan;
+_install_packages( $os, @$pkgs )    if @$pkgs;
+_install_dists(@$dists)             if @$dists;
+_install_cpan(@$cpan)               if @$cpan;
+_install_bins( $os, $arch, @$bins ) if @$bins;
 
 say "Dependencies for $env installed successfully";

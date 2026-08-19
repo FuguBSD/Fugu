@@ -162,9 +162,11 @@ Corollaries:
 `deps/{OpenBSD,Linux,Darwin}.txt` are authoritative, installed by `make deps`
 via `scripts/deps`; one line each, `<environment> <type> <name>`, where
 `<environment>` is `runtime`, `test`, or `develop` and `<type>` is `pkg`,
-`dist`, or `cpan`. A `dist` line names a release-asset URL, and `scripts/deps`
-installs the tarball with cpanm. The runtime tier of this repository is empty by
-contract.
+`dist`, `cpan`, or `bin`. A `dist` line names a release-asset URL, and
+`scripts/deps` installs the tarball with cpanm. A `bin` line names a command and
+a download URL, and `scripts/deps` installs the file into `~/.local/bin`; the
+URL placeholders `{os}` and `{arch}` become the platform words. The runtime tier
+of this repository is empty by contract.
 
 `scripts/deps` is the one exception to `use v5.36`: it runs before anything is
 installed, and macOS still ships perl 5.34. It uses `use v5.34` plus explicit
