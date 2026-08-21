@@ -165,8 +165,10 @@ via `scripts/deps`; one line each, `<environment> <type> <name>`, where
 `dist`, `cpan`, or `bin`. A `dist` line names a release-asset URL, and
 `scripts/deps` installs the tarball with cpanm. A `bin` line names a command and
 a download URL, and `scripts/deps` installs the file into `~/.local/bin`; the
-URL placeholders `{os}` and `{arch}` become the platform words. The runtime tier
-of this repository is empty by contract.
+URL placeholders `{os}` and `{arch}` become the platform words. An archive URL
+ends in `.tar.gz`, `.tgz` or `.zip`. A `bin` line with an archive URL must name
+a third field: the file path in the archive. The runtime tier of this repository
+is empty by contract.
 
 `scripts/deps` is the one exception to `use v5.36`: it runs before anything is
 installed, and macOS still ships perl 5.34. It uses `use v5.34` plus explicit
