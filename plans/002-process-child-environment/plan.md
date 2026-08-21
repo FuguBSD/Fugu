@@ -4,6 +4,12 @@
 
 Proposed.
 
+FuguTTX is a reachable consumer. The allow-list of FuguTTX decision D7 holds
+`Fugu::Process`, so the harness loads the module. FuguTTX HRN-PERL names the
+argument itself: "The fixed set comes from the `env` argument of
+`Fugu::Process`. That argument must exist in the installed distribution, and the
+minimum version of HRN-PKG covers it."
+
 ## Purpose
 
 `Fugu::Process` gains one argument, `env`. The argument names the environment of
@@ -24,20 +30,20 @@ No consumer can hold this work instead. `App::FuguVM` is an application, not a
 library, so a sibling repository must not load its modules. A capability that a
 consumer needs as a library must live in `Fugu::`.
 
-Three consumers need an exact child environment today, and each one is a Perl
+Four consumers need an exact child environment today, and each one is a Perl
 program that starts a foreign counterparty.
 
 ## Consumers and citations
 
-| Repo       | Unit                   | Rules                                                                      | Need                                                                                                                                                              |
-| ---------- | ---------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FuguOracle | `PROG-CGI`             | PROG-CGI-1, PROG-CGI-2                                                     | The CGI program dispatches on `REQUEST_METHOD` and `DOCUMENT_URI`, and it reads `CONTENT_LENGTH` bytes from standard input                                        |
-| FuguOracle | `TEST-FUZZ`            | TEST-FUZZ-1, and the new TEST-FUZZ-4                                       | The fuzzer calls the CGI program directly, so it must set the three CGI variables in the environment of each child                                                |
-| FuguOracle | `TEST-ACCEPT`          | TEST-ACCEPT-1, and the new TEST-ACCEPT-3                                   | A byte-identical `200` body needs the same child environment on both sides                                                                                        |
-| FuguPass   | `QA-HARNESS`           | QA-HARNESS-2, QA-HARNESS-4, and the new QA-HARNESS-6                       | The harness starts each counterparty with `Fugu::Process`, and it gives each one its own record store                                                             |
-| FuguPass   | `CLI-SPLIT`            | CLI-SPLIT-7                                                                | A program loads every module, and it then pledges `stdio tty`. A run-time `require` after that pledge aborts the process                                          |
-| FuguTTX    | `HRN-PROC`             | none: the unit holds a table and prose, and it holds no numbered rule      | **Blocked by D7.** The parent process runs each tool, and it holds the `exec` promise. D7 permits `Fugu::REPL` only, so the harness must not load `Fugu::Process` |
-| FuguVM     | `App::FuguVM::Console` | none: FuguVM holds no `spec/` unit, and the `.pod` sidecar is the contract | The expect child needs `FUGUVM_TIMEOUT` for one call only                                                                                                         |
+| Repo       | Unit                   | Rules                                                                      | Need                                                                                                                                                                                   |
+| ---------- | ---------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FuguOracle | `PROG-CGI`             | PROG-CGI-1, PROG-CGI-2                                                     | The CGI program dispatches on `REQUEST_METHOD` and `DOCUMENT_URI`, and it reads `CONTENT_LENGTH` bytes from standard input                                                             |
+| FuguOracle | `TEST-FUZZ`            | TEST-FUZZ-1, and the new TEST-FUZZ-4                                       | The fuzzer calls the CGI program directly, so it must set the three CGI variables in the environment of each child                                                                     |
+| FuguOracle | `TEST-ACCEPT`          | TEST-ACCEPT-1, and the new TEST-ACCEPT-3                                   | A byte-identical `200` body needs the same child environment on both sides                                                                                                             |
+| FuguPass   | `QA-HARNESS`           | QA-HARNESS-2, QA-HARNESS-4, and the new QA-HARNESS-6                       | The harness starts each counterparty with `Fugu::Process`, and it gives each one its own record store                                                                                  |
+| FuguPass   | `CLI-SPLIT`            | CLI-SPLIT-7                                                                | A program loads every module, and it then pledges `stdio tty`. A run-time `require` after that pledge aborts the process                                                               |
+| FuguTTX    | `HRN-PERL`             | none: the unit holds bullets, and they hold no numbered rule               | The parent process runs each tool, and it holds the `exec` promise. HRN-PERL reads: "Reduce `%ENV` to a fixed safe set before any `exec`." The fixed set comes from the `env` argument |
+| FuguVM     | `App::FuguVM::Console` | none: FuguVM holds no `spec/` unit, and the `.pod` sidecar is the contract | The expect child needs `FUGUVM_TIMEOUT` for one call only                                                                                                                              |
 
 TEST-FUZZ-4, TEST-ACCEPT-3 and QA-HARNESS-6 are new rules of this same workflow.
 `TEST-FUZZ` holds TEST-FUZZ-1 only today, and the same workflow appends
@@ -45,10 +51,12 @@ TEST-FUZZ-2, TEST-FUZZ-3 and TEST-FUZZ-4. `TEST-ACCEPT` holds TEST-ACCEPT-1 and
 TEST-ACCEPT-2, so TEST-ACCEPT-3 is the next free number. `QA-HARNESS` holds
 QA-HARNESS-1 to QA-HARNESS-5, so QA-HARNESS-6 is the next free number.
 
-FuguTTX D7 blocks the FuguTTX row. The decision reads: "Perl for the harness
-body, with base modules plus `Fugu::REPL`." A CI check enforces that list. A
-change to the FuguTTX position needs a change to D7 first, and a human must
-approve it. FuguTTX plan 001 carries that proposal.
+The FuguTTX row is reachable. D7 reads: "The Fugu module allow-list holds
+`Fugu::REPL`, `Fugu::Sandbox`, `Fugu::Log`, `Fugu::Process`, `Fugu::Config`,
+`Fugu::File` and `Fugu::CLI`." A CI check enforces that list, and
+`Fugu::Process` is on it. FuguTTX plan `plans/001-fugu-module-allowlist/plan.md`
+holds the adoption map of the list, and it names the `env` argument as a
+prerequisite of HRN-PERL.
 
 ### Why a caller cannot do this itself
 

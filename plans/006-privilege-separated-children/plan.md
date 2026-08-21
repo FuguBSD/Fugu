@@ -2,20 +2,38 @@
 
 ## Status
 
-Proposed, and consumer-gated.
+Proposed, in two parts. The gate reaches one part only.
 
-No consumer can call this work today. The FuguTTX harness is the only named
-consumer, and FuguTTX decision D7 blocks it. D7 reads: "Perl for the harness
-body, with base modules plus `Fugu::REPL`." A CI check enforces that list.
+Part one is the `group` option on `Fugu::Process->terminate`. It has a consumer
+of record. FuguTTX `HRN-CANCEL` reads: "The parent kills the process group of a
+running tool with `Fugu::Process->terminate`, in its process-group form: a
+`SIGTERM`, a grace period, then a `SIGKILL`." The allow-list of FuguTTX decision
+D7 holds `Fugu::Process`, so the harness loads the module.
+
+The group form needs a process-group leader. `run` with `new_session` makes one,
+so that option lands with part one, for the same consumer.
+
+Part two is the rest of this plan: the `inherit` list, `spawn_peer`, and every
+`Fugu::Control` change. No consumer can call that work today.
+
+`Fugu::Control` is outside the allow-list of D7, so no consumer can load it.
+`HRN-SOCKET` and HRN-CONFIRM-6 therefore keep the control socket and the
+`SO_PEERCRED` read in the harness.
+
+The FuguTTX plan `plans/001-fugu-module-allowlist/plan.md` holds the adoption
+map of the allow-list. Its module table gives `Fugu::Process` the tool units —
+`HRN-TOOL-RO`, `HRN-TOOL-GATE` and `HRN-CANCEL` — and it names `run`,
+`spawn_command`, `exit_code`, `is_alive`, `terminate` and `wait_exit`. It names
+no peer child and no inherited descriptor. `HRN-PROC` keeps the fork and the
+exec of its own program, so `spawn_peer` and `inherit` hold no caller of record.
 
 The gate is a rule of this repository, not a preference. `CLAUDE.md` states it:
 
 > Do not keep test-only API. Delete a sub or option that only tests use,
 > together with its test.
 
-Every method and every option below would have a test as its only caller. The
-work must therefore wait. A human must approve a change to D7 first. The FuguTTX
-plan `plans/001-fugu-module-allowlist/plan.md` carries that proposal.
+Every method and every option of part two would have a test as its only caller.
+That work must therefore wait for a consumer that names it.
 
 ## Purpose
 
@@ -74,33 +92,35 @@ FuguOracle service are C programs, so no Perl library can serve them.
 
 ## Consumers and citations
 
-| Repo       | Unit          | Rules                                                                                                      | Need                                                                                                                                                    |
-| ---------- | ------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FuguTTX    | `HRN-PROC`    | none: the unit holds a table and prose, and it holds no numbered rule                                      | **Blocked by D7.** The parent creates each socketpair before the fork, execs its own program with a role flag, and clears `FD_CLOEXEC` on the child end |
-| FuguTTX    | `HRN-SOCKET`  | none: the unit holds prose only                                                                            | **Blocked by D7.** The socket carries owner `_ttx`, group `ttxop` and mode `0660`. The frontend reads `SO_PEERCRED` for each connection                 |
-| FuguTTX    | `HRN-CONFIRM` | HRN-CONFIRM-6                                                                                              | **Blocked by D7.** A confirmation must come from the same peer user id that saw the dry run                                                             |
-| FuguTTX    | `HRN-WIRELOG` | none: the anchor sits on one list item of the session-transcript unit, and the item holds no numbered rule | **Blocked by D7.** The parent opens the wire log before the fork, and the model process inherits the descriptor                                         |
-| FuguTTX    | `HRN-CANCEL`  | none: the unit holds prose only                                                                            | **Blocked by D7.** The parent kills the process group of a running tool                                                                                 |
-| FuguTTX    | `HRN-REPL`    | HRN-REPL-2, HRN-REPL-8                                                                                     | `Fugu::REPL` must not load `Fugu::Control`. The client watches the control socket as a bare handle                                                      |
-| FuguPass   | `CLI-SPLIT`   | CLI-SPLIT-1, CLI-SPLIT-6, CLI-SPLIT-7                                                                      | Not a consumer. The vault core is C (D-16), and FuguPass holds no control socket                                                                        |
-| FuguPass   | `CLI-IFACE`   | CLI-IFACE-1, CLI-IFACE-2                                                                                   | Not a consumer. The C core spawns the interface with a request pipe and a reply pipe, not a socketpair                                                  |
-| FuguOracle | `TEST-FUZZ`   | TEST-FUZZ-1, and the new TEST-FUZZ-3                                                                       | Not a consumer. The fuzzer names `spawn_command`, `run` and `terminate`, and no rule asks for the group form                                            |
-| FuguVM     | —             | none: FuguVM holds no `spec/` unit, and the `.pod` sidecar is the contract                                 | Not a consumer. `App::FuguVM::Guest` starts qemu with `spawn_command`, and it needs no peer child                                                       |
+| Repo       | Unit          | Rules                                                                                                      | Need                                                                                                                                                                                                                      |
+| ---------- | ------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FuguTTX    | `HRN-PROC`    | none: the unit holds a table and prose, and it holds no numbered rule                                      | The parent creates each socketpair before the fork, execs its own program with a role flag, and clears `FD_CLOEXEC` on the child end. The harness holds that code, so `spawn_peer` and `inherit` hold no caller of record |
+| FuguTTX    | `HRN-SOCKET`  | none: the unit holds prose only                                                                            | `Fugu::Control` is outside the allow-list of D7, so the harness builds its own socket. The socket carries owner `_ttx`, group `ttxop` and mode `0660`. The frontend reads `SO_PEERCRED` for each connection               |
+| FuguTTX    | `HRN-CONFIRM` | HRN-CONFIRM-6                                                                                              | `Fugu::Control` is outside the allow-list of D7. A confirmation must come from the same peer user id that saw the dry run                                                                                                 |
+| FuguTTX    | `HRN-WIRELOG` | none: the anchor sits on one list item of the session-transcript unit, and the item holds no numbered rule | The parent opens the wire log before the fork, and the model process inherits the descriptor. The harness holds that code, so `inherit` holds no caller of record                                                         |
+| FuguTTX    | `HRN-CANCEL`  | none: the unit holds prose only                                                                            | **The consumer of the `group` option.** The allow-list of D7 holds `Fugu::Process`. The parent kills the process group of a running tool with `Fugu::Process->terminate`, in its process-group form                       |
+| FuguTTX    | `HRN-REPL`    | HRN-REPL-2, HRN-REPL-8                                                                                     | `Fugu::REPL` must not load `Fugu::Control`. The client watches the control socket as a bare handle                                                                                                                        |
+| FuguPass   | `CLI-SPLIT`   | CLI-SPLIT-1, CLI-SPLIT-6, CLI-SPLIT-7                                                                      | Not a consumer. The vault core is C (D-16), and FuguPass holds no control socket                                                                                                                                          |
+| FuguPass   | `CLI-IFACE`   | CLI-IFACE-1, CLI-IFACE-2                                                                                   | Not a consumer. The C core spawns the interface with a request pipe and a reply pipe, not a socketpair                                                                                                                    |
+| FuguOracle | `TEST-FUZZ`   | TEST-FUZZ-1, and the new TEST-FUZZ-3                                                                       | Not a consumer. The fuzzer names `spawn_command`, `run` and `terminate`, and no rule asks for the group form                                                                                                              |
+| FuguVM     | —             | none: FuguVM holds no `spec/` unit, and the `.pod` sidecar is the contract                                 | Not a consumer. `App::FuguVM::Guest` starts qemu with `spawn_command`, and it needs no peer child                                                                                                                         |
 
 TEST-FUZZ-3 is a new rule of this same workflow. `TEST-FUZZ` holds TEST-FUZZ-1
 alone today, so TEST-FUZZ-2, TEST-FUZZ-3 and TEST-FUZZ-4 are the next free
 numbers.
 
-### What D7 blocks, exactly
+### What the allow-list reaches, exactly
 
 D7 also reads: "The port dependencies are llama.cpp and p5-Fugu, and no other."
-The p5-Fugu package therefore reaches the target. The block is the import rule,
-not the package. The harness must load `Fugu::REPL` and nothing else from the
-distribution.
+The p5-Fugu package therefore reaches the target, and the import rule decides
+what the harness loads. The allow-list holds `Fugu::Process`, and it holds no
+`Fugu::Control`.
 
-Five FuguTTX units need this work. Each one is `open` in the FuguTTX register.
-The D7 change must name the modules that the harness can load. A change that
-names `Fugu::Process` and `Fugu::Control` unblocks all five.
+Five FuguTTX units need this work, and each one is `open` in the FuguTTX
+register. `HRN-CANCEL` reaches the `group` option through `Fugu::Process`.
+`HRN-PROC`, `HRN-SOCKET`, HRN-CONFIRM-6 and `HRN-WIRELOG` keep their code in the
+harness. A later proposal that adds `Fugu::Control` to the allow-list would
+reach `HRN-SOCKET` and HRN-CONFIRM-6.
 
 ### Why FuguPass cannot use this work
 
@@ -122,9 +142,10 @@ passes a bare handle: `Fugu::REPL->new(watch => [$socket])`. Plan 001 defines
 `watch` as "Extra read handles, as an array reference", so a bare handle already
 fits.
 
-This plan adds no handle accessor to `Fugu::Control::Client`. The FuguTTX client
-cannot load that class under D7, and it builds its own socket. An accessor would
-have no caller of record, and `t/scripts/symbols.t` would fail on it.
+This plan adds no handle accessor to `Fugu::Control::Client`. The allow-list of
+D7 holds no `Fugu::Control::Client`, so the FuguTTX client builds its own
+socket. An accessor would have no caller of record, and `t/scripts/symbols.t`
+would fail on it.
 
 ## Scope
 
@@ -584,9 +605,9 @@ Linux and on OpenBSD, except the two cases that name a platform.
 - The defaults must not change. `listen` gives mode `0600`, `run` makes no
   session, and `terminate` signals one pid. The `App::FuguVM::Guest` calls to
   `spawn_command`, `run` and `terminate` keep their exact meaning.
-- A human must approve the FuguTTX D7 change before the code enters the tree.
-  Without that approval every new sub is test-only API, which `CLAUDE.md`
-  forbids.
+- The `group` option of `terminate` lands with FuguTTX `HRN-CANCEL` as its
+  caller of record. Every other new sub and every other new option waits for a
+  consumer that names it, because `CLAUDE.md` forbids test-only API.
 
 ## Open questions
 

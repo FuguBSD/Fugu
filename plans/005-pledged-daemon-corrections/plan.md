@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed, in two parts. Part one can land now. Part two waits for a caller.
+Proposed, in two parts. Part one can land now. Part two lands with the caller
+that names the transport.
 
 Part one is the behavior correction. In syslog mode `Fugu::Log` pins the native
 transport for every logger: it calls `setlogsock('native')` before `openlog`,
@@ -18,11 +19,16 @@ use. A daemon that pledges `stdio` keeps its log after the pin.
 reports a caller that was never root. Neither correction adds public API that
 only a test calls.
 
-No caller names the `syslog_method` argument today. Every named consumer is
-unreachable:
+Part two has a reachable consumer. FuguTTX `HRN-SAFE-AUDIT` names the transport
+that the harness needs: "The module pins the native log method
+(`setlogsock('native')`), so the process needs no `unix` promise." The
+allow-list of FuguTTX decision D7 holds `Fugu::Log`, so the harness loads the
+module. The named method is the default of part one. The harness can name it in
+the call, and the accessor reports it, so the argument and the accessor hold a
+caller outside the test tree.
 
-- FuguTTX `HRN-SAFE-AUDIT`, `HRN-SAFE-DROP` and `HRN-PROC` are blocked by
-  decision D7.
+The other named consumers name no transport:
+
 - FuguPass CLI-SPLIT-9 keeps `fugupass-repl` in stderr mode or in quiet mode.
 - `App::FuguVM::CLI` builds a stderr logger or a quiet logger.
 - FuguOracle is C, so no Fugu module serves the service.
@@ -32,10 +38,14 @@ The gate is a rule of this repository, not a preference. `CLAUDE.md` states it:
 > Do not keep test-only API. Delete a sub or option that only tests use,
 > together with its test.
 
-A test would be the only caller of the argument and the accessor. Part two must
-therefore wait for a consumer that names an other transport. A human must
-approve a change to FuguTTX D7 before a FuguTTX unit can be that consumer.
-FuguTTX plan `plans/001-fugu-module-allowlist/plan.md` carries that proposal.
+Part two must therefore land with the harness call that names the method. A test
+alone must not be its caller. FuguTTX plan
+`plans/001-fugu-module-allowlist/plan.md` holds the adoption map of the
+allow-list, and it names the syslog pin as a prerequisite of `HRN-SAFE-AUDIT`.
+
+The allow-list holds no `Fugu::Privdrop`, so the FuguTTX harness writes its own
+privilege drop. The `Fugu::Privdrop` correction of part one serves its other
+callers.
 
 ## Purpose
 
@@ -74,30 +84,29 @@ a facility, a user or a group.
 
 ## Consumers and citations
 
-| Repo       | Unit             | Rules                                                              | Need                                                                                                                                                                                                                        |
-| ---------- | ---------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FuguTTX    | `HRN-SAFE-AUDIT` | none: the unit holds prose, and it holds no numbered rule          | **Blocked by D7.** The unit names the pin: "The harness pins the native log method (`setlogsock('native')`), so `Sys::Syslog` does not need the `unix` promise."                                                            |
-| FuguTTX    | `HRN-SAFE-DROP`  | none: the unit holds prose, and it holds no numbered rule          | **Blocked by D7.** The unit states: "It verifies each id after the drop." It also states: "A wrong order leaves a residual privilege."                                                                                      |
-| FuguTTX    | `HRN-PROC`       | none: the unit holds a table and prose, and no numbered rule       | **Blocked by D7.** The parent pledge is `stdio rpath wpath cpath proc exec`. The set holds no `unix` promise, so a syslog transport that opens an AF_UNIX socket kills the parent. The model process pledges `stdio` alone. |
-| FuguOracle | `SEC-LOGGING`    | SEC-LOGGING-1                                                      | Not reachable: the service is C (D-07). The rule states the same fact for the C program. OpenBSD `syslog(3)` needs no log socket, works inside the chroot, and sits inside the `stdio` promise.                             |
-| FuguPass   | `CLI-SPLIT`      | CLI-SPLIT-7, and the new CLI-SPLIT-9                               | `fugupass-repl` pledges `stdio tty`. CLI-SPLIT-9 keeps the program in stderr mode or in quiet mode, so the pin does not reach it.                                                                                           |
-| FuguVM     | —                | none: FuguVM holds no `spec/` unit, and the `.pod` is the contract | No change. `App::FuguVM::CLI` builds a stderr logger or a quiet logger, and no FuguVM module calls `drop_privileges`.                                                                                                       |
+| Repo       | Unit             | Rules                                                              | Need                                                                                                                                                                                                       |
+| ---------- | ---------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FuguTTX    | `HRN-SAFE-AUDIT` | none: the unit holds prose, and it holds no numbered rule          | The allow-list of D7 holds `Fugu::Log`, so the harness loads the module. The unit names the pin: "The module pins the native log method (`setlogsock('native')`), so the process needs no `unix` promise." |
+| FuguTTX    | `HRN-SAFE-DROP`  | none: the unit holds prose, and it holds no numbered rule          | The allow-list of D7 holds no `Fugu::Privdrop`, so the harness writes the drop itself. The unit states: "It verifies each id after the drop." It also states: "A wrong order leaves a residual privilege." |
+| FuguTTX    | `HRN-PROC`       | none: the unit holds a table and prose, and no numbered rule       | The parent pledge is `stdio rpath wpath cpath proc exec`. The set holds no `unix` promise, so a syslog transport that opens an AF_UNIX socket kills the parent. The model process pledges `stdio` alone.   |
+| FuguOracle | `SEC-LOGGING`    | SEC-LOGGING-1                                                      | Not reachable: the service is C (D-07). The rule states the same fact for the C program. OpenBSD `syslog(3)` needs no log socket, works inside the chroot, and sits inside the `stdio` promise.            |
+| FuguPass   | `CLI-SPLIT`      | CLI-SPLIT-7, and the new CLI-SPLIT-9                               | `fugupass-repl` pledges `stdio tty`. CLI-SPLIT-9 keeps the program in stderr mode or in quiet mode, so the pin does not reach it.                                                                          |
+| FuguVM     | —                | none: FuguVM holds no `spec/` unit, and the `.pod` is the contract | No change. `App::FuguVM::CLI` builds a stderr logger or a quiet logger, and no FuguVM module calls `drop_privileges`.                                                                                      |
 
 CLI-SPLIT-9 is a new rule of this same workflow. `CLI-SPLIT` holds CLI-SPLIT-1
 to CLI-SPLIT-7 today, so CLI-SPLIT-8, CLI-SPLIT-9 and CLI-SPLIT-10 are the next
 free numbers.
 
-FuguTTX D7 blocks all three FuguTTX rows. The decision reads: "Perl for the
-harness body, with base modules plus `Fugu::REPL`." It also reads: "the client
-loads only this module from the distribution". A CI check enforces that list, so
-the harness must not load `Fugu::Log` and must not load `Fugu::Privdrop`. The
-harness therefore writes both mechanisms itself today. A change to that position
-needs a change to D7 first, and a human must approve it. FuguTTX plan 001
-carries that proposal.
+D7 holds the allow-list of the harness. The decision reads: "The Fugu module
+allow-list holds `Fugu::REPL`, `Fugu::Sandbox`, `Fugu::Log`, `Fugu::Process`,
+`Fugu::Config`, `Fugu::File` and `Fugu::CLI`." A CI check enforces that list.
+`Fugu::Log` is on the list, so the harness loads the logger and gets the pin.
+`Fugu::Privdrop` is outside the list, so the harness writes its own privilege
+drop.
 
-The FuguTTX units are still the evidence for this plan. Two independent
-specifications state the same two requirements, and both requirements belong to
-the module that owns the mechanism.
+The FuguTTX units are the evidence for this plan. Two independent specifications
+state the same two requirements, and both requirements belong to the module that
+owns the mechanism.
 
 ## Scope
 
@@ -120,9 +129,9 @@ Out of scope:
 - A remote log transport, a log format, and a rate limit. Each one is policy.
 - A `setgroups` wrapper. Perl exposes the call through `$)` alone, and the
   module needs no more.
-- A public verification method for a caller that drops privilege itself. A
-  caller that needs one is blocked by D7 today, so the method would have no
-  caller of record.
+- A public verification method for a caller that drops privilege itself. The
+  allow-list of FuguTTX D7 holds no `Fugu::Privdrop`, so such a caller cannot
+  load the module, and the method would have no caller of record.
 
 ## Constraints that shape the design
 
