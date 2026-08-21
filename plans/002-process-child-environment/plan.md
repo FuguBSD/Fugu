@@ -54,7 +54,7 @@ QA-HARNESS-1 to QA-HARNESS-5, so QA-HARNESS-6 is the next free number.
 The FuguTTX row is reachable. D7 reads: "The Fugu module allow-list holds
 `Fugu::REPL`, `Fugu::Sandbox`, `Fugu::Log`, `Fugu::Process`, `Fugu::Config`,
 `Fugu::File` and `Fugu::CLI`." A CI check enforces that list, and
-`Fugu::Process` is on it. FuguTTX plan `plans/001-fugu-module-allowlist/plan.md`
+`Fugu::Process` is on it. FuguTTX plan `plans/012-fugu-module-allowlist/plan.md`
 holds the adoption map of the list, and it names the `env` argument as a
 prerequisite of HRN-PERL.
 

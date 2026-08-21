@@ -34,7 +34,7 @@ The install script answers the verification prompt of the OpenBSD installer.
 ```
 
 The guest therefore installs a file set that nothing verified. This plan does
-not change that script. FuguVM plan 005 owns the change, and the line is the
+not change that script. FuguVM plan 011 owns the change, and the line is the
 evidence of the gap.
 
 The miniroot download tests the size of the file and nothing more.
@@ -83,7 +83,7 @@ speaks to mdnsd(8).
 Each citation comes from the file. Two facts about the citations need a plain
 statement.
 
-FuguVM plan 005 exists, at `plans/005-mirror-coverage/plan.md`. That plan names
+FuguVM plan 011 exists, at `plans/011-mirror-coverage/plan.md`. That plan names
 this plan as its dependency: "This plan depends on Fugu plan 004. That plan
 lives in the Fugu repository, at `plans/004-signify-verification/plan.md`. It
 adds `Fugu::Signify`, and this plan is its first consumer."
@@ -554,7 +554,7 @@ plan 005. The plan states the limit, because a reader must not believe that
    reviewer who wants no guess can make `command` a necessary argument. The plan
    keeps the search list, because a laptop and an OpenBSD host must work with no
    configuration.
-3. **No consumer sets `command` today.** FuguVM plan 005 can rely on the search
+3. **No consumer sets `command` today.** FuguVM plan 011 can rely on the search
    list. The argument stays for two reasons. A caller under taint mode has no
    other way to reach execve(2), and an operator can hold signify(1) outside
    `PATH`.
@@ -565,5 +565,5 @@ plan 005. The plan states the limit, because a reader must not believe that
    signature comment. No consumer needs it, so the argument list holds no `-t`.
 6. **Who holds the OpenBSD release keys on a Linux host.** OpenBSD keeps them
    under `/etc/signify`, and a Linux host and a Darwin host hold no such tree.
-   FuguVM plan 005 must decide where the keys come from. This module takes a
+   FuguVM plan 011 must decide where the keys come from. This module takes a
    path list and answers no key-distribution question.
