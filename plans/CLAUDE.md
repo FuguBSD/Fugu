@@ -2,17 +2,17 @@
 
 Applies when working on files under `plans/`.
 
-## One sequence across the FuguBSD repositories
+## A plan lives where the work lands
 
 A plan lives in the repository that implements it. `Fugu::` module work is a
 Fugu plan. `fuguvm` tool work is a FuguVM plan. Harness work is a FuguTTX plan.
+A plan must not describe work that another repository implements.
 
-The plan numbers are one sequence across those repositories, and no number
-repeats. A new plan takes the next free number in the family, not the next free
-number in its own repository. Therefore a citation of "plan 009" names one plan,
-and a reader needs no repository name to find it.
+Each repository numbers its own plans, from `001`. A citation across a
+repository boundary therefore carries the repository name, for example "Fugu
+plan 003". Never write a bare "plan 003" for a plan of an other repository.
 
-A number must not change after the plan lands. A plan that a repository drops
+A number must not change after the plan lands. A plan that the repository drops
 leaves its number retired.
 
 ## The shape of a plan

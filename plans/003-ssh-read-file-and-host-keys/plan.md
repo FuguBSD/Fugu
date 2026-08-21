@@ -11,7 +11,7 @@ Part two is the host-key policy. It holds the `known_hosts` argument and the
 `strict` argument on `new`. It also holds the host-key check in `_connect`, the
 strict argument list of `interactive`, and the `_ssh_argv` helper.
 
-FuguVM plan 009 `guest-file-transfer` is the caller of record of part one. That
+FuguVM plan 003 `guest-file-transfer` is the caller of record of part one. That
 plan states the need: "Fugu plan 003 adds `Fugu::SSH->read_file`, beside the
 `write_file` that stands today." Part one can therefore land now.
 
@@ -26,7 +26,7 @@ A test would be the only caller of the `known_hosts` argument and the strict
 mode. Part two must therefore wait. Two candidate callers can end the wait:
 
 - A FuguVM directive that sets the strict mode. No FuguVM plan holds such a
-  directive today. FuguVM plan 009 puts the policy out of scope: "A host key
+  directive today. FuguVM plan 003 puts the policy out of scope: "A host key
   policy. Fugu plan 003 owns the `strict` and `known_hosts` options, and no verb
   of this plan sets either one."
 - FuguTTX `IAC-TRAINCRED` (spec/infrastructure.md). The unit delivers a train
@@ -34,7 +34,7 @@ mode. Part two must therefore wait. Two candidate callers can end the wait:
   key. The unit holds no numbered rule. FuguTTX decision D7 blocks the caller.
   D7 reads: "the client loads only this module from the distribution", and that
   module is `Fugu::REPL`. A human must approve a change to D7 first, and FuguTTX
-  plan `plans/012-fugu-module-allowlist/plan.md` carries that proposal.
+  plan `plans/001-fugu-module-allowlist/plan.md` carries that proposal.
 
 ## Purpose
 
@@ -106,7 +106,7 @@ Every consumer reaches this work through the `fuguvm` command. No consumer calls
 
 FuguTTX must not call `Fugu::SSH`. Decision D7 states that "the client loads
 only this module from the distribution", and that module is `Fugu::REPL`. A
-direct use of `Fugu::SSH` in the FuguTTX harness is blocked. FuguTTX plan 012
+direct use of `Fugu::SSH` in the FuguTTX harness is blocked. FuguTTX plan 001
 proposes the change to D7, and it waits for a human.
 
 No consumer rule asks for host-key verification today. Two facts still make the

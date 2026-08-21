@@ -40,7 +40,7 @@ The gate is a rule of this repository, not a preference. `CLAUDE.md` states it:
 
 Part two must therefore land with the harness call that names the method. A test
 alone must not be its caller. FuguTTX plan
-`plans/012-fugu-module-allowlist/plan.md` holds the adoption map of the
+`plans/001-fugu-module-allowlist/plan.md` holds the adoption map of the
 allow-list, and it names the syslog pin as a prerequisite of `HRN-SAFE-AUDIT`.
 
 The allow-list holds no `Fugu::Privdrop`, so the FuguTTX harness writes its own

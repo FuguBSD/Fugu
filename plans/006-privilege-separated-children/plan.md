@@ -20,7 +20,7 @@ Part two is the rest of this plan: the `inherit` list, `spawn_peer`, and every
 `HRN-SOCKET` and HRN-CONFIRM-6 therefore keep the control socket and the
 `SO_PEERCRED` read in the harness.
 
-The FuguTTX plan `plans/012-fugu-module-allowlist/plan.md` holds the adoption
+The FuguTTX plan `plans/001-fugu-module-allowlist/plan.md` holds the adoption
 map of the allow-list. Its module table gives `Fugu::Process` the tool units —
 `HRN-TOOL-RO`, `HRN-TOOL-GATE` and `HRN-CANCEL` — and it names `run`,
 `spawn_command`, `exit_code`, `is_alive`, `terminate` and `wait_exit`. It names
