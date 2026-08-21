@@ -83,21 +83,25 @@ speaks to mdnsd(8).
 Each citation comes from the file. Two facts about the citations need a plain
 statement.
 
-FuguVM plan 005 does not exist yet. The plan set of the corrected instruction
-set lists it as `mirror-coverage`, and it states that plan 005 depends on this
-plan. `/home/user/FuguVM/plans` is empty today.
+FuguVM plan 005 exists, at `plans/005-mirror-coverage/plan.md`. That plan names
+this plan as its dependency: "This plan depends on Fugu plan 004. That plan
+lives in the Fugu repository, at `plans/004-signify-verification/plan.md`. It
+adds `Fugu::Signify`, and this plan is its first consumer."
 
 The three FuguTTX units hold no numbered rule. `HRN-FETCH`, `INF-INTEGRITY` and
 `LIC-RELEASE` each carry prose only, and the register lists each one as `open`.
 The number in the register is a roadmap phase, not a rule count. The rows
 therefore cite the unit anchor, and they cite no rule ID.
 
-`HRN-FETCH` states the key-set need in one sentence: "The project generates a
-key two releases ahead, and each release ships the public key of the next
-release." A key set of two keys serves that practice exactly.
+`HRN-FETCH` states the key-set need in one sentence:
 
-**FuguTTX is blocked today.** Decision D7 states that "The port dependencies are
-llama.cpp and p5-Fugu, and no other", and that "the client loads only this
+> The project generates a key two releases ahead, and each release ships the
+> public key of the next release.
+
+A key set of two keys serves that practice exactly.
+
+**FuguTTX is blocked today.** Decision D7 names two port dependencies: llama.cpp
+and p5-Fugu, and no other. It also states that "the client loads only this
 module from the distribution". That module is `Fugu::REPL`. A use of
 `Fugu::Signify` in the FuguTTX harness therefore goes against D7. FuguTTX plan
 001 `fugu-module-allowlist` proposes the change to D7, and it waits for a human.
@@ -166,8 +170,9 @@ verify a signed checksum list and each file digest in one call. Three facts rule
 that mode out:
 
 1. `signify -C` resolves each file name against the working directory. FuguVM
-   downloads to a `File::Temp` path and stores the file in the cache after the
-   fact, so the file does not sit beside the manifest at verification time.
+   downloads to a `File::Temp` path, and it stores the file in the cache after
+   the fact. The file therefore does not sit beside the manifest at verification
+   time.
 2. `signify -C` returns one exit code for the whole list. A caller needs the
    name of the file that failed.
 3. `Digest::SHA` is core Perl. One `signify -V` call then covers the whole
@@ -189,9 +194,14 @@ line, and the manifest parser must follow it. A line that the parser does not
 understand is a failure. A duplicate name is a failure too, because the second
 line would otherwise win in silence.
 
-**The module must fail closed.** An absent file, an absent key, an unparsed
-line, a duplicate name and a name that the manifest does not hold are each a
-failure. None of them is a skip.
+**The module must fail closed.** Each of these is a failure, and none of them is
+a skip:
+
+- an absent file
+- an absent key
+- an unparsed line
+- a duplicate name
+- a name that the manifest does not hold
 
 **The module must not log.** Every failure returns `undef`, and `error` holds
 the reason. The caller decides how to report it. `Fugu::Sandbox` sets the same
@@ -238,7 +248,7 @@ diagnostic.
 `error()` returns the reason of the most recent failure. It returns `undef`
 after a success. Every public method clears the reason before it starts.
 
-For a signature that no key verified, the string names the file and then names
+For a signature that no key verified, the string names the file. It then names
 each key with the first line of its signify diagnostic:
 
 ```
@@ -304,8 +314,8 @@ the digest of each named file.
 | `files`     | A hash reference. Each key is a name in the manifest, and each value is the local path to digest. |
 
 `files` is necessary and must not be empty. The module must never choose which
-file to check. A caller that names no file would get a pass that proves nothing,
-so an empty `files` is a programming error and the method dies.
+file to check. A caller that names no file would get a pass that proves nothing.
+An empty `files` is therefore a programming error, and the method dies.
 
 The method returns the public key file that verified the manifest. It returns
 `undef` on every failure.
@@ -445,9 +455,12 @@ The `Fugu.pod` entry reads:
 The index is in ASCII order, so the entry sits after `Fugu::Signal` and before
 `Fugu::StateFile`.
 
-The `.pod` needs a CAVEATS section with four facts: the module cannot sign; the
-command name differs by platform; a caller under taint mode must pass an
-absolute `command`; and a caller under pledge(2) needs `rpath` and `proc exec`.
+The `.pod` needs a CAVEATS section with four facts:
+
+- The module cannot sign.
+- The command name differs by platform.
+- A caller under taint mode must pass an absolute `command`.
+- A caller under pledge(2) needs `rpath` and `proc exec`.
 
 ## Tests
 
@@ -542,8 +555,8 @@ plan 005. The plan states the limit, because a reader must not believe that
    keeps the search list, because a laptop and an OpenBSD host must work with no
    configuration.
 3. **No consumer sets `command` today.** FuguVM plan 005 can rely on the search
-   list. The argument stays, because a caller under taint mode has no other way
-   to reach execve(2), and because an operator can hold signify(1) outside
+   list. The argument stays for two reasons. A caller under taint mode has no
+   other way to reach execve(2), and an operator can hold signify(1) outside
    `PATH`.
 4. **The key set has no expiry.** signify(1) carries no validity period, so a
    caller that keeps a retired key accepts it forever. An expiry needs a date

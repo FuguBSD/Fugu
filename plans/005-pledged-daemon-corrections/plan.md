@@ -2,7 +2,40 @@
 
 ## Status
 
-Proposed.
+Proposed, in two parts. Part one can land now. Part two waits for a caller.
+
+Part one is the behavior correction. In syslog mode `Fugu::Log` pins the native
+transport for every logger: it calls `setlogsock('native')` before `openlog`,
+and it takes no option. Part one also holds the whole `Fugu::Privdrop`
+correction.
+
+Part two is the `syslog_method` argument on `Fugu::Log->new`, and the
+`syslog_method` accessor.
+
+Part one needs no caller. Each change corrects a method that callers already
+use. A daemon that pledges `stdio` keeps its log after the pin.
+`Fugu::Privdrop->drop_privileges` verifies each id after the drop, and it
+reports a caller that was never root. Neither correction adds public API that
+only a test calls.
+
+No caller names the `syslog_method` argument today. Every named consumer is
+unreachable:
+
+- FuguTTX `HRN-SAFE-AUDIT`, `HRN-SAFE-DROP` and `HRN-PROC` are blocked by
+  decision D7.
+- FuguPass CLI-SPLIT-9 keeps `fugupass-repl` in stderr mode or in quiet mode.
+- `App::FuguVM::CLI` builds a stderr logger or a quiet logger.
+- FuguOracle is C, so no Fugu module serves the service.
+
+The gate is a rule of this repository, not a preference. `CLAUDE.md` states it:
+
+> Do not keep test-only API. Delete a sub or option that only tests use,
+> together with its test.
+
+A test would be the only caller of the argument and the accessor. Part two must
+therefore wait for a consumer that names an other transport. A human must
+approve a change to FuguTTX D7 before a FuguTTX unit can be that consumer.
+FuguTTX plan `plans/001-fugu-module-allowlist/plan.md` carries that proposal.
 
 ## Purpose
 
@@ -27,9 +60,9 @@ one from outside.
 `Sys::Syslog` keeps the transport list in a lexical variable of its own package.
 A caller cannot read it, and a caller cannot pass it to `openlog`. Only the code
 that calls `openlog` can pin the list, and `Fugu::Log` is that code. The module
-already owns the process-wide syslog state: the sidecar states that "a process
-must create no more than one syslog-mode logger", because `openlog(3)` and
-`closelog(3)` act on process-wide state.
+already owns the process-wide syslog state. The sidecar states that "a process
+must create no more than one syslog-mode logger". The reason is that
+`openlog(3)` and `closelog(3)` act on process-wide state.
 
 A privilege drop is one sequence. `Fugu::Privdrop` calls setgid(2), sets the
 group list, and calls setuid(2). A caller that verifies the result afterwards
@@ -41,14 +74,14 @@ a facility, a user or a group.
 
 ## Consumers and citations
 
-| Repo       | Unit             | Rules                                                              | Need                                                                                                                                                                                                                                                                 |
-| ---------- | ---------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FuguTTX    | `HRN-SAFE-AUDIT` | none: the unit holds prose, and it holds no numbered rule          | **Blocked by D7.** The unit names the pin: "The harness pins the native log method (`setlogsock('native')`), so `Sys::Syslog` does not need the `unix` promise."                                                                                                     |
-| FuguTTX    | `HRN-SAFE-DROP`  | none: the unit holds prose, and it holds no numbered rule          | **Blocked by D7.** The unit states: "It verifies each id after the drop." It also states: "A wrong order leaves a residual privilege."                                                                                                                               |
-| FuguTTX    | `HRN-PROC`       | none: the unit holds a table and prose, and no numbered rule       | **Blocked by D7.** The parent pledge is `stdio rpath wpath cpath proc exec`. The set holds no `unix` promise, so a syslog transport that opens an AF_UNIX socket kills the parent. The model process pledges `stdio` alone.                                          |
-| FuguOracle | `SEC-LOGGING`    | SEC-LOGGING-1                                                      | Not reachable: the service is C (D-07). The rule states the same fact for the C program: OpenBSD `syslog(3)` "delivers messages with the `sendsyslog(2)` system call: it needs no log socket, it works inside the chroot, and the `stdio` pledge promise covers it". |
-| FuguPass   | `CLI-SPLIT`      | CLI-SPLIT-7, and the new CLI-SPLIT-9                               | `fugupass-repl` pledges `stdio tty`. CLI-SPLIT-9 keeps the program in stderr mode or in quiet mode, so the pin does not reach it.                                                                                                                                    |
-| FuguVM     | —                | none: FuguVM holds no `spec/` unit, and the `.pod` is the contract | No change. `App::FuguVM::CLI` builds a stderr logger or a quiet logger, and no FuguVM module calls `drop_privileges`.                                                                                                                                                |
+| Repo       | Unit             | Rules                                                              | Need                                                                                                                                                                                                                        |
+| ---------- | ---------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FuguTTX    | `HRN-SAFE-AUDIT` | none: the unit holds prose, and it holds no numbered rule          | **Blocked by D7.** The unit names the pin: "The harness pins the native log method (`setlogsock('native')`), so `Sys::Syslog` does not need the `unix` promise."                                                            |
+| FuguTTX    | `HRN-SAFE-DROP`  | none: the unit holds prose, and it holds no numbered rule          | **Blocked by D7.** The unit states: "It verifies each id after the drop." It also states: "A wrong order leaves a residual privilege."                                                                                      |
+| FuguTTX    | `HRN-PROC`       | none: the unit holds a table and prose, and no numbered rule       | **Blocked by D7.** The parent pledge is `stdio rpath wpath cpath proc exec`. The set holds no `unix` promise, so a syslog transport that opens an AF_UNIX socket kills the parent. The model process pledges `stdio` alone. |
+| FuguOracle | `SEC-LOGGING`    | SEC-LOGGING-1                                                      | Not reachable: the service is C (D-07). The rule states the same fact for the C program. OpenBSD `syslog(3)` needs no log socket, works inside the chroot, and sits inside the `stdio` promise.                             |
+| FuguPass   | `CLI-SPLIT`      | CLI-SPLIT-7, and the new CLI-SPLIT-9                               | `fugupass-repl` pledges `stdio tty`. CLI-SPLIT-9 keeps the program in stderr mode or in quiet mode, so the pin does not reach it.                                                                                           |
+| FuguVM     | —                | none: FuguVM holds no `spec/` unit, and the `.pod` is the contract | No change. `App::FuguVM::CLI` builds a stderr logger or a quiet logger, and no FuguVM module calls `drop_privileges`.                                                                                                       |
 
 CLI-SPLIT-9 is a new rule of this same workflow. `CLI-SPLIT` holds CLI-SPLIT-1
 to CLI-SPLIT-7 today, so CLI-SPLIT-8, CLI-SPLIT-9 and CLI-SPLIT-10 are the next
@@ -357,10 +390,10 @@ The cost is real, and it is small today.
   `Fugu::Privdrop->drop_privileges(user => $u) or die` gets a new death, in one
   case only: the process was already unprivileged. A developer who runs a daemon
   in the foreground, as their own user, hits exactly that case.
-- A caller that wants the old behaviour writes `defined ... or die`. The method
+- A caller that wants the old behavior writes `defined ... or die`. The method
   never returns `undef`, so a `defined` test always passes. That form is a poor
-  test, and this plan does not recommend it. A caller that must run as root
-  should test for 1.
+  test, and this plan does not recommend it. A caller that must run as root must
+  test for 1.
 - A caller that ignores the return value sees no change.
 - No module in `lib/` calls `drop_privileges`. The call sites of record are
   `t/fugu/privdrop.t` and the two examples in the sidecars, so the cost inside
@@ -403,7 +436,7 @@ holds.
 | `t/fugu/privdrop.t`                                                 | The new subtests, and the tighter test 5                                                                                                  |
 | `lib/Fugu.pod`                                                      | No change. Line 44 and line 52 already hold the index entries, and neither summary changes                                                |
 | `cpanfile`, `deps/OpenBSD.txt`, `deps/Linux.txt`, `deps/Darwin.txt` | No change. `Sys::Syslog` and `POSIX` are core modules                                                                                     |
-| `README.md`                                                         | No change. Line 39 names `perldoc Fugu::Log` and holds no behaviour                                                                       |
+| `README.md`                                                         | No change. Line 39 names `perldoc Fugu::Log` and holds no behavior                                                                        |
 | `spec/`                                                             | No change. The directory holds the mdnsd control references, and neither correction touches them                                          |
 
 ## Tests
@@ -413,8 +446,9 @@ mirror the existing ones.
 
 ### t/fugu/log.t
 
-No test may open a live syslog connection. The syslog tests therefore replace
-the two imported subs inside the `Fugu::Log` package, and record the calls:
+A test must not open a live syslog connection. The syslog tests therefore
+replace the two imported subs inside the `Fugu::Log` package, and record the
+calls:
 
 ```perl
 my @calls;
@@ -424,8 +458,8 @@ local *Fugu::Log::openlog    = sub { push @calls, [ 'openlog',    @_ ] };
 ```
 
 The test replaces `*Fugu::Log::openlog` as well, so no test reaches
-`openlog(3)`. It must replace the sub in the `Fugu::Log` package, not in
-`Sys::Syslog`: the import copies the code reference, so a change in
+`openlog(3)`. It must replace the sub in the `Fugu::Log` package, and not in
+`Sys::Syslog`. The import copies the code reference, so a change in
 `Sys::Syslog` alone reaches nothing.
 
 The tests prove:
@@ -516,10 +550,10 @@ test process.
    the loss. The option is the answer for such a host, and the default serves
    the OpenBSD daemon. No consumer needs a delivery check today.
 2. **The option name.** `syslog_method` follows the words of `Sys::Syslog`,
-   which calls the value a "socket type (or mechanism)", and the words of
-   FuguTTX HRN-SAFE-AUDIT, which calls it "the native log method". `transport`
-   and `mechanism` both read well too. The name is cheap to change before the
-   first release that carries it.
+   which calls the value a "socket type (or mechanism)". It also follows the
+   words of FuguTTX HRN-SAFE-AUDIT, which calls it "the native log method".
+   `transport` and `mechanism` both read well too. The name is cheap to change
+   before the first release that carries it.
 3. **Group 0 as a target.** The plan refuses user id 0 and accepts group id 0.
    On OpenBSD group 0 is `wheel`, so a drop to group 0 keeps a privileged group.
    A refusal would be safer. No consumer asks for one, and a refusal could break

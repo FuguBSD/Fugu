@@ -10,15 +10,15 @@ Proposed.
 the child. The child then holds exactly the named variables. The parent
 environment stays unchanged.
 
-The module also loads `Config` at compile time. A caller that pledges without the
-`rpath` promise can then call `spawn_perl` safely.
+The module also loads `Config` at compile time. A caller that pledges without
+the `rpath` promise can then call `spawn_perl` safely.
 
 ## Why Fugu holds this work
 
 The environment of a child is a Unix process attribute. It sits beside the
 working directory and the three standard descriptors. `Fugu::Process` already
-owns the fork and the exec, and it already carries `cwd` for the same reason. The
-module names no variable, so it holds no consumer policy.
+owns the fork and the exec, and it already carries `cwd` for the same reason.
+The module names no variable, so it holds no consumer policy.
 
 No consumer can hold this work instead. `App::FuguVM` is an application, not a
 library, so a sibling repository must not load its modules. A capability that a
@@ -29,15 +29,15 @@ program that starts a foreign counterparty.
 
 ## Consumers and citations
 
-| Repo | Unit | Rules | Need |
-| --- | --- | --- | --- |
-| FuguOracle | `PROG-CGI` | PROG-CGI-1, PROG-CGI-2 | The CGI program dispatches on `REQUEST_METHOD` and `DOCUMENT_URI`, and it reads `CONTENT_LENGTH` bytes from standard input |
-| FuguOracle | `TEST-FUZZ` | TEST-FUZZ-1, and the new TEST-FUZZ-4 | The fuzzer calls the CGI program directly, so it must set the three CGI variables in the environment of each child |
-| FuguOracle | `TEST-ACCEPT` | TEST-ACCEPT-1, and the new TEST-ACCEPT-3 | A byte-identical `200` body needs the same child environment on both sides |
-| FuguPass | `QA-HARNESS` | QA-HARNESS-2, QA-HARNESS-4, and the new QA-HARNESS-6 | The harness starts each counterparty with `Fugu::Process`, and it gives each one its own record store |
-| FuguPass | `CLI-SPLIT` | CLI-SPLIT-7 | A program loads every module, and it then pledges `stdio tty`. A run-time `require` after that pledge aborts the process |
-| FuguTTX | `HRN-PROC` | none: the unit holds a table and prose, and it holds no numbered rule | **Blocked by D7.** The parent process runs each tool, and it holds the `exec` promise. D7 permits `Fugu::REPL` only, so the harness must not load `Fugu::Process` |
-| FuguVM | `App::FuguVM::Console` | none: FuguVM holds no `spec/` unit, and the `.pod` sidecar is the contract | The expect child needs `FUGUVM_TIMEOUT` for one call only |
+| Repo       | Unit                   | Rules                                                                      | Need                                                                                                                                                              |
+| ---------- | ---------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FuguOracle | `PROG-CGI`             | PROG-CGI-1, PROG-CGI-2                                                     | The CGI program dispatches on `REQUEST_METHOD` and `DOCUMENT_URI`, and it reads `CONTENT_LENGTH` bytes from standard input                                        |
+| FuguOracle | `TEST-FUZZ`            | TEST-FUZZ-1, and the new TEST-FUZZ-4                                       | The fuzzer calls the CGI program directly, so it must set the three CGI variables in the environment of each child                                                |
+| FuguOracle | `TEST-ACCEPT`          | TEST-ACCEPT-1, and the new TEST-ACCEPT-3                                   | A byte-identical `200` body needs the same child environment on both sides                                                                                        |
+| FuguPass   | `QA-HARNESS`           | QA-HARNESS-2, QA-HARNESS-4, and the new QA-HARNESS-6                       | The harness starts each counterparty with `Fugu::Process`, and it gives each one its own record store                                                             |
+| FuguPass   | `CLI-SPLIT`            | CLI-SPLIT-7                                                                | A program loads every module, and it then pledges `stdio tty`. A run-time `require` after that pledge aborts the process                                          |
+| FuguTTX    | `HRN-PROC`             | none: the unit holds a table and prose, and it holds no numbered rule      | **Blocked by D7.** The parent process runs each tool, and it holds the `exec` promise. D7 permits `Fugu::REPL` only, so the harness must not load `Fugu::Process` |
+| FuguVM     | `App::FuguVM::Console` | none: FuguVM holds no `spec/` unit, and the `.pod` sidecar is the contract | The expect child needs `FUGUVM_TIMEOUT` for one call only                                                                                                         |
 
 TEST-FUZZ-4, TEST-ACCEPT-3 and QA-HARNESS-6 are new rules of this same workflow.
 `TEST-FUZZ` holds TEST-FUZZ-1 only today, and the same workflow appends
@@ -69,9 +69,9 @@ working directory. The comment on `run` states the rule:
 Second, and decisively, `local` cannot give an exact environment. A caller that
 wants exactly three variables must delete every other variable by name. The
 caller does not know that list. A stray variable from the developer's shell then
-enters the child, and the run stops being reproducible. FuguOracle
-TEST-ACCEPT-1 needs byte-identical bodies for identical input, so the child
-environment must be exact.
+enters the child, and the run stops being reproducible. FuguOracle TEST-ACCEPT-1
+needs byte-identical bodies for identical input, so the child environment must
+be exact.
 
 FuguOracle D-06 sharpens the same point. The service must not read a
 configuration file and must not read environment configuration. The CGI
@@ -168,15 +168,14 @@ Out of scope:
   the process instead.
 - **`Config` hides a second file.** `Config.pm` holds a small key set, and every
   other key comes from `Config_heavy.pl`. A measurement gives the split on the
-  perl of this checkout: `privlibexp`, `archlibexp`, `sitelibexp` and
-  `sitearchexp` are light, and `privlib`, `archlib`, `sitelib`, `sitearch`,
+  perl of this checkout. `privlibexp`, `archlibexp`, `sitelibexp` and
+  `sitearchexp` are light. `privlib`, `archlib`, `sitelib`, `sitearch`,
   `vendorlib`, `vendorarch`, `vendorlibexp` and `vendorarchexp` are heavy. The
   six keys that `_custom_inc_paths` reads are all heavy. A `use Config;` line
   alone is therefore not enough. A switch to the `*exp` keys does not help
-  either, because the two vendor keys stay heavy. The split is an
-  implementation detail
-  of `Config.pm`, and a later perl can move a key. The design must not depend on
-  it.
+  either, because the two vendor keys stay heavy. The split is an implementation
+  detail of `Config.pm`, and a later perl can move a key. The design must not
+  depend on it.
 - **The module keeps no run-time state.** The header comment states it: "The
   module keeps no state and has only class methods." A compile-time constant
   table is not run-time state, so the contract holds.
@@ -189,11 +188,11 @@ Out of scope:
 `env => \%vars` names the environment of the child. The keys are the variable
 names. The values are the variable values.
 
-| Case | Result |
-| --- | --- |
-| The caller omits `env` | The child inherits the environment of the parent. This is the behaviour today, and it does not change. |
-| The caller gives a hash reference | The child holds exactly the named variables. |
-| The caller gives an empty hash reference | The child holds an empty environment. |
+| Case                                     | Result                                                                                                |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| The caller omits `env`                   | The child inherits the environment of the parent. This is the behavior today, and it does not change. |
+| The caller gives a hash reference        | The child holds exactly the named variables.                                                          |
+| The caller gives an empty hash reference | The child holds an empty environment.                                                                 |
 
 `exists $args{env}` separates the second case from the first. Thus `{}` and an
 absent argument are not the same.
@@ -276,8 +275,8 @@ that forgets `PATH` still gets the exact reason, and it gets it at once.
 ### _run_passthrough
 
 `_run_passthrough($class, $cmd, $timeout, $input, $cwd = undef, $env = undef)`
-gains the sixth parameter. `run` passes `env` on with `cwd`, so a passthrough run
-carries the same guarantee.
+gains the sixth parameter. `run` passes `env` on with `cwd`, so a passthrough
+run carries the same guarantee.
 
 ### The compile-time Config load
 
@@ -289,18 +288,18 @@ sub _custom_inc_paths()
 	require Config;
 ```
 
-The module must load `Config` at compile time instead, and it must read every key
-at compile time.
+The module must load `Config` at compile time instead, and it must read every
+key at compile time.
 
-The module gains a `use Config;` line beside the other imports. It also gains one
-`BEGIN` block. The block reads `privlib`, `archlib`, `sitelib`, `sitearch`,
+The module gains a `use Config;` line beside the other imports. It also gains
+one `BEGIN` block. The block reads `privlib`, `archlib`, `sitelib`, `sitearch`,
 `vendorlib` and `vendorarch`, and it stores the non-empty values in a file-scope
 hash, `%DEFAULT_INC`. The read pulls `Config_heavy.pl` into memory at compile
 time.
 
 `_custom_inc_paths` then reads `%DEFAULT_INC` and touches `%Config` no more. The
-function keeps its signature, its return value and its two skip rules: it skips a
-reference, and it skips the current directory.
+function keeps its signature, its return value and its two skip rules: it skips
+a reference, and it skips the current directory.
 
 `Fugu::Sandbox` already carries `use Config;` at the top of the file, so the
 compile-time load is the house style of this repository.
@@ -312,11 +311,12 @@ that.
 
 ## Load contract
 
-The change needs core Perl only. `Config` is a core module, so the module adds no
-line to the `cpanfile` and no line to a `deps/` manifest.
+The change needs core Perl only. `Config` is a core module, so the module adds
+no line to the `cpanfile` and no line to a `deps/` manifest.
 
-`t/fugu/coreperl.t` proves the load contract. It compiles every module against an
-`@INC` that holds the core paths plus `lib/`, and `Config` sits in a core path.
+`t/fugu/coreperl.t` proves the load contract. It compiles every module against
+an `@INC` that holds the core paths plus `lib/`, and `Config` sits in a core
+path.
 
 `t/scripts/symbols.t` checks that every non-core import in `lib/` names a module
 of the `cpanfile`. `Config` is core, so the check needs nothing new.
@@ -329,19 +329,19 @@ dependency direction.
 
 ## Files
 
-| File | Content |
-| --- | --- |
-| `lib/Fugu/Process.pm` | The `env` argument, `_check_env`, the new `_fork_exec` and `_run_passthrough` signatures, `use Config;`, the `BEGIN` block, and `%DEFAULT_INC` |
-| `lib/Fugu/Process.pod` | The `env` item under `spawn_command` and under `run`, the `PATH` caution, the `-I` fact under `spawn_perl`, and the pledge rule |
-| `t/fugu/process.t` | The new subtests |
-| `lib/Fugu.pod` | No change. Line 54 already holds the index entry for the module |
-| `cpanfile`, `deps/OpenBSD.txt`, `deps/Linux.txt`, `deps/Darwin.txt` | No change. `Config` is a core module |
-| `README.md` | No change. The file holds no module table |
+| File                                                                | Content                                                                                                                                        |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/Fugu/Process.pm`                                               | The `env` argument, `_check_env`, the new `_fork_exec` and `_run_passthrough` signatures, `use Config;`, the `BEGIN` block, and `%DEFAULT_INC` |
+| `lib/Fugu/Process.pod`                                              | The `env` item under `spawn_command` and under `run`, the `PATH` caution, the `-I` fact under `spawn_perl`, and the pledge rule                |
+| `t/fugu/process.t`                                                  | The new subtests                                                                                                                               |
+| `lib/Fugu.pod`                                                      | No change. Line 54 already holds the index entry for the module                                                                                |
+| `cpanfile`, `deps/OpenBSD.txt`, `deps/Linux.txt`, `deps/Darwin.txt` | No change. `Config` is a core module                                                                                                           |
+| `README.md`                                                         | No change. The file holds no module table                                                                                                      |
 
 ## Tests
 
-`t/fugu/process.t` gains the subtests below. Each one names the interpreter by an
-absolute path, so no test depends on `PATH`. The file uses `Test::More` and
+`t/fugu/process.t` gains the subtests below. Each one names the interpreter by
+an absolute path, so no test depends on `PATH`. The file uses `Test::More` and
 `done_testing()` today, and the new subtests mirror the existing ones.
 
 The environment tests prove:
@@ -352,9 +352,9 @@ The environment tests prove:
   sets one marker variable and finds it in the child.
 - `env => {}` gives the child an empty environment.
 - The parent `%ENV` holds the same keys and the same values after each call.
-- `run` with `passthrough => 1` and `env` reaches the child. The captured streams
-  are empty in that mode, so the child exits 0 only when the variable matches,
-  and the test reads `exit_code`.
+- `run` with `passthrough => 1` and `env` reaches the child. The captured
+  streams are empty in that mode, so the child exits 0 only when the variable
+  matches, and the test reads `exit_code`.
 - `spawn_command` with `env` reaches the child. The child writes its environment
   through the `stdout` argument, into a file in a temporary directory. The test
   reads the file after `wait_exit`.
@@ -379,8 +379,8 @@ prints the state of `%INC` at once, with no method call:
 - `$INC{'Config.pm'}` is set after `use Fugu::Process;`.
 - `$INC{'Config_heavy.pl'}` is set after `use Fugu::Process;`.
 
-The second assertion is the one that matters. It fails today, and it is the exact
-proof that a pledged caller of `spawn_perl` reads no file.
+The second assertion is the one that matters. It fails today, and it is the
+exact proof that a pledged caller of `spawn_perl` reads no file.
 
 ## Acceptance
 

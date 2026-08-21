@@ -14,20 +14,20 @@ shows them. It operates inside the `stdio tty` promises of pledge(2).
 
 Two FuguBSD tools need the same operator prompt, and both specify it today:
 
-| Repo | Unit | Rules | Need |
-| --- | --- | --- | --- |
+| Repo     | Unit        | Rules                                              | Need                                                                                        |
+| -------- | ----------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | FuguPass | `CLI-IFACE` | CLI-IFACE-4, CLI-IFACE-5, CLI-IFACE-6, CLI-IFACE-7 | Terminal ownership, the display filter, a watched reply pipe, and a plain non-terminal mode |
-| FuguPass | `CLI-SPLIT` | CLI-SPLIT-7 | `fugupass-repl` is Perl on the Fugu library, under `stdio tty` |
-| FuguPass | `CLI-REPL` | CLI-REPL-3, CLI-REPL-8 | A command table, tab completion, and a memory-only history |
-| FuguTTX | `HRN-REPL` | HRN-REPL-1 to HRN-REPL-9 | The same editor, the same filter, the same watched handle |
+| FuguPass | `CLI-SPLIT` | CLI-SPLIT-7                                        | `fugupass-repl` is Perl on the Fugu library, under `stdio tty`                              |
+| FuguPass | `CLI-REPL`  | CLI-REPL-3, CLI-REPL-8                             | A command table, tab completion, and a memory-only history                                  |
+| FuguTTX  | `HRN-REPL`  | HRN-REPL-1 to HRN-REPL-9                           | The same editor, the same filter, the same watched handle                                   |
 
-The FuguPass register and the FuguTTX register each carry the same note: the
-module does not exist yet, and its interface contract lands in this repository
-with the implementation. This plan is that contract.
+The FuguPass register and the FuguTTX register each carry the same note. The
+module does not exist yet. Its interface contract lands in this repository with
+the implementation. This plan is that contract.
 
 A line editor is a terminal utility. It reads a descriptor, it drives termios,
-and it holds no policy of any consumer. It therefore belongs in `Fugu::`,
-beside `Fugu::CLI`, which parses a command line that a shell already read.
+and it holds no policy of any consumer. It therefore belongs in `Fugu::`, beside
+`Fugu::CLI`, which parses a command line that a shell already read.
 
 ## Scope
 
@@ -51,7 +51,7 @@ Out of scope:
   incremental history search.
 - A command dispatcher. The caller dispatches. `Fugu::CLI` covers the
   command-line form of the same tool.
-- Colour and cursor addressing beyond the fixed control sequences that the key
+- Color and cursor addressing beyond the fixed control sequences that the key
   subset needs.
 
 ## Constraints that shape the design
@@ -76,16 +76,16 @@ Out of scope:
 `new(%args)` builds an editor. The method opens nothing and changes no terminal
 setting.
 
-| Argument | Meaning |
-| --- | --- |
-| `in` | The input handle. The default is `STDIN`. |
-| `out` | The output handle. The default is `STDOUT`. |
-| `prompt` | The prompt string. The default is `> `. |
-| `commands` | The command table, as a hash reference of name to summary. |
-| `prefix` | The command prefix, as a string. The default is the empty string. |
-| `complete` | A code reference for word completion. |
-| `watch` | Extra read handles, as an array reference. |
-| `history_size` | The count of lines that the history keeps. The default is 500. |
+| Argument       | Meaning                                                           |
+| -------------- | ----------------------------------------------------------------- |
+| `in`           | The input handle. The default is `STDIN`.                         |
+| `out`          | The output handle. The default is `STDOUT`.                       |
+| `prompt`       | The prompt string. The default is `> `.                           |
+| `commands`     | The command table, as a hash reference of name to summary.        |
+| `prefix`       | The command prefix, as a string. The default is the empty string. |
+| `complete`     | A code reference for word completion.                             |
+| `watch`        | Extra read handles, as an array reference.                        |
+| `history_size` | The count of lines that the history keeps. The default is 500.    |
 
 `commands` and `prefix` describe one command language. FuguPass uses bare
 command words, so its prefix is empty. FuguTTX marks a client command with a
@@ -109,9 +109,9 @@ The method holds raw mode only for the length of the call.
 `event()` returns the outcome of the most recent `read_line` or `confirm` call:
 `line`, `eof`, `watch`, or `interrupt`.
 
-An interrupt at the prompt clears the line. It does not end the session.
-FuguTTX HRN-REPL-5 needs that difference, because an interrupt during a step
-sends a cancel instead.
+An interrupt at the prompt clears the line. It does not end the session. FuguTTX
+HRN-REPL-5 needs that difference, because an interrupt during a step sends a
+cancel instead.
 
 ### ready_handle
 
@@ -142,7 +142,7 @@ removes `DEL` (0x7F) and the C1 range (0x80 to 0x9F). It replaces every other
 byte with one question mark. It must not break a UTF-8 sequence: a valid
 sequence survives whole, and an invalid byte becomes one question mark.
 
-An escape sequence in tool output can rewrite what the operator sees, and it can
+An escape sequence in tool output can rewrite what the operator sees. It can
 hide the change that the operator is about to approve. FuguPass CLI-IFACE-5 and
 FuguTTX HRN-SAFE-DISPLAY state the same rule, so the filter lives in one place.
 
@@ -160,9 +160,8 @@ The module generates the help, so the table and the help cannot disagree.
 
 ### history
 
-`history()` returns the session history, oldest first.
-`add_history($line)` appends one line and drops the oldest line above
-`history_size`.
+`history()` returns the session history, oldest first. `add_history($line)`
+appends one line and drops the oldest line above `history_size`.
 
 `read_line` appends a line that is not empty and that is not the previous line.
 The history lives in memory only, for the session. The module must not write a
@@ -179,9 +178,8 @@ CLI-IFACE-7 and FuguTTX HRN-REPL-9 both need it.
 
 ### prompt, commands, watch
 
-`prompt($string)` sets or reads the prompt.
-`commands($hashref)` sets or reads the command table.
-`watch($arrayref)` sets or reads the watched handles.
+`prompt($string)` sets or reads the prompt. `commands($hashref)` sets or reads
+the command table. `watch($arrayref)` sets or reads the watched handles.
 
 A caller changes the completion set when the session state changes. FuguPass
 CLI-REPL-8 completes entry names from the open index, and the index opens after
@@ -197,23 +195,23 @@ returns the object. The destructor calls it.
 The editor implements one fixed set of keys. The sequences are the ANSI
 sequences, hard-coded, because a terminfo read needs `rpath`.
 
-| Key | Action |
-| --- | --- |
-| `Enter` | Accept the line |
-| `Tab` | Complete the word before the cursor |
-| `Ctrl-A`, `Home` | Go to the start of the line |
-| `Ctrl-E`, `End` | Go to the end of the line |
-| `Ctrl-B`, `Left` | Go back one character |
-| `Ctrl-F`, `Right` | Go forward one character |
-| `Ctrl-P`, `Up` | Recall the previous history line |
-| `Ctrl-N`, `Down` | Recall the next history line |
-| `Backspace`, `Ctrl-H` | Delete the character before the cursor |
-| `Ctrl-D` | Delete the character under the cursor, or end the input on an empty line |
-| `Ctrl-K` | Delete to the end of the line |
-| `Ctrl-U` | Delete the whole line |
-| `Ctrl-W` | Delete the word before the cursor |
-| `Ctrl-L` | Draw the line again |
-| `Ctrl-C` | Clear the line and report an interrupt |
+| Key                   | Action                                                                   |
+| --------------------- | ------------------------------------------------------------------------ |
+| `Enter`               | Accept the line                                                          |
+| `Tab`                 | Complete the word before the cursor                                      |
+| `Ctrl-A`, `Home`      | Go to the start of the line                                              |
+| `Ctrl-E`, `End`       | Go to the end of the line                                                |
+| `Ctrl-B`, `Left`      | Go back one character                                                    |
+| `Ctrl-F`, `Right`     | Go forward one character                                                 |
+| `Ctrl-P`, `Up`        | Recall the previous history line                                         |
+| `Ctrl-N`, `Down`      | Recall the next history line                                             |
+| `Backspace`, `Ctrl-H` | Delete the character before the cursor                                   |
+| `Ctrl-D`              | Delete the character under the cursor, or end the input on an empty line |
+| `Ctrl-K`              | Delete to the end of the line                                            |
+| `Ctrl-U`              | Delete the whole line                                                    |
+| `Ctrl-W`              | Delete the word before the cursor                                        |
+| `Ctrl-L`              | Draw the line again                                                      |
+| `Ctrl-C`              | Clear the line and report an interrupt                                   |
 
 An unknown escape sequence does nothing. The editor must not insert its bytes
 into the line.
@@ -242,13 +240,13 @@ FuguTTX HRN-REPL-2 depends on it, and a later change could break it silently.
 
 ## Files
 
-| File | Content |
-| --- | --- |
-| `lib/Fugu/REPL.pm` | The module |
-| `lib/Fugu/REPL.pod` | The API sidecar |
-| `lib/Fugu.pod` | One index entry for the module |
-| `t/fugu/repl.t` | The unit test |
-| `README.md` | One row in the module table, if the table lists modules |
+| File                | Content                                                 |
+| ------------------- | ------------------------------------------------------- |
+| `lib/Fugu/REPL.pm`  | The module                                              |
+| `lib/Fugu/REPL.pod` | The API sidecar                                         |
+| `lib/Fugu.pod`      | One index entry for the module                          |
+| `t/fugu/repl.t`     | The unit test                                           |
+| `README.md`         | One row in the module table, if the table lists modules |
 
 ## Tests
 
@@ -282,8 +280,8 @@ The test proves:
 - `t/scripts/symbols.t` passes: every public sub has a caller in `lib/` or in a
   test.
 - `t/fugu/coreperl.t` passes: the module loads with core Perl only.
-- The `.pod` sidecar documents every public sub, with the sections that the other
-  sidecars use.
+- The `.pod` sidecar documents every public sub, with the sections that the
+  other sidecars use.
 
 ## Open questions
 

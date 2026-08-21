@@ -2,7 +2,39 @@
 
 ## Status
 
-Proposed.
+Proposed, in two parts. Part one can land now. Part two waits for a caller.
+
+Part one is `read_file`. It holds `read_file`, the `MAX_READ_SIZE` constant, and
+the `_read_all` helper.
+
+Part two is the host-key policy. It holds the `known_hosts` argument and the
+`strict` argument on `new`. It also holds the host-key check in `_connect`, the
+strict argument list of `interactive`, and the `_ssh_argv` helper.
+
+FuguVM plan 003 `guest-file-transfer` is the caller of record of part one. That
+plan states the need: "Fugu plan 003 adds `Fugu::SSH->read_file`, beside the
+`write_file` that stands today." Part one can therefore land now.
+
+No caller sets the strict mode today. Open question 1 below states the same
+fact. The gate is a rule of this repository, not a preference. `CLAUDE.md`
+states it:
+
+> Do not keep test-only API. Delete a sub or option that only tests use,
+> together with its test.
+
+A test would be the only caller of the `known_hosts` argument and the strict
+mode. Part two must therefore wait. Two candidate callers can end the wait:
+
+- A FuguVM directive that sets the strict mode. No FuguVM plan holds such a
+  directive today. FuguVM plan 003 puts the policy out of scope: "A host key
+  policy. Fugu plan 003 owns the `strict` and `known_hosts` options, and no verb
+  of this plan sets either one."
+- FuguTTX `IAC-TRAINCRED` (spec/infrastructure.md). The unit delivers a train
+  credential to a cloud instance over SSH, so that copy needs a verified host
+  key. The unit holds no numbered rule. FuguTTX decision D7 blocks the caller.
+  D7 reads: "the client loads only this module from the distribution", and that
+  module is `Fugu::REPL`. A human must approve a change to D7 first, and FuguTTX
+  plan `plans/001-fugu-module-allowlist/plan.md` carries that proposal.
 
 ## Purpose
 
@@ -237,17 +269,22 @@ The method works in this order:
 4. It opens the file with `O_RDONLY`.
 5. It reads with `_read_all`, and it compares the total with the size.
 
-The method returns `undef` for every failure: a connect that fails, an SFTP
-session that fails, a `stat` that fails, a size above `$max_size`, an open that
-fails, and a total that differs from the size.
+The method returns `undef` for every failure:
+
+- A connect that fails.
+- An SFTP session that fails.
+- A `stat` that fails.
+- A size above `$max_size`.
+- An open that fails.
+- A total that differs from the size.
 
 An empty remote file returns the empty string. A caller must therefore test
 `defined`, and a caller must not test truth. The `.pod` must state that rule,
 because the empty string is false.
 
 The method reports each reason with `Fugu::Log->default->debug`.
-`Fugu::File->read` reports a failed open the same way, so a developer reads one
-kind of line for a local read and for a remote read.
+`Fugu::File->read` reports a failed open the same way. A developer thus reads
+one kind of line for a local read and for a remote read.
 
 The two halves report a result in two shapes, and the `.pod` must say so:
 
@@ -279,8 +316,8 @@ with `$path` from `known_hosts`. The method omits the second argument when the
 caller gave no path.
 
 A failed verification must die. The message must name the host, the port and the
-file, and it must end with a newline, so the operator reads one line and not a
-stack trace.
+file. It must also end with a newline. The operator then reads one line, and not
+a stack trace.
 
 A die is the correct answer for four reasons:
 
@@ -292,7 +329,7 @@ A die is the correct answer for four reasons:
   Fugu dies.
 
 In the permissive mode `_connect` calls nothing new. The added code must sit
-inside one `if`, so the existing path keeps its behaviour exactly.
+inside one `if`, so the existing path keeps its behavior exactly.
 
 `check_hostkey` dies when it cannot learn the host name. That path cannot open
 here, because `new` always holds `host` and `_connect` passes it to `connect`.
