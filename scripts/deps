@@ -162,15 +162,24 @@ sub _read_manifest ( $file, $want )
 			    . "(expected 'pkg', 'dist', 'cpan' or 'bin')\n";
 		}
 
-		# A bin name carries two words: the command and its URL.
+		# A bin name carries two or three words: the command, its
+		# URL and, for an archive, the file path in the archive.
 		# Validate the shape here, with the other format checks,
 		# so a bad line in any environment fails at once.
 		if ( $type eq 'bin' ) {
-			my ( undef, $url ) = split ' ', $name, 2;
+			my ( undef, $url, $member ) = split ' ', $name, 3;
 			if ( !defined $url || $url eq '' ) {
 				warn "ERROR: Invalid format in $file: $line\n";
 				die
-"Expected: <environment> bin <name> <url>\n";
+"Expected: <environment> bin <name> <url> [<file-in-archive>]\n";
+			}
+			if ( _archive_type($url) && !defined $member ) {
+				die "ERROR: An archive URL needs the file "
+				    . "path in the archive\n";
+			}
+			if ( !_archive_type($url) && defined $member ) {
+				die "ERROR: A file path in the archive "
+				    . "needs an archive URL\n";
 			}
 		}
 
@@ -278,6 +287,17 @@ sub _install_dists (@urls)
 	return;
 }
 
+# _archive_type($url):
+#	The archive type that the URL's suffix names: 'tar' for
+#	.tar.gz and .tgz, 'zip' for .zip, undef for a plain file.
+sub _archive_type ($url)
+{
+	return 'tar' if $url =~ /\.(?:tar\.gz|tgz)\z/;
+	return 'zip' if $url =~ /\.zip\z/;
+
+	return;
+}
+
 # _target_arch($machine):
 #	The architecture word that a release-asset name uses. Linux
 #	and Darwin report x86_64 and aarch64. Release assets, like
@@ -292,7 +312,8 @@ sub _target_arch ($machine)
 
 # _install_bins($os, $arch, @bins):
 #	Install prebuilt binaries into ~/.local/bin. A bin entry
-#	holds a command name and a download URL. In the URL, {os}
+#	holds a command name, a download URL and, for an archive, the
+#	file path in the archive. In the URL and the path, {os}
 #	becomes the OS name in lower case, and {arch} becomes the
 #	machine architecture in the release-asset spelling. The fetch
 #	goes through scripts/ftp, and chmod sets the execute bit.
@@ -310,14 +331,48 @@ sub _install_bins ( $os, $arch, @bins )
 	_run( 'mkdir', '-p', $bindir );
 
 	for my $bin (@bins) {
-		my ( $name, $url ) = split ' ', $bin, 2;
-		$url =~ s/\{os\}/lc $os/ge;
-		$url =~ s/\{arch\}/_target_arch($arch)/ge;
+		my ( $name, $url, $member ) = split ' ', $bin, 3;
+		for ( grep { defined } $url, $member ) {
+			s/\{os\}/lc $os/ge;
+			s/\{arch\}/_target_arch($arch)/ge;
+		}
 
 		my $file = File::Spec->catfile( $bindir, $name );
-		_run( _ftp_path(), $file, $url );
-		_run( 'chmod',     '755', $file );
+		if ( defined $member ) {
+			_extract_bin( $file, $url, $member );
+		}
+		else {
+			_run( _ftp_path(), $file, $url );
+		}
+		_run( 'chmod', '755', $file );
 	}
+
+	return;
+}
+
+# _extract_bin($file, $url, $member):
+#	Fetch an archive and install the one file $member out of it
+#	as $file. tar unpacks .tar.gz and .tgz, and unzip unpacks
+#	.zip. Both unpack only $member, into a temporary directory.
+sub _extract_bin ( $file, $url, $member )
+{
+	my ($asset) = $url =~ m{([^/]+)\z};
+	if ( !defined $asset || $asset eq '' ) {
+		die "deps: cannot name the file of $url\n";
+	}
+
+	my $tmp     = tempdir( CLEANUP => 1 );
+	my $archive = File::Spec->catfile( $tmp, $asset );
+	_run( _ftp_path(), $archive, $url );
+
+	if ( _archive_type($asset) eq 'tar' ) {
+		_run( 'tar', '-xzf', $archive, '-C', $tmp, $member );
+	}
+	else {
+		_run( 'unzip', '-q', $archive, $member, '-d', $tmp );
+	}
+
+	_run( 'cp', File::Spec->catfile( $tmp, split m{/}, $member ), $file );
 
 	return;
 }
