@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed, in two parts. The gate reaches one part only.
+Proposed, in two parts. Implements: LIB-PROCESS without LIB-PROCESS-1. The gate
+reaches one part only.
 
 Part one is the `group` option on `Fugu::Process->terminate`. It has a consumer
 of record. FuguTTX `HRN-CANCEL` reads: "The parent kills the process group of a

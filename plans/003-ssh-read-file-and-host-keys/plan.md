@@ -3,6 +3,7 @@
 ## Status
 
 Proposed, in two parts. Part one can land now. Part two waits for a caller.
+Implements: LIB-SSH.
 
 Part one is `read_file`. It holds `read_file`, the `MAX_READ_SIZE` constant, and
 the `_read_all` helper.
