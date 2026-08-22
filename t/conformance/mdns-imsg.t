@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
-# Conformance tests for spec/MDNS-Imsg.md
+# Conformance tests for spec/protocol/MDNS-Imsg.md
 #
 # The framing is Protocol::Imsg, so most sections drive the codec over
 # bytes. Two predicates are not framing at all: an invalid len drops

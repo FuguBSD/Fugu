@@ -108,3 +108,22 @@ jobs:
       # configurations must match FuguBSD/Tooling exactly.
       - name: Check tooling drift
         run: ./tooling/scripts/sync --check
+
+  spec:
+    name: Spec
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate the specification
+        run: make spec-check
+
+      - name: Check the prose
+        run: make ste-lint
+
+      - name: Drift gate
+        if: github.event_name == 'pull_request'
+        run: scripts/spec-check --drift "origin/${{ github.base_ref }}"

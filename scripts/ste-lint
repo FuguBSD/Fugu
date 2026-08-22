@@ -1,0 +1,156 @@
+#!/usr/bin/env perl
+# ex:ts=8 sw=4:
+# $OpenBSD$
+#
+# Copyright (c) 2026 Dick Olsson <hi@senzilla.io>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+# ste-lint: reject prose that breaks the writing standard.
+#
+# usage: ste-lint [--root DIR]
+#
+# The FuguBSD repositories write ASD-STE100 Simplified Technical
+# English. This lint rejects the words and the patterns that the
+# standard bans and that reviews reject: filler connectives, vague
+# intensifiers, and references to an earlier state. It scans the
+# Markdown prose of the repository: the root documents, spec/ (first
+# level), plans/, lib/, t/, .github/ and .claude/. Reference material
+# under docs/ and under a spec/ subdirectory is exempt. Code fences
+# and inline code are exempt.
+#
+# The word list is deliberately short. It holds no word that correct
+# technical prose needs. Fix the prose, never the list.
+#
+# Like scripts/deps, this script is bootstrap tooling: core modules
+# only, and v5.34 because macOS still ships perl 5.34.
+
+use v5.34;
+use warnings;
+use experimental 'signatures';
+
+use File::Basename qw(dirname);
+use File::Spec     ();
+use Getopt::Long   qw(GetOptions);
+
+binmode $_, ':encoding(UTF-8)' for *STDOUT, *STDERR;
+
+my $root;
+GetOptions( 'root=s' => \$root ) or die "usage: ste-lint [--root DIR]\n";
+$root //= dirname( dirname( File::Spec->rel2abs(__FILE__) ) );
+
+my @WORDS = (
+	'additionally', 'crucial',
+	'crucially',    'cutting-edge',
+	'delve',        'delved',
+	'delves',       'delving',
+	'elegant',      'elegantly',
+	'empower',      'empowers',
+	'empowering',   'formerly',
+	'foster',       'fosters',
+	'fostering',    'furthermore',
+	'game-changer', 'game-changing',
+	'holistic',     'holistically',
+	'leverage',     'leveraged',
+	'leverages',    'leveraging',
+	'load-bearing', 'moreover',
+	'pivotal',      'previously',
+	'seamless',     'seamlessly',
+	'showcase',     'showcases',
+	'showcasing',   'state-of-the-art',
+	'streamline',   'streamlined',
+	'streamlines',  'streamlining',
+	'utilize',      'utilized',
+	'utilizes',     'utilizing',
+	'world-class',
+);
+my $words = join '|', map { quotemeta } @WORDS;
+
+my @PATTERNS = (
+	[ qr/\bno longer\b/i,                   'no longer' ],
+	[ qr/\bnot only\b.*\bbut(?: also)?\b/i, 'not only ... but (also)' ],
+	[ qr/\bnot just\b.*\bbut\b/i,           'not just ... but' ],
+	[ qr/\bis(?:n't| not) (?:just|only|merely)\b/i, 'is not just' ],
+	[ qr/\bworth noting\b/i,                        'worth noting' ],
+	[ qr/\bin conclusion\b/i,                       'in conclusion' ],
+	[ qr/\b$words\b/i,                              'banned word' ],
+);
+
+# _files():
+#	The Markdown prose files in lint scope, relative to the root.
+sub _files ()
+{
+	my @files;
+	opendir my $dh, $root or die "ste-lint: opendir $root: $!\n";
+
+	# SCRATCHPAD-<N>.md files are gitignored scratch space.
+	push @files,
+	    sort grep { /\.md\z/ && !/^SCRATCHPAD/ && -f "$root/$_" }
+	    readdir $dh;
+	closedir $dh;
+	for my $dir (qw(.github .claude lib plans t)) {
+		next unless -d "$root/$dir";
+		my @stack = ($dir);
+		while ( my $sub = shift @stack ) {
+			opendir my $sh, "$root/$sub"
+			    or die "ste-lint: opendir $sub: $!\n";
+			for my $name ( sort grep { !/^\.{1,2}\z/ } readdir $sh )
+			{
+				my $rel = "$sub/$name";
+				push @stack, $rel if -d "$root/$rel";
+				push @files, $rel
+				    if -f "$root/$rel" && $name =~ /\.md\z/;
+			}
+			closedir $sh;
+		}
+	}
+	if ( -d "$root/spec" ) {
+		opendir my $sh, "$root/spec"
+		    or die "ste-lint: opendir spec: $!\n";
+		push @files, map { "spec/$_" }
+		    sort grep { /\.md\z/ && -f "$root/spec/$_" } readdir $sh;
+		closedir $sh;
+	}
+
+	return @files;
+}
+
+my $found = 0;
+for my $file ( _files() ) {
+	open my $fh, '<:encoding(UTF-8)', "$root/$file"
+	    or die "ste-lint: read $file: $!\n";
+	my $fence  = 0;
+	my $number = 0;
+	while ( my $line = <$fh> ) {
+		$number++;
+		if ( $line =~ /^[ \t]*(?:```|~~~)/ ) {
+			$fence = !$fence;
+			next;
+		}
+		next if $fence;
+		$line =~ s/`[^`]*`//g;
+		for my $pattern (@PATTERNS) {
+			next unless $line =~ $pattern->[0];
+			say STDERR "$file:$number: $pattern->[1]: "
+			    . ( $line =~ s/^\s+|\s+$//gr );
+			$found++;
+		}
+	}
+	close $fh;
+}
+
+if ($found) {
+	say STDERR "ste-lint: $found finding(s)";
+	exit 1;
+}
+say 'ste-lint: prose passes';

@@ -32,7 +32,7 @@ socket closes. Thus a daemon keeps the object alive for as long as the
 daemon must be discoverable. To withdraw the advertisement, the daemon
 only closes the socket.
 
-The document F<spec/MDNS-Control.md> in this repository specifies the
+The document F<spec/protocol/MDNS-Control.md> in this repository specifies the
 wire protocol. This specification has the message types, the payload
 layouts, the group state machine, and its timing. The module never
 logs. Every method returns an outcome and records the most recent

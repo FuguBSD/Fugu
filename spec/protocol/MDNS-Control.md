@@ -143,8 +143,8 @@ the mDNS wire it splits that string on `.` into DNS character-strings —
 - A TXT record with several key=value pairs is encoded as one string with `.`
   between the pairs: `k1=v1.k2=v2`.
 - There is **no escape mechanism**: a `.` inside a value always splits. This is
-  why OpenHAP advertises `pv=1` rather than `pv=1.1` (`spec/HAP-mDNS.md` §3.5 in
-  the OpenHAP repository has the HomeKit-side context).
+  why a HomeKit Accessory Protocol server advertises `pv=1` rather than
+  `pv=1.1`.
 - Each split segment must fit a DNS character-string: 1-byte length prefix, so
   255 bytes max per segment; the whole `txt` field is capped at 255 usable bytes
   anyway (§4).
@@ -336,10 +336,11 @@ The connection then stays open for the lifetime of the advertisement (§6).
 ## 11. Browse, Resolve and Lookup
 
 Specified for completeness — they share the enum (§2) and the framing — but
-OpenHAP implements only publish. The `struct rr` reply payload used by browse
-and lookup is mdnsd's internal record structure (`mdnsd/mdnsd.h:106-131`), a
-much larger and more volatile ABI than `struct mdns_service`; implementing
-against it needs the same measure-first discipline as §4.
+`Fugu::Mdnsd` implements only publish. The `struct rr` reply payload used by
+browse and lookup is mdnsd's internal record structure
+(`mdnsd/mdnsd.h:106-131`), a much larger and more volatile ABI than
+`struct mdns_service`; implementing against it needs the same measure-first
+discipline as §4.
 
 ### 11.1 Browse
 

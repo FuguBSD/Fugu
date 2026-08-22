@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Proposed. Implements: LIB-PROCESS without LIB-PROCESS-2.
 
 FuguTTX is a reachable consumer. The allow-list of FuguTTX decision D7 holds
 `Fugu::Process`, so the harness loads the module. FuguTTX HRN-PERL names the

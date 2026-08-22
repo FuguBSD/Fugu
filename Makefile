@@ -1,4 +1,4 @@
-.PHONY: all build check clean deps deps-develop deps-test dist install lint prettier prettier-fix spec-coverage test tidy tidy-fix uninstall
+.PHONY: all build check clean deps deps-develop deps-test dist install lint prettier prettier-fix spec-check spec-coverage ste-lint test tidy tidy-fix uninstall
 
 # Filesystem configuration
 PREFIX			?= /usr/local
@@ -32,7 +32,7 @@ build: dist
 
 # prettier stays out of check: it runs through npx, and no deps/
 # manifest provides node. CI runs it in its own job.
-check: lint test tidy spec-coverage
+check: lint test tidy spec-coverage spec-check ste-lint
 
 clean:
 	rm -rf build
@@ -71,8 +71,14 @@ prettier:
 prettier-fix:
 	$(PRETTIER) --write --no-error-on-unmatched-pattern '**/*.md' '**/*.json' '**/*.yml'
 
+spec-check:
+	@./scripts/spec-check
+
 spec-coverage:
-	@./scripts/spec-coverage --quiet
+	@./scripts/spec-coverage --quiet --spec-dir spec/protocol
+
+ste-lint:
+	@./scripts/ste-lint
 
 test:
 	prove -l -v t/fugu/*.t

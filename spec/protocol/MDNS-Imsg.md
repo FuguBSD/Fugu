@@ -84,6 +84,7 @@ implementation must honor:
 imsg can pass file descriptors as `SCM_RIGHTS` ancillary data on the message
 marked with `IMSG_FD_MARK` (`imsg.c:449-452`). The mdnsd control protocol does
 not use this facility: no message in the `imsg_type` enum carries an fd, and
-`mdnsctl/mdnsl.c` never sends one. OpenHAP's client deliberately omits fd
+`mdnsctl/mdnsl.c` never sends one. A pledged client deliberately omits fd
 passing — receiving ancillary fds would require `recvmsg`/`sendmsg` rights that
-map to the `sendfd`/`recvfd` pledge(2) promises, which `openhapd` does not hold.
+map to the `sendfd`/`recvfd` pledge(2) promises, which a tightly pledged daemon
+does not hold.

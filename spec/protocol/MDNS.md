@@ -3,9 +3,10 @@
 This document is the entry point to the OpenBSD mdnsd control protocol
 reference: the private wire protocol a client speaks over `/var/run/mdnsd.sock`
 to publish (and browse, resolve, look up) mDNS services through `mdnsd(8)` from
-the `net/openmdns` port. OpenHAP uses it to advertise the `_hap._tcp` service
-natively, with no `mdnsctl(8)` child process. Detailed protocol information
-lives in the `MDNS-*.md` topic files indexed below.
+the `net/openmdns` port. A HomeKit Accessory Protocol server uses it to
+advertise the `_hap._tcp` service natively, with no `mdnsctl(8)` child process.
+Detailed protocol information lives in the `MDNS-*.md` topic files indexed
+below.
 
 **Source References:** Information in these documents is derived from the
 openmdns sources as installed by the OpenBSD port (`mdnsd/mdns.h`,
@@ -95,8 +96,8 @@ records the error replies and the (non-)semantics of `IMSG_CTL_GROUP_RESET`.
 ## Topic files
 
 - [MDNS-Imsg.md](MDNS-Imsg.md) — the framing layer: header layout, length
-  semantics, message boundaries, the fd-passing facility and why OpenHAP does
-  not use it.
+  semantics, message boundaries, the fd-passing facility and why a pledged
+  client does not use it.
 - [MDNS-Control.md](MDNS-Control.md) — the control protocol: socket, message
   types and payloads, the `struct mdns_service` ABI, TXT encoding, the group
   state machine and its replies, TXT replacement, and the browse, resolve and

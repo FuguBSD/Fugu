@@ -1,0 +1,546 @@
+#!/usr/bin/env perl
+# ex:ts=8 sw=4:
+# $OpenBSD$
+#
+# Copyright (c) 2026 Dick Olsson <hi@senzilla.io>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+# spec-check: validate the specification and the plans.
+#
+# usage: spec-check [--root DIR] [--drift BASE]
+#
+# The check enforces these rules:
+#
+#  1. Each relative link must point to a file that exists.
+#  2. Each link anchor must match a heading or an HTML anchor in its
+#     target document.
+#  3. spec/index.md must list each specification document.
+#  4. Each unit anchor must sit in its own document, and must be
+#     unique. The document codes come from the tables of spec/index.md.
+#  5. The register spec/STATUS.md must list each unit, and only each
+#     unit, in one Units table with the columns Unit, State, Done by,
+#     and Note.
+#  6. Each register row must use the fixed state vocabulary, and its
+#     "Done by" value must name a ROADMAP.md phase or an em dash.
+#  7. Each rule definition must sit in the document of its unit.
+#  8. Each unit, rule, or decision citation must resolve.
+#  9. A specification document must not state a schedule phase.
+# 10. A plan must not cite a `done` unit under `Implements:`.
+# 11. With --drift <base>: a change to a document with a `partial` or
+#     `done` unit must also change the register or a mapped code root.
+#
+# Like scripts/deps, this script is bootstrap tooling: core modules
+# only, and v5.34 because macOS still ships perl 5.34.
+
+use v5.34;
+use warnings;
+use experimental 'signatures';
+
+use File::Basename qw(dirname);
+use File::Spec     ();
+use Getopt::Long   qw(GetOptions);
+
+binmode $_, ':encoding(UTF-8)' for *STDOUT, *STDERR;
+
+my $root;
+my $drift;
+GetOptions( 'root=s' => \$root, 'drift=s' => \$drift )
+    or die "usage: spec-check [--root DIR] [--drift BASE]\n";
+$root //= dirname( dirname( File::Spec->rel2abs(__FILE__) ) );
+-d "$root/spec" or die "spec-check: no spec directory under $root\n";
+
+my $DASH   = "\x{2014}";
+my %STATES = map { $_ => 1 } qw(open partial done n-a);
+my %GOVERNANCE =
+    map { $_ => 1 } qw(index.md CLAUDE.md DECISIONS.md ROADMAP.md STATUS.md);
+
+my @errors;
+
+# _slurp($path):
+#	Whole file as decoded text, or die.
+sub _slurp ($path)
+{
+	open my $fh, '<:encoding(UTF-8)', $path
+	    or die "spec-check: read $path: $!\n";
+	local $/ = undef;
+	my $text = <$fh>;
+	close $fh;
+
+	return $text;
+}
+
+# _strip_fences($text):
+#	The text without fenced code blocks.
+sub _strip_fences ($text)
+{
+	my @out;
+	my $fence = 0;
+	for my $line ( split /\n/, $text ) {
+		if ( $line =~ /^[ \t]*(?:```|~~~)/ ) {
+			$fence = !$fence;
+			next;
+		}
+		push @out, $line unless $fence;
+	}
+
+	return join "\n", @out;
+}
+
+# _files():
+#	Every Markdown file in scan scope, as paths relative to the
+#	root: CLAUDE.md, README.md, and the spec, docs and plans trees.
+sub _files ()
+{
+	my @files;
+	for my $entry (qw(CLAUDE.md README.md)) {
+		push @files, $entry if -f "$root/$entry";
+	}
+	for my $dir (qw(spec docs plans)) {
+		next unless -d "$root/$dir";
+		my @stack = ($dir);
+		while ( my $sub = shift @stack ) {
+			opendir my $dh, "$root/$sub"
+			    or die "spec-check: opendir $sub: $!\n";
+			for my $name ( sort grep { !/^\./ } readdir $dh ) {
+				my $rel = "$sub/$name";
+				push @stack, $rel if -d "$root/$rel";
+				push @files, $rel
+				    if -f "$root/$rel" && $name =~ /\.md\z/;
+			}
+			closedir $dh;
+		}
+	}
+
+	return @files;
+}
+
+# _slugify($heading):
+#	The GitHub anchor slug of one heading.
+sub _slugify ($heading)
+{
+	my $slug = lc $heading;
+	$slug =~ s/^\s+|\s+$//g;
+	$slug =~ s/[^\w\- ]//g;
+	$slug =~ s/ /-/g;
+
+	return $slug;
+}
+
+# _slugs($text):
+#	Every anchor a link fragment can target in one document.
+sub _slugs ($text)
+{
+	my $stripped = _strip_fences($text);
+	my %slugs;
+	my %counts;
+	for my $heading ( $stripped =~ /^#{1,6}\s+(.*)$/mg ) {
+		my $base = _slugify($heading);
+		my $n    = $counts{$base}++;
+		$slugs{ $n ? "$base-$n" : $base } = 1;
+	}
+	$slugs{$_} = 1 for $stripped =~ /<a id="([a-z0-9-]+)"><\/a>/g;
+
+	return \%slugs;
+}
+
+# _sibling($prefix):
+#	True when the text before a citation ends in the name of a
+#	sibling FuguBSD repository. Such a citation names the register
+#	of that repository, and the local check cannot resolve it.
+sub _sibling ($prefix)
+{
+	return $prefix =~ /\b(?:Fugu[A-Za-z0-9]*|Tooling|Repositories)\s+\z/;
+}
+
+# _doc_codes($index_text):
+#	Parse the code-to-document table of spec/index.md.
+sub _doc_codes ($index_text)
+{
+	my %codes;
+	for my $line ( split /\n/, _strip_fences($index_text) ) {
+		next
+		    unless $line =~
+		    /^\|\s*([A-Z][A-Z0-9]*)\s*\|\s*\[([a-z0-9-]+\.md)\]/;
+		$codes{$2} = $1;
+	}
+
+	return \%codes;
+}
+
+my @files = _files();
+my %text  = map { $_ => _slurp("$root/$_") } @files;
+
+# Rule 1 and 2: links and anchors.
+my %slug_cache;
+for my $source (@files) {
+	my $stripped = _strip_fences( $text{$source} );
+	my $dir      = dirname($source);
+	while ( $stripped =~ /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g ) {
+		my $target = $1;
+		next if $target =~ /^[a-z][a-z0-9+.-]*:/;
+		my ( $path, $fragment ) = split /#/, $target, 2;
+		my $resolved = $source;
+		if ( length $path ) {
+			$resolved =
+			    File::Spec->abs2rel(
+				File::Spec->rel2abs( "$dir/$path", $root ),
+				$root );
+			if ( !-e "$root/$resolved" ) {
+				push @errors, "$source: broken link: $target";
+				next;
+			}
+		}
+		next unless defined $fragment && $resolved =~ /\.md\z/;
+		next unless -f "$root/$resolved";
+		$slug_cache{$resolved} //=
+		    _slugs( $text{$resolved} // _slurp("$root/$resolved") );
+		push @errors, "$source: broken anchor: $target"
+		    unless $slug_cache{$resolved}{$fragment};
+	}
+}
+
+# Rule 3: index coverage.
+my $index_text = $text{'spec/index.md'};
+push @errors, 'spec/index.md does not exist' unless defined $index_text;
+my $codes = defined $index_text ? _doc_codes($index_text) : {};
+if ( defined $index_text ) {
+	my %linked;
+	while ( $index_text =~ /\[[^\]]*\]\(([^)#\s]+)/g ) {
+		$linked{$1} = 1;
+	}
+	for my $file ( grep { m{^spec/[^/]+\.md\z} } @files ) {
+		my $name = ( split /\//, $file )[1];
+		next if $name eq 'index.md' || $name eq 'CLAUDE.md';
+		push @errors, "spec/index.md does not list spec/$name"
+		    unless $linked{$name};
+	}
+	for my $name ( sort keys %$codes ) {
+		push @errors, "spec/index.md lists a missing document: $name"
+		    unless -f "$root/spec/$name";
+	}
+}
+
+my $code_alt = join '|', map { quotemeta } sort values %$codes;
+push @errors, 'spec/index.md names no document codes' unless $code_alt;
+
+# Rule 4: unit anchors sit in their own document, once.
+my %units;
+for my $source ( grep { m{^spec/[^/]+\.md\z} } @files ) {
+	my $name     = ( split /\//, $source )[1];
+	my $stripped = _strip_fences( $text{$source} );
+	for my $anchor ( $stripped =~ /<a id="([a-z0-9-]+)"><\/a>/g ) {
+		next
+		    unless $code_alt
+		    && $anchor =~ /^(?:${\lc $code_alt})(?:-[a-z0-9]+){1,2}\z/;
+		my $code = uc( ( split /-/, $anchor )[0] );
+		if ( ( $codes->{$name} // '' ) ne $code ) {
+			push @errors,
+			    "$source: unit anchor in the wrong document: "
+			    . $anchor;
+			next;
+		}
+		if ( $units{$anchor} ) {
+			push @errors, "$source: duplicate unit anchor: $anchor";
+			next;
+		}
+		$units{$anchor} = $name;
+	}
+}
+
+# Rule 7: rule definitions sit in the document of their unit, once.
+my %rules;
+if ($code_alt) {
+	for my $source ( grep { m{^spec/[^/]+\.md\z} } @files ) {
+		my $name     = ( split /\//, $source )[1];
+		my $stripped = _strip_fences( $text{$source} );
+		while (
+			$stripped =~ /^\s*(?:[-*]|\d+\.)\s+\*\*
+			((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2}-[1-9][0-9]{0,2})\b/mgx
+		    )
+		{
+			my $rule = $1;
+			my $unit = lc( $rule =~ s/-[0-9]+\z//r );
+			if ( ( $units{$unit} // '' ) ne $name ) {
+				push @errors,
+				    "$source: rule outside the document "
+				    . "of its unit: $rule";
+				next;
+			}
+			if ( $rules{$rule} ) {
+				push @errors, "$source: duplicate rule: $rule";
+				next;
+			}
+			$rules{$rule} = 1;
+		}
+	}
+}
+
+# The roadmap phases, for the "Done by" vocabulary.
+my %phases;
+if ( -f "$root/spec/ROADMAP.md" ) {
+	my $roadmap = $text{'spec/ROADMAP.md'} // '';
+	$phases{$_} = 1 for _strip_fences($roadmap) =~ /^\|\s*(P[0-9]+)\s*\|/mg;
+}
+else {
+	push @errors, 'spec/ROADMAP.md does not exist';
+}
+push @errors, 'spec/DECISIONS.md does not exist'
+    unless -f "$root/spec/DECISIONS.md";
+
+# Rules 5 and 6: the register.
+my @rows;
+my %retired;
+my %code_roots;
+if ( -f "$root/spec/STATUS.md" ) {
+	my $section = '';
+	my $number  = 0;
+	my $header  = 0;
+	for my $line ( split /\n/, _strip_fences( $text{'spec/STATUS.md'} ) ) {
+		$number++;
+		my $where = "spec/STATUS.md:$number";
+		if ( $line =~ /^#{1,6}\s+(.*)$/ ) {
+			$section = $1;
+			$section =~ s/\s+$//;
+			next;
+		}
+		next unless $line =~ /^\|/;
+		my @cells = split /(?<!\\)\|/, $line;
+		shift @cells if @cells && $cells[0]  =~ /^\s*$/;
+		pop @cells   if @cells && $cells[-1] =~ /^\s*$/;
+		s/^\s+|\s+$//g for @cells;
+		next if !@cells || !grep { $_ !~ /^-*$/ } @cells;
+		if ( $section eq 'Retired IDs' ) {
+			$retired{ $cells[0] } = 1 unless $cells[0] eq 'ID';
+			next;
+		}
+		if ( $section eq 'Code roots' ) {
+			next if $cells[0] eq 'Document' || @cells != 2;
+			my @roots =
+			    $cells[1] eq $DASH
+			    ? ()
+			    : map { s/^\s*`?|`?\s*$//gr }
+			    split /,/, $cells[1];
+			$code_roots{ $cells[0] } = \@roots;
+			next;
+		}
+		next unless $section eq 'Units';
+		if ( $cells[0] eq 'Unit' ) {
+			$header = 1;
+			push @errors,
+			    "$where: the register columns must be Unit, "
+			    . 'State, Done by, Note'
+			    unless @cells == 4
+			    && $cells[1] eq 'State'
+			    && $cells[2] eq 'Done by'
+			    && $cells[3] eq 'Note';
+			next;
+		}
+		if ( $cells[0] !~ /^\[([A-Z0-9-]+)\]\(([^)\s]+)\)\z/ ) {
+			push @errors,
+			    "$where: the Unit cell must be one link to "
+			    . "the unit anchor: $cells[0]";
+			next;
+		}
+		my ( $id, $target ) = ( $1, $2 );
+		if ( @cells != 4 ) {
+			push @errors,
+			    "$where: a register row must have four cells: "
+			    . $id;
+			next;
+		}
+		push @rows,
+		    {
+			id      => $id,
+			target  => $target,
+			state   => $cells[1],
+			done_by => $cells[2],
+			note    => $cells[3],
+			where   => $where,
+		    };
+	}
+	push @errors, 'spec/STATUS.md holds no Units table' unless $header;
+}
+else {
+	push @errors, 'spec/STATUS.md does not exist';
+}
+
+my %active;
+for my $row (@rows) {
+	my $where = $row->{where};
+	my $unit  = lc $row->{id};
+	if ( $active{ $row->{id} }++ ) {
+		push @errors, "$where: duplicate register row: $row->{id}";
+		next;
+	}
+	my $expected = $units{$unit} ? "$units{$unit}#$unit" : '';
+	push @errors,
+	    "$where: the Unit link must target the unit anchor: $row->{id}"
+	    unless $row->{target} eq $expected;
+	if ( !$STATES{ $row->{state} } ) {
+		push @errors, "$where: unknown state: $row->{state}";
+		next;
+	}
+	push @errors,
+	    "$where: the Done by value must name a ROADMAP.md phase "
+	    . "or $DASH: $row->{done_by}"
+	    unless $row->{done_by} eq $DASH || $phases{ $row->{done_by} };
+	push @errors, "$where: a partial row needs a note: $row->{id}"
+	    if $row->{state} eq 'partial'
+	    && $row->{note} =~ /^(?:$DASH)?\z/;
+	next unless $row->{state} eq 'done';
+	my @links = grep { !/^[a-z][a-z0-9+.-]*:/ }
+	    $row->{note} =~ /\[[^\]]*\]\(([^)\s]+)\)/g;
+	push @errors, "$where: a done row needs an evidence link: $row->{id}"
+	    unless @links;
+	for my $link (@links) {
+		my $path = ( split /#/, $link, 2 )[0];
+		push @errors, "$where: broken evidence link: $link"
+		    unless -e "$root/spec/$path";
+	}
+}
+my %anchor_ids = map { uc $_ => 1 } keys %units;
+for my $missing ( sort grep { !$active{$_} } keys %anchor_ids ) {
+	push @errors,
+	    "spec/STATUS.md: no register row for the unit: " . $missing;
+}
+for my $extra ( sort grep { !$anchor_ids{$_} } keys %active ) {
+	push @errors,
+	    "spec/STATUS.md: a register row without a unit anchor: $extra";
+}
+for my $gone ( sort keys %retired ) {
+	push @errors,
+	    "spec/STATUS.md: a retired ID still has an anchor: " . $gone
+	    if $anchor_ids{$gone};
+	push @errors, "spec/STATUS.md: a retired ID has an active row: " . $gone
+	    if $active{$gone};
+}
+
+# Rule 8: citations resolve. Subdirectories of spec/ and docs/ hold
+# reference material and are exempt.
+my $decisions = -f "$root/spec/DECISIONS.md" ? $text{'spec/DECISIONS.md'} : '';
+my %known     = ( %anchor_ids, %rules, %retired );
+for my $source (@files) {
+	next
+	    unless $source =~ m{^spec/[^/]+\.md\z}
+	    || $source =~ m{^plans/}
+	    || $source eq 'CLAUDE.md'
+	    || $source eq 'README.md';
+	my $stripped = _strip_fences( $text{$source} );
+	$stripped =~ s/`[^`]*`//g;
+	if ($code_alt) {
+		while (
+			$stripped =~ /\b((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2}
+			(?:-[1-9][0-9]{0,2})?)\b/gx
+		    )
+		{
+			my $token = $1;
+			next if $known{$token};
+			next if _sibling( substr $stripped, 0, $-[1] );
+			push @errors, "$source: unresolved citation: $token";
+		}
+	}
+
+	# A plan discusses sibling decisions in prose, so the decision
+	# check covers the specification documents only.
+	next unless $source =~ m{^spec/[^/]+\.md\z};
+	while ( $stripped =~ /\b(D-?[0-9]{1,3})\b/g ) {
+		my $token = $1;
+		next if _sibling( substr $stripped, 0, $-[1] );
+		push @errors, "$source: unresolved decision: $token"
+		    unless $decisions =~ /\b\Q$token\E\b/;
+	}
+}
+
+# Rule 9: no schedule statement in a unit document.
+for my $source ( grep { m{^spec/[^/]+\.md\z} } @files ) {
+	my $name = ( split /\//, $source )[1];
+	next if $GOVERNANCE{$name};
+	push @errors,
+	    "$source: a document must not state a schedule phase (Phase N)"
+	    if _strip_fences( $text{$source} ) =~ /Phase [0-9]/;
+}
+
+# Rule 10: a plan must not cite a done unit under Implements.
+my %state = map { $_->{id} => $_->{state} } @rows;
+for my $source ( grep { m{^plans/.*/plan\.md\z} } @files ) {
+	my $stripped = _strip_fences( $text{$source} );
+	$stripped =~ s/`//g;
+	for my $line ( grep { /\bImplements:/ } split /\n/, $stripped ) {
+		next unless $code_alt;
+		for my $token (
+			$line =~ /\b((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2})
+			(?![A-Z0-9-])/gx
+		    )
+		{
+			if ( !$anchor_ids{$token} ) {
+				push @errors,
+				    "$source: Implements cites an unknown "
+				    . "unit: $token";
+				next;
+			}
+			push @errors,
+			    "$source: Implements cites a done unit, "
+			    . "delete or trim the plan: $token"
+			    if ( $state{$token} // '' ) eq 'done';
+		}
+	}
+}
+
+# Rule 11: the drift gate.
+if ($drift) {
+	my @diff = qx(git -C \Q$root\E diff --name-only \Q$drift\E...HEAD);
+	die "spec-check: git diff failed\n" if $?;
+	chomp @diff;
+	my %changed = map { $_ => 1 } grep { length } @diff;
+	if ( !$changed{'spec/STATUS.md'} ) {
+		my %implemented;
+		for my $row (@rows) {
+			next unless $row->{state} =~ /^(?:partial|done)\z/;
+			my $doc = $units{ lc $row->{id} } or next;
+			push @{ $implemented{$doc} }, $row->{id};
+		}
+		for my $name ( sort keys %implemented ) {
+			next unless $changed{"spec/$name"};
+			my @roots = @{ $code_roots{$name} // [] };
+			my $hit   = 0;
+			for my $path ( keys %changed ) {
+				for my $r (@roots) {
+					( my $bare = $r ) =~ s{/\z}{};
+					$hit = 1
+					    if $path eq $bare
+					    || index( $path, "$bare/" ) == 0;
+				}
+			}
+			next if $hit;
+			push @errors,
+			      "spec/$name: the change must also update "
+			    . 'spec/STATUS.md or a code root; implemented '
+			    . 'units: '
+			    . join( ', ', @{ $implemented{$name} } );
+		}
+	}
+}
+
+if (@errors) {
+	say STDERR $_ for @errors;
+	say STDERR 'spec-check: ' . scalar(@errors) . ' error(s)';
+	exit 1;
+}
+say 'spec-check: '
+    . scalar(@files)
+    . ' documents pass, '
+    . scalar( keys %units )
+    . ' units, '
+    . scalar( keys %rules )
+    . ' rules';

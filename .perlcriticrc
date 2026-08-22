@@ -1,5 +1,5 @@
-# Perl::Critic configuration for OpenHAP
-# The rules follow OpenBSD pkg_add style. See style.pod.
+# Perl::Critic configuration for the FuguBSD repositories
+# The rules follow OpenBSD pkg_add style.
 severity = 4
 
 #-----------------------------------------------------------------------------

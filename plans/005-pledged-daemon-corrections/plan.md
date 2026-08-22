@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed, in two parts. Part one can land now. Part two lands with the caller
-that names the transport.
+Proposed, in two parts. Implements: LIB-LOG. Part one can land now. Part two
+lands with the caller that names the transport.
 
 Part one is the behavior correction. In syslog mode `Fugu::Log` pins the native
 transport for every logger: it calls `setlogsock('native')` before `openlog`,

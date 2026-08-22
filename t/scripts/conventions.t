@@ -15,7 +15,7 @@ my $dir = "$RealBin/../../scripts";
 
 # Named, not globbed: a script that disappears must fail here. The
 # list must not shrink silently.
-my @scripts = qw(deps dist ftp spec-coverage);
+my @scripts = qw(deps dist ftp spec-check spec-coverage ste-lint);
 
 for my $name (@scripts) {
 	my $path = "$dir/$name";
