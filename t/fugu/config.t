@@ -64,9 +64,9 @@ CONF
 		'a comment is not a setting' );
 };
 
-# The OpenHAP grammar: repeated blocks of one type, where the order is
+# A device-list grammar: repeated blocks of one type, where the order is
 # the order the accessories appear in the bridge.
-subtest 'an OpenHAP device list' => sub {
+subtest 'a device list of repeated blocks' => sub {
 	my $config = fixture(<<'CONF')->load;
 hap_name = "Home Bridge"
 db_path = /var/db/openhapd

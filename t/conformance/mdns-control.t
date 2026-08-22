@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
-# Conformance tests for spec/MDNS-Control.md
+# Conformance tests for spec/protocol/MDNS-Control.md
 
 use v5.36;
 use Test::More;
@@ -16,7 +16,7 @@ use_ok('Fugu::Imsg');
 use_ok('Fugu::Mdnsd');
 
 # The layout literals below are LP64 and little-endian, as measured
-# for the platforms that OpenHAP deploys to. On other platforms the
+# for the platforms this library deploys to. On other platforms the
 # daemon's own struct differs. There a byte-exact replay is
 # meaningless.
 my $lp64_le = $Config{ptrsize} == 8

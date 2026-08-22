@@ -1,36 +1,64 @@
-# spec/
+# CLAUDE.md
 
-Applies when working on files under `spec/`.
+This directory holds the specification. [index.md](index.md) is the entry point.
+It holds the plan contract, the ID conventions, and the document tables.
+[DECISIONS.md](DECISIONS.md) holds the decisions. A plan must not go against a
+decision.
 
-## Purpose
+## Format
 
-`spec/*.md` are the curated protocol references Fugu implements against, and the
-normative source the conformance tier cites:
+- One document specifies one area of work.
+- All text complies with ASD-STE100 Simplified Technical English: short
+  sentences, the active voice, one instruction per sentence, "must" for a
+  requirement, "must not" for a prohibition, "can" for a capability.
+- A rule item can join tightly coupled requirements on one object with "and
+  must". Each sentence stays short and active.
+- Each document describes the target design in the current state only. Do not
+  write an amendment, and do not refer to an earlier state.
+- Only [ROADMAP.md](ROADMAP.md) and [STATUS.md](STATUS.md) say when work occurs.
 
-- `MDNS.md` — index and overview; entry point into the `MDNS-*.md` topic files
-- `MDNS-Imsg.md` — the imsg(3) frame that `Protocol::Imsg` encodes and
-  `Fugu::Imsg` transports
-- `MDNS-Control.md` — the OpenBSD mdnsd control protocol that `Fugu::Mdnsd`
-  speaks over the control socket
+## The ID overlay
 
-## Writing changes
+A unit is one implementable design element. An invisible HTML anchor marks each
+unit, and the unit ID is the anchor in upper case:
 
-These are hand-maintained documents. Edit them in place — deepen a section, fix
-an error, add a missing case — and keep every claim traceable: cite the upstream
-source file (and line, where it helps) a value or behavior comes from, as the
-surrounding text does. Local clones of those upstream repositories, if you keep
-any, belong in the gitignored `external/`.
+```markdown
+<a id="doc-example"></a>
 
-Structure is load-bearing, not cosmetic:
+## Example functions
 
-- Numbered `##`/`###` headings are the citation anchors. `make spec-coverage`
-  parses them and fails on any test citation pointing at a section that no
-  longer exists, so renumbering or resequencing sections breaks tests in
-  `t/conformance/` — update the citations in the same change.
-- One normative topic file maps to one conformance test file
-  (`spec/MDNS-Imsg.md` ↔ `t/conformance/mdns-imsg.t`); adding a topic file means
-  adding its test file. See `t/CLAUDE.md`.
-- Tables are catalogs the tests loop over; unnumbered rows are cited as
-  `§<section>/<row>`, so row labels are anchors too.
-- Wire examples are replayed byte-exactly by tests. Correct them only against a
-  source, never to match the code.
+- **DOC-EXAMPLE-1** — The example function must …
+```
+
+- The anchor of a unit must start with the code of its document, in lower case,
+  followed by a hyphen. The document codes are in [index.md](index.md).
+- A unit extends from its anchor to the next unit anchor or heading, whichever
+  comes first.
+- A rule ID names one requirement inside a unit, as a bold-lead list item, as
+  the example above shows. Rule numbers only append: never renumber, and never
+  reuse a number.
+- A plan cites units and rules: `Implements: DOC-EXAMPLE without DOC-EXAMPLE-1`
+  and `Defers: DOC-OTHER`.
+- An ID must not change. To retire a unit: delete its anchor and its register
+  row, and add the ID to the "Retired IDs" table of the register.
+- A citation of a unit of a sibling repository is a prose token with the
+  repository name in front, for example `FuguOracle OPS-GET-4`. It is never a
+  link, and it never names a plan.
+
+## STATUS.md, the implementation register
+
+[STATUS.md](STATUS.md) is the only home of implementation state: one row per
+unit, with a state (`open`, `partial`, `done`, `n-a`), a "Done by" phase, and a
+note. When your change implements a unit, or a part of a unit, set the state of
+the unit in the register in the same change. A `partial` note names each absent
+part. A `done` note links the code or the tests. The "Done by" value names a
+phase of [ROADMAP.md](ROADMAP.md), or "—" when no phase applies.
+
+## Checks
+
+`make spec-check` validates the links, the anchors, the register, the rule
+definitions, the citations, the schedule lint, and the plans. A plan that cites
+a `done` unit under `Implements:` fails the check: delete or trim the plan in
+the change that sets the state. On a pull request, CI adds a drift gate: a
+change to a document with a `partial` or `done` unit must also change STATUS.md
+or a mapped code root.
