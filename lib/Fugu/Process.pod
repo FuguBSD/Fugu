@@ -33,6 +33,12 @@ operator.
 
 The module keeps no state. Every method is a class method.
 
+The module reads the Perl configuration at compile time, so no
+method call opens a configuration file. A caller that uses pledge(2)
+must load the module before the pledge. A C<require> of the module
+after a pledge without the C<rpath> promise aborts the process, and
+no code in the module can prevent that.
+
 =head2 spawn_command
 
 C<spawn_command(%args)> forks, redirects the standard descriptors, and
@@ -56,6 +62,28 @@ default is false.
 
 The paths for the child's standard descriptors. The default for each
 path is F</dev/null>.
+
+=item C<env>
+
+A hash reference that names the environment of the child. The keys
+are the variable names, and the values are the variable values. The
+child holds exactly the named variables. The parent C<%ENV> does not
+change: the child assigns its environment between the fork and the
+execve(2). An empty hash reference gives the child an empty
+environment. Without this argument, the child inherits the
+environment of the parent.
+
+The method checks the argument before the fork, and a bad argument
+starts nothing. These are the errors: the value is not a hash
+reference; a name holds no character; a name holds an equals sign or
+a NUL byte; a value is not defined; a value holds a NUL byte.
+
+The exec resolves a bare command name through execvp(3), and
+execvp(3) searches C<PATH>. An environment without C<PATH> makes
+execvp(3) fall back to the default path of the system. Give an
+absolute path, or name C<PATH> in C<env>. C<HOME>, C<TERM>, C<TZ>
+and C<LC_ALL> can matter to a given child, and the module adds none
+of them.
 
 =back
 
@@ -97,6 +125,10 @@ at the same time would race it.
 
 A directory that the child cannot enter is a startup failure with the
 reason in C<error>, not a silent run in the wrong place.
+
+=item C<env>
+
+The environment of the child, exactly as on C<spawn_command()>.
 
 =item C<passthrough>
 
@@ -164,7 +196,11 @@ modules.
 
 C<code> is the program text. C<args> is an array reference of
 arguments for the program. The method gives all other arguments to
-C<spawn_command()>.
+C<spawn_command()>, so C<env> works here too.
+
+The paths travel as C<-I> flags in the argument list, not in
+C<PERL5LIB>. An C<env> argument that clears the environment
+therefore costs the child no module.
 
 =head1 RETURN VALUES
 

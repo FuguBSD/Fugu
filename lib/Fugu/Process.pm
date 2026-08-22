@@ -19,6 +19,7 @@ use v5.36;
 
 package Fugu::Process;
 
+use Config;
 use Fcntl     qw(F_SETFD FD_CLOEXEC);
 use Fugu::CLI qw(EXIT_ERROR);
 use IO::Select;
@@ -35,6 +36,22 @@ use Time::HiRes qw(time);
 # How often terminate looks again while it waits for a child to go.
 use constant POLL_INTERVAL => 0.05;
 
+# The default @INC paths of this perl. Config.pm holds a small key
+# set, and the first read of any other key pulls Config_heavy.pl from
+# disk. The BEGIN block reads every key that the module needs, so the
+# read happens at compile time. A caller can then pledge without the
+# rpath promise, and no method opens a file behind it. The table is a
+# compile-time constant, not run-time state.
+my %DEFAULT_INC;
+
+BEGIN {
+	for my $key (qw(privlib archlib sitelib sitearch vendorlib vendorarch))
+	{
+		my $path = $Config{$key};
+		$DEFAULT_INC{$path} = 1 if defined $path && length $path;
+	}
+}
+
 # $class->spawn_command(%args):
 #	Fork and execute a command. Optionally run it as a daemon.
 #	The method returns a hashref: {pid => $pid, success => 1} on
@@ -46,9 +63,16 @@ use constant POLL_INTERVAL => 0.05;
 #		stdout    => $path|undef # Optional: redirect stdout (default: /dev/null)
 #		stderr    => $path|undef # Optional: redirect stderr (default: /dev/null)
 #		stdin     => $path|undef # Optional: redirect stdin (default: /dev/null)
+#		env       => \%vars     # Optional: the exact child environment
 #
 #	The method always waits for the exec to resolve, so a command
 #	that does not exist reports its own error message.
+#
+#	The env option names the environment of the child. The child
+#	holds exactly the named variables, and the parent %ENV does not
+#	change. Without the option the child inherits the parent
+#	environment. An empty hashref gives the child an empty
+#	environment. The .pod sidecar states the full contract.
 sub spawn_command ( $class, %args )
 {
 	my $cmd       = $args{cmd};
@@ -64,8 +88,15 @@ sub spawn_command ( $class, %args )
 		};
 	}
 
+	my $env;
+	if ( exists $args{env} ) {
+		my $env_error = _check_env( $args{env} );
+		return { success => 0, error => $env_error } if $env_error;
+		$env = $args{env};
+	}
+
 	my ( $pid, $error ) = _fork_exec(
-		$cmd, undef,
+		$cmd, undef, $env,
 		sub ($exec_w) {
 			if ($daemonize) {
 
@@ -93,6 +124,7 @@ sub spawn_command ( $class, %args )
 #		timeout => $seconds   # Optional: kill the child after this long
 #		stdin   => $string    # Optional: feed this to the child
 #		cwd     => $dir       # Optional: run the child in this directory
+#		env     => \%vars     # Optional: the exact child environment
 #		passthrough => 0|1    # Optional: let the child write to the terminal
 #
 #	The method returns a hashref with success, stdout, stderr,
@@ -105,6 +137,9 @@ sub spawn_command ( $class, %args )
 #	program, and a second call that ran at the same time would race
 #	it. A directory that the child cannot enter is a startup
 #	failure with the reason, not a silent run in the wrong place.
+#
+#	The env option names the environment of the child, exactly as
+#	on spawn_command.
 #
 #	With passthrough the child inherits the caller's output, and
 #	stdout and stderr come back empty. Use it for a command that
@@ -120,7 +155,14 @@ sub run ( $class, %args )
 	my $input   = $args{stdin};
 	my $cwd     = $args{cwd};
 
-	return $class->_run_passthrough( $cmd, $timeout, $input, $cwd )
+	my $env;
+	if ( exists $args{env} ) {
+		my $env_error = _check_env( $args{env} );
+		return _run_error($env_error) if $env_error;
+		$env = $args{env};
+	}
+
+	return $class->_run_passthrough( $cmd, $timeout, $input, $cwd, $env )
 	    if $args{passthrough};
 
 	pipe my $out_r, my $out_w
@@ -130,7 +172,7 @@ sub run ( $class, %args )
 	pipe my $in_r, my $in_w or return _run_error("Cannot create pipe: $!");
 
 	my ( $pid, $error ) = _fork_exec(
-		$cmd, $cwd,
+		$cmd, $cwd, $env,
 		sub ($exec_w) {
 			close $out_r;
 			close $err_r;
@@ -175,15 +217,19 @@ sub run ( $class, %args )
 	};
 }
 
-# $class->_run_passthrough($cmd, $timeout, $input, $cwd):
+# $class->_run_passthrough($cmd, $timeout, $input, $cwd, $env):
 #	Run a child that writes straight to the caller's output. Only
 #	the exec confirmation and the exit status come back.
-sub _run_passthrough ( $class, $cmd, $timeout, $input, $cwd = undef )
+sub _run_passthrough (
+	$class, $cmd, $timeout, $input,
+	$cwd = undef,
+	$env = undef
+    )
 {
 	pipe my $in_r, my $in_w or return _run_error("Cannot create pipe: $!");
 
 	my ( $pid, $error ) = _fork_exec(
-		$cmd, $cwd,
+		$cmd, $cwd, $env,
 		sub ($exec_w) {
 			close $in_w;
 
@@ -358,14 +404,15 @@ sub spawn_perl ( $class, %args )
 	return $class->spawn_command(%args);
 }
 
-# _fork_exec($cmd, $cwd, $redirect):
+# _fork_exec($cmd, $cwd, $env, $redirect):
 #	The shared fork-and-exec step. Fork the child, run $redirect in
 #	it to set up the standard handles (failures go through _fail),
-#	move it into $cwd, and exec the command over the close-on-exec
-#	failure pipe. Return ($pid, undef) when the exec resolved, or
-#	(undef, $error) when the machinery or the exec failed - the
-#	child is already reaped in that case.
-sub _fork_exec ( $cmd, $cwd, $redirect )
+#	move it into $cwd, give it the environment that $env names, and
+#	exec the command over the close-on-exec failure pipe. Return
+#	($pid, undef) when the exec resolved, or (undef, $error) when
+#	the machinery or the exec failed - the child is already reaped
+#	in that case.
+sub _fork_exec ( $cmd, $cwd, $env, $redirect )
 {
 	my ( $exec_r, $exec_w ) = _exec_pipe();
 	return ( undef, "Cannot create pipe: $!" ) unless $exec_r;
@@ -385,6 +432,13 @@ sub _fork_exec ( $cmd, $cwd, $redirect )
 
 		$redirect->($exec_w);
 		_chdir_or_fail( $exec_w, $cwd );
+
+		# The redirect opens its files by path, and the chdir
+		# moves the child. Neither step reads the environment,
+		# so the assignment comes after both and directly
+		# before the exec. An undefined $env keeps the
+		# inherited environment in place.
+		%ENV = %$env if defined $env;
 
 		# The pipe is close-on-exec, so a successful exec closes
 		# it and the parent reads EOF.
@@ -460,6 +514,32 @@ sub _run_error ($message)
 	};
 }
 
+# _check_env($env):
+#	Validate the env argument of a public method. Return undef for
+#	a valid argument, or the error message. Each public entry calls
+#	this once, before any pipe and before the fork, so a bad
+#	argument starts nothing.
+sub _check_env ($env)
+{
+	return 'env must be a hashref' unless ref $env eq 'HASH';
+
+	for my $name ( keys %$env ) {
+		return 'env holds an empty variable name'
+		    unless length $name;
+		return 'env name holds an equals sign or a NUL byte'
+		    if index( $name, '=' ) >= 0
+		    || index( $name, "\0" ) >= 0;
+
+		my $value = $env->{$name};
+		return "env value of $name is not defined"
+		    unless defined $value;
+		return "env value of $name holds a NUL byte"
+		    if index( $value, "\0" ) >= 0;
+	}
+
+	return;
+}
+
 # _drain($out, $err, $timeout, $pid):
 #	Read both pipes until they close. On a timeout, terminate the
 #	child and stop. Reading both at once matters: a child that
@@ -504,26 +584,17 @@ sub _drain ( $out, $err, $timeout, $pid )
 # _custom_inc_paths:
 #	Get the @INC paths that are not part of Perl's default
 #	installation. These paths usually come from -I, use lib, or
-#	PERL5LIB.
+#	PERL5LIB. The default set is %DEFAULT_INC, read at compile
+#	time.
 sub _custom_inc_paths()
 {
-	require Config;
-
-	# Build the set of default Perl lib paths
-	my %default_paths;
-	for my $key (qw(privlib archlib sitelib sitearch vendorlib vendorarch))
-	{
-		my $path = $Config::Config{$key};
-		$default_paths{$path} = 1 if defined $path && length $path;
-	}
-
 	# Return the @INC paths that are not in the default set.
 	# Skip '.' and CODE refs.
 	my @custom;
 	for my $inc (@INC) {
-		next if ref $inc;               # Skip CODE refs
-		next if $inc eq '.';            # Skip the current directory
-		next if $default_paths{$inc};
+		next if ref $inc;             # Skip CODE refs
+		next if $inc eq '.';          # Skip the current directory
+		next if $DEFAULT_INC{$inc};
 		push @custom, $inc;
 	}
 
