@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented. `lib/Fugu/REPL.pm` holds the module, `lib/Fugu/REPL.pod` holds the
+interface contract, and `t/fugu/repl.t` holds the tests.
 
 ## Purpose
 
@@ -198,7 +199,8 @@ sequences, hard-coded, because a terminfo read needs `rpath`.
 | Key                   | Action                                                                   |
 | --------------------- | ------------------------------------------------------------------------ |
 | `Enter`               | Accept the line                                                          |
-| `Tab`                 | Complete the word before the cursor                                      |
+| `Tab`                 | Complete the word before the cursor, and cycle through the candidates    |
+| `Shift-Tab`           | Cycle back through the candidates                                        |
 | `Ctrl-A`, `Home`      | Go to the start of the line                                              |
 | `Ctrl-E`, `End`       | Go to the end of the line                                                |
 | `Ctrl-B`, `Left`      | Go back one character                                                    |
@@ -223,8 +225,10 @@ It returns the candidate list.
 
 The module completes a command name from the command table when the cursor is in
 the first word. It calls the callback otherwise. One candidate replaces the
-word. Several candidates extend the word to the common prefix, and a second
-`Tab` shows the list.
+word. Several candidates extend the word to the common prefix. When no extension
+remains, `Tab` shows the list once, selects the first candidate, and starts a
+cycle. Each further `Tab` selects the next candidate, and `Shift-Tab` selects
+the previous one. The cycle wraps, and every other key ends it.
 
 The callback runs in the caller's process, at the prompt. A callback that blocks
 blocks the prompt.
@@ -266,6 +270,8 @@ The test proves:
 - `display_filter` replaces an invalid byte with one question mark.
 - `confirm` answers no for an empty answer, for `n`, and at an end of file.
 - `confirm` answers yes for `y` and for `yes`, in each letter case.
+- A completion with no remaining extension starts a cycle: `Tab` selects each
+  candidate in turn, `Shift-Tab` steps back, and the cycle wraps.
 - `help_text` lists every command, sorted, with the prefix.
 - The history holds no empty line and no immediate repeat.
 - The history drops the oldest line above `history_size`.

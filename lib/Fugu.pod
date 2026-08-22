@@ -55,6 +55,8 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Proxy> - a caching HTTP proxy
 
+=item L<Fugu::REPL> - a line editor for an operator prompt
+
 =item L<Fugu::Random> - random bytes and random passwords
 
 =item L<Fugu::SSH> - run a command on another machine over SSH

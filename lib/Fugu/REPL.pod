@@ -1,0 +1,319 @@
+=head1 NAME
+
+Fugu::REPL - a line editor for an operator prompt
+
+=head1 SYNOPSIS
+
+    use Fugu::REPL;
+
+    my $repl = Fugu::REPL->new(
+        prompt   => 'fugu> ',
+        commands => { help => 'show this help', quit => 'end the session' },
+        complete => sub ($word, $line) { return @candidates },
+        watch    => [$reply_pipe],
+    );
+
+    while (defined(my $line = $repl->read_line)) {
+        $repl->show($output);
+    }
+    exit 1 if $repl->event eq 'watch';
+
+=head1 DESCRIPTION
+
+B<Fugu::REPL> reads one operator command line from a terminal.
+It edits the line with a fixed emacs-style key subset, completes a
+word, keeps a session history in memory, and filters untrusted bytes
+before it shows them.
+
+The module stands alone.
+It uses core Perl only, it loads no other C<Fugu::> module, and it
+never logs: every failure is a return value.
+It operates inside the C<stdio tty> promises of pledge(2): it opens
+no file, creates no process, and reaches no network.
+The escape sequences are the fixed ANSI set, because a terminfo read
+needs the C<rpath> promise.
+
+The editor holds the terminal in raw mode only while it reads.
+C<restore()> puts the terminal back on every exit path, and the
+destructor calls it.
+
+This document is the interface contract of the module.
+The FuguPass and FuguTTX specifications cite it, so a change here
+coordinates with both.
+
+=head2 new
+
+C<new(%args)> builds an editor.
+The method opens nothing and changes no terminal setting.
+
+=over 4
+
+=item C<in>
+
+The input handle.
+The default is C<STDIN>.
+
+=item C<out>
+
+The output handle.
+The default is C<STDOUT>.
+
+=item C<prompt>
+
+The prompt string.
+The default is C<< > >>.
+
+=item C<commands>
+
+The command table, as a hash reference of name to summary.
+
+=item C<prefix>
+
+The command prefix, as a string.
+The default is the empty string.
+C<commands> and C<prefix> describe one command language: a tool with
+bare command words has an empty prefix, and a tool that marks a
+client command with a solidus has the prefix C</>.
+
+=item C<complete>
+
+A code reference for word completion.
+
+=item C<watch>
+
+Extra read handles, as an array reference.
+A handle that becomes readable ends the prompt read.
+
+=item C<history_size>
+
+The count of lines that the history keeps.
+The default is 500.
+
+=back
+
+C<new> dies when C<complete> is not a code reference, and when
+C<watch> holds a handle with no descriptor.
+Both are programming errors.
+
+=head2 read_line
+
+C<read_line()> reads one line and returns it, without the
+terminator.
+
+The method returns C<undef> at an end of file, when a watched handle
+becomes readable, and when the operator interrupts the line.
+C<event()> reports which outcome occurred, so a caller never
+guesses.
+
+The method holds raw mode only for the length of the call.
+The line joins the history when it is not empty and not the previous
+line.
+
+=head2 event
+
+C<event()> returns the outcome of the most recent C<read_line()> or
+C<confirm()> call: C<line>, C<eof>, C<watch>, or C<interrupt>.
+Before the first call it returns C<undef>.
+
+An interrupt at the prompt clears the line.
+It does not end the session; the caller decides what an interrupt
+means outside the prompt.
+
+=head2 ready_handle
+
+C<ready_handle()> returns the watched handle that ended the read,
+after an event of C<watch>.
+It returns C<undef> otherwise.
+
+A closed handle is readable at an end of file.
+Thus a caller learns that its peer went away, and the caller decides
+what that means.
+
+=head2 confirm
+
+C<confirm($question)> asks a yes-or-no question.
+The method returns 1 for C<y> and C<yes>, in each letter case, and 0
+for every other answer.
+The default is no: an empty answer, an end of file, and an interrupt
+all answer no.
+A gate that a stray keystroke can open is not a gate.
+The answer stays out of the history.
+
+=head2 display_filter
+
+C<display_filter($bytes)> returns the bytes that are safe to show.
+This is a plain function, not a method, because a caller filters
+bytes that no editor read.
+
+The filter keeps printable ASCII, the line feed, and the horizontal
+tab.
+It removes C<DEL> (0x7F) and the C1 range (0x80 to 0x9F), as a raw
+byte and as a UTF-8 sequence alike.
+Every other valid UTF-8 sequence survives whole, and every other
+byte becomes one question mark.
+
+An escape sequence in tool output can rewrite what the operator
+sees.
+It can hide the change that the operator is about to approve, so
+every untrusted byte passes this filter before display.
+
+=head2 show
+
+C<show($bytes)> filters the bytes with C<display_filter()> and
+writes them to the output handle.
+The method returns the object.
+
+=head2 help_text
+
+C<help_text()> returns the help for the command table: one line for
+each command, with the prefix, the name, and the summary, in sorted
+order.
+The module generates the help, so the table and the help cannot
+disagree.
+
+=head2 history
+
+C<history()> returns the session history, oldest first.
+C<add_history($line)> appends one line and drops the oldest line
+above C<history_size>.
+
+The history lives in memory only, for the session.
+The module never writes a history file, because a history file leaks
+the words that an operator typed.
+
+=head2 is_interactive
+
+C<is_interactive()> returns 1 when the input handle is a terminal,
+and 0 otherwise.
+
+With a 0 answer the module reads plain lines: no editing, no history
+recall, and no escape output.
+Scripted tests drive a session in this mode.
+
+=head2 prompt, commands, watch
+
+C<prompt($string)> sets or reads the prompt.
+C<commands($hashref)> sets or reads the command table.
+C<watch($arrayref)> sets or reads the watched handles.
+
+A caller changes the completion set when the session state changes,
+for example when an index opens after an unlock.
+
+=head2 restore
+
+C<restore()> puts the terminal settings back and returns the object.
+The method is idempotent, and the destructor calls it.
+
+=head1 THE KEY SUBSET
+
+The editor implements one fixed set of keys.
+
+    Enter               accept the line
+    Tab                 complete the word before the cursor,
+                        and cycle through the candidates
+    Shift-Tab           cycle back through the candidates
+    Ctrl-A, Home        go to the start of the line
+    Ctrl-E, End         go to the end of the line
+    Ctrl-B, Left        go back one character
+    Ctrl-F, Right       go forward one character
+    Ctrl-P, Up          recall the previous history line
+    Ctrl-N, Down        recall the next history line
+    Backspace, Ctrl-H   delete the character before the cursor
+    Ctrl-D              delete the character under the cursor,
+                        or end the input on an empty line
+    Ctrl-K              delete to the end of the line
+    Ctrl-U              delete the whole line
+    Ctrl-W              delete the word before the cursor
+    Ctrl-L              draw the line again
+    Ctrl-C              clear the line and report an interrupt
+
+An unknown escape sequence does nothing.
+The editor never inserts the bytes of a sequence into the line.
+
+=head1 COMPLETION
+
+The C<complete> callback receives the word before the cursor and the
+whole line.
+It returns the candidate list.
+
+The module completes a command name from the command table when the
+cursor is in the first word of the command language.
+It calls the callback otherwise.
+One candidate replaces the word.
+Several candidates extend the word to the common prefix.
+When no extension remains, C<Tab> shows the list once, selects the
+first candidate, and starts a cycle.
+Each further C<Tab> selects the next candidate, and C<Shift-Tab>
+selects the previous one.
+The cycle wraps, and every other key ends it.
+
+The callback runs in the caller's process, at the prompt.
+A callback that blocks blocks the prompt.
+
+=head1 RETURN VALUES
+
+C<read_line()> returns the line, or C<undef> at an end of file, on a
+watch event, and on an interrupt.
+C<confirm()> returns 1 or 0.
+C<event()> returns C<line>, C<eof>, C<watch>, C<interrupt>, or
+C<undef> before the first read.
+C<ready_handle()> returns a handle after a watch event and C<undef>
+otherwise.
+
+=head1 EXAMPLES
+
+This example runs a session that a peer on a reply pipe can end:
+
+    my $repl = Fugu::REPL->new(
+        commands => { help => 'show this help', quit => 'end the session' },
+        watch    => [$reply],
+    );
+
+    while (1) {
+        my $line = $repl->read_line;
+        if (!defined $line) {
+            next if $repl->event eq 'interrupt';
+            last;
+        }
+        last if $line eq 'quit';
+        $repl->show( handle_command($line) );
+    }
+
+This example gates a dangerous step:
+
+    apply_change() if $repl->confirm('Apply the change?');
+
+=head1 ERRORS
+
+C<new()> and the C<watch()> accessor die on a programming error: a
+C<complete> argument that is not a code reference, or a watch handle
+with no descriptor.
+Every other failure is a return value, and C<event()> names it.
+
+=head1 SEE ALSO
+
+pledge(2), termios(4), L<Fugu::CLI>, L<Fugu::Signal>
+
+=head1 AUTHORS
+
+Dick Olsson E<lt>hi@senzilla.ioE<gt>
+
+=head1 CAVEATS
+
+The editor counts a UTF-8 sequence as one character for the cursor.
+A double-width character therefore draws one column short.
+
+A line that grows past the terminal width wraps, and the redraw then
+trails the wrapped part.
+An operator command line is short in practice.
+
+A candidate list can be longer than the terminal.
+The module shows the whole list and draws the prompt again; it has
+no page mode.
+
+A signal that interrupts a blocked read reports the event
+C<interrupt>.
+The caller checks its own signal flags and decides whether to read
+again.
+
+=cut
