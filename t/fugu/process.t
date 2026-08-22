@@ -434,6 +434,8 @@ subtest 'a bad env returns an error and starts nothing' => sub {
 		[ 'an undefined value'            => { A      => undef } ],
 		[ 'a reference value'             => { A      => [] } ],
 		[ 'a NUL byte in a value'         => { A      => "x\0y" } ],
+		[ 'a wide character in a name'    => { "\x{263a}" => 'x' } ],
+		[ 'a wide character in a value'   => { A => "\x{263a}" } ],
 	);
 
 	for my $case (@bad) {

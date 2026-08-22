@@ -529,6 +529,13 @@ sub _check_env ($env)
 		    if index( $name, '=' ) >= 0
 		    || index( $name, "\0" ) >= 0;
 
+		# A character above 255 cannot reach setenv(3) as one
+		# byte. Perl would encode it behind the caller, warn on
+		# the child's stderr, and export bytes the caller never
+		# named. The boundary rejects it instead.
+		return 'env name holds a character above 255'
+		    if $name =~ tr/\x00-\xff//c;
+
 		my $value = $env->{$name};
 		return "env value of $name is not defined"
 		    unless defined $value;
@@ -536,6 +543,8 @@ sub _check_env ($env)
 		    if ref $value;
 		return "env value of $name holds a NUL byte"
 		    if index( $value, "\0" ) >= 0;
+		return "env value of $name holds a character above 255"
+		    if $value =~ tr/\x00-\xff//c;
 	}
 
 	return;

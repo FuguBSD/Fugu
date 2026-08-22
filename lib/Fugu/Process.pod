@@ -98,6 +98,12 @@ A value is not defined, or a value is a reference.
 
 A value holds a NUL byte.
 
+=item *
+
+A name or a value holds a character above 255. Such a character
+cannot reach setenv(3) as one byte, and a silent encoding would give
+the child bytes the caller never named.
+
 =back
 
 The exec resolves a bare command name through execvp(3), and
