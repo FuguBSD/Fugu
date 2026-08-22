@@ -53,7 +53,7 @@ explicitly when that matters.
 
 =back
 
-The wire format is in F<spec/MDNS-Imsg.md> in this repository.
+The wire format is in F<spec/protocol/MDNS-Imsg.md> in this repository.
 That document is a curated reference, not an installed manual.
 
 =head1 CONSTANTS
@@ -148,6 +148,6 @@ before the close cannot come out after it.
 
 =head1 SEE ALSO
 
-L<Fugu::Imsg>, F<spec/MDNS-Imsg.md>
+L<Fugu::Imsg>, F<spec/protocol/MDNS-Imsg.md>
 
 =cut

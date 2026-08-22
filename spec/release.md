@@ -23,9 +23,9 @@ pipeline.
 A release is deliberate: push a version tag, and the release workflow tests,
 builds once, and publishes the one tarball.
 
-- **REL-ASSETS-1** — The workflow must publish the tarball to GitHub Releases
-  under its versioned name and as `Fugu.tar.gz`, the stable asset that
-  `releases/latest/download/Fugu.tar.gz` serves to the consumers.
+- **REL-ASSETS-1** — The workflow must publish the tarball to GitHub Releases,
+  under its versioned name and as `Fugu.tar.gz`. The consumers fetch that stable
+  asset from `releases/latest/download/Fugu.tar.gz`.
 - **REL-ASSETS-2** — The workflow must publish the same tarball to PAUSE, with
   the `PAUSE_USERNAME` and `PAUSE_PASSWORD` secrets from the `release`
   environment.

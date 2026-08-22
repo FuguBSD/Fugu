@@ -22,9 +22,8 @@
 # usage: deps [--dry-run] [--arch NAME] [--os NAME] <runtime|test|develop>
 #
 # The script reads deps/<OS>.txt relative to the current directory,
-# not relative to this script. The guest runs
-# 'cd /tmp/openhap-* && make deps' out of the extracted tarball. That
-# tree is different from any checkout.
+# not relative to this script. A guest can run 'make deps' out of an
+# extracted tarball, and that tree is different from any checkout.
 #
 # This script is the bootstrap. Nothing it needs may be something it
 # installs. Thus it uses only core modules and no v5.36. macOS still

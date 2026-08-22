@@ -53,7 +53,7 @@ one change lands.
 - The pull request that implements a plan deletes the plan directory in the same
   change. After that, the specification and the code are the reference.
 - A merged plan must not stay behind. `make spec-check` fails a plan that cites
-  an implemented unit.
+  a `done` unit.
 
 The full rules are in [plans/CLAUDE.md](plans/CLAUDE.md).
 

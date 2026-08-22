@@ -92,7 +92,11 @@ sub _files ()
 {
 	my @files;
 	opendir my $dh, $root or die "ste-lint: opendir $root: $!\n";
-	push @files, sort grep { /\.md\z/ && -f "$root/$_" } readdir $dh;
+
+	# SCRATCHPAD-<N>.md files are gitignored scratch space.
+	push @files,
+	    sort grep { /\.md\z/ && !/^SCRATCHPAD/ && -f "$root/$_" }
+	    readdir $dh;
 	closedir $dh;
 	for my $dir (qw(.github .claude lib plans t)) {
 		next unless -d "$root/$dir";

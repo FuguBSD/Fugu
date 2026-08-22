@@ -11,8 +11,8 @@ Applies when working on files under `t/`.
 | Module      | `t/protocol/`        | the `Protocol::` codec, dependency boundary | `make test` |
 | Tooling     | `t/scripts/` `t/ci/` | what `scripts/` and `.github/` produce      | `make test` |
 
-Module tests follow the unit-test rules in `lib/CLAUDE.md` (skip gracefully
-on missing dependencies) and need no citations.
+Module tests follow the unit-test rules in `lib/CLAUDE.md` (skip gracefully on
+missing dependencies) and need no citations.
 
 Tooling tests are named after what they cover — `t/scripts/deps.t` for
 `scripts/deps` — and drive it as a subprocess rather than loading a module, so
@@ -51,8 +51,8 @@ description:
 [<spec-stem> §<section>/<row>] <free text>      # unnumbered table rows
 ```
 
-- `<spec-stem>` is the spec file name without `spec/` and `.md`, e.g.
-  `MDNS-Imsg` for `spec/protocol/MDNS-Imsg.md`.
+- `<spec-stem>` is the base file name of the protocol reference, without `.md`,
+  e.g. `MDNS-Imsg` for `spec/protocol/MDNS-Imsg.md`.
 - `<section>` is a numbered `##`/`###` heading anchor, e.g. `2.6` or `8`.
 - The `/<row>` form points into an unnumbered table row.
 

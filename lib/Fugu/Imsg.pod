@@ -31,7 +31,7 @@ it never logs. Callers decide what a failure means.
 This page does not repeat the wire format: the field layout, the
 length semantics, the size bounds, and the message boundary rules.
 L<Protocol::Imsg> documents the codec and its three limits, and the
-protocol reference F<spec/MDNS-Imsg.md> in this repository gives the
+protocol reference F<spec/protocol/MDNS-Imsg.md> in this repository gives the
 full specification. That document is a curated reference, not an
 installed manual.
 
@@ -97,7 +97,7 @@ imsg_init(3), L<Fugu::Mdnsd>
 
 L<Protocol::Imsg> documents the frame. It is a sidecar F<.pod> beside
 the module and not a manual page, so no cross-reference here resolves
-to it. The protocol reference F<spec/MDNS-Imsg.md> in this repository
+to it. The protocol reference F<spec/protocol/MDNS-Imsg.md> in this repository
 gives the wire format.
 
 =head1 AUTHORS
