@@ -154,6 +154,15 @@ sub _slugs ($text)
 	return \%slugs;
 }
 
+# _sibling($prefix):
+#	True when the text before a citation ends in the name of a
+#	sibling FuguBSD repository. Such a citation names the register
+#	of that repository, and the local check cannot resolve it.
+sub _sibling ($prefix)
+{
+	return $prefix =~ /\b(?:Fugu[A-Za-z0-9]*|Tooling|Repositories)\s+\z/;
+}
+
 # _doc_codes($index_text):
 #	Parse the code-to-document table of spec/index.md.
 sub _doc_codes ($index_text)
@@ -430,13 +439,15 @@ for my $source (@files) {
 	my $stripped = _strip_fences( $text{$source} );
 	$stripped =~ s/`[^`]*`//g;
 	if ($code_alt) {
-		for my $token (
+		while (
 			$stripped =~ /\b((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2}
 			(?:-[1-9][0-9]{0,2})?)\b/gx
 		    )
 		{
-			push @errors, "$source: unresolved citation: $token"
-			    unless $known{$token};
+			my $token = $1;
+			next if $known{$token};
+			next if _sibling( substr $stripped, 0, $-[1] );
+			push @errors, "$source: unresolved citation: $token";
 		}
 	}
 
@@ -444,12 +455,8 @@ for my $source (@files) {
 	# check covers the specification documents only.
 	next unless $source =~ m{^spec/[^/]+\.md\z};
 	while ( $stripped =~ /\b(D-?[0-9]{1,3})\b/g ) {
-		my $token  = $1;
-		my $prefix = substr $stripped, 0, $-[1];
-
-		# A sibling-repository citation names the repository
-		# in front. The local register cannot resolve it.
-		next if $prefix =~ /[A-Z][A-Za-z0-9]*\s+\z/;
+		my $token = $1;
+		next if _sibling( substr $stripped, 0, $-[1] );
 		push @errors, "$source: unresolved decision: $token"
 		    unless $decisions =~ /\b\Q$token\E\b/;
 	}
