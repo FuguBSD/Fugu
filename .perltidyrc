@@ -1,5 +1,5 @@
-# Perltidy configuration for OpenHAP
-# The settings follow OpenBSD pkg_add style. See style.pod.
+# Perltidy configuration for the FuguBSD repositories
+# The settings follow OpenBSD pkg_add style.
 
 # Indentation: 8-character tabs, as style(9) requires
 --indent-columns=8

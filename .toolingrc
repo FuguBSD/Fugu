@@ -1,5 +1,7 @@
 # Per-repo configuration for the shared FuguBSD tooling. The synced
 # scripts read their identity keys here. See FuguBSD/Tooling.
+sync.pack org
+sync.pack perl
 dist.name     Fugu
 dist.module   Fugu
 dist.abstract OpenBSD-style daemon utilities for Perl
