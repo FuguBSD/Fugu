@@ -1,10 +1,4 @@
-# CLAUDE.md
-
 @README.md
-
-The README above gives the identity of this repository: the purpose, the layout,
-the commands, and the commit scopes. The rules below govern every FuguBSD
-repository.
 
 ## Critical: writing standard
 
