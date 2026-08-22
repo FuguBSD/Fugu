@@ -74,9 +74,31 @@ environment. Without this argument, the child inherits the
 environment of the parent.
 
 The method checks the argument before the fork, and a bad argument
-starts nothing. These are the errors: the value is not a hash
-reference; a name holds no character; a name holds an equals sign or
-a NUL byte; a value is not defined; a value holds a NUL byte.
+starts nothing. These are the errors:
+
+=over 4
+
+=item *
+
+The value is not a hash reference.
+
+=item *
+
+A name holds no character.
+
+=item *
+
+A name holds an equals sign or a NUL byte.
+
+=item *
+
+A value is not defined, or a value is a reference.
+
+=item *
+
+A value holds a NUL byte.
+
+=back
 
 The exec resolves a bare command name through execvp(3), and
 execvp(3) searches C<PATH>. An environment without C<PATH> makes

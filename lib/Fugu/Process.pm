@@ -405,13 +405,13 @@ sub spawn_perl ( $class, %args )
 }
 
 # _fork_exec($cmd, $cwd, $env, $redirect):
-#	The shared fork-and-exec step. Fork the child, run $redirect in
-#	it to set up the standard handles (failures go through _fail),
-#	move it into $cwd, give it the environment that $env names, and
-#	exec the command over the close-on-exec failure pipe. Return
-#	($pid, undef) when the exec resolved, or (undef, $error) when
-#	the machinery or the exec failed - the child is already reaped
-#	in that case.
+#	The shared fork-and-exec step. Fork the child and run
+#	$redirect in it to set up the standard handles; failures go
+#	through _fail. Move the child into $cwd, and give it the
+#	environment that $env names. Then exec the command over the
+#	close-on-exec failure pipe. Return ($pid, undef) when the exec
+#	resolved, or (undef, $error) when the machinery or the exec
+#	failed - the child is already reaped in that case.
 sub _fork_exec ( $cmd, $cwd, $env, $redirect )
 {
 	my ( $exec_r, $exec_w ) = _exec_pipe();
@@ -433,11 +433,10 @@ sub _fork_exec ( $cmd, $cwd, $env, $redirect )
 		$redirect->($exec_w);
 		_chdir_or_fail( $exec_w, $cwd );
 
-		# The redirect opens its files by path, and the chdir
-		# moves the child. Neither step reads the environment,
-		# so the assignment comes after both and directly
-		# before the exec. An undefined $env keeps the
-		# inherited environment in place.
+		# Neither the redirect nor the chdir reads the
+		# environment, so the assignment comes after both and
+		# directly before the exec. An undefined $env keeps
+		# the inherited environment in place.
 		%ENV = %$env if defined $env;
 
 		# The pipe is close-on-exec, so a successful exec closes
@@ -533,6 +532,8 @@ sub _check_env ($env)
 		my $value = $env->{$name};
 		return "env value of $name is not defined"
 		    unless defined $value;
+		return "env value of $name is a reference"
+		    if ref $value;
 		return "env value of $name holds a NUL byte"
 		    if index( $value, "\0" ) >= 0;
 	}

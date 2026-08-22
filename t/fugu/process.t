@@ -289,9 +289,10 @@ subtest 'run starts the child in the named directory' => sub {
 	like( $r->{error}, qr/Cannot chdir/, 'and says why' );
 };
 
-# The env option names the exact environment of the child. Every
-# subtest names the interpreter through $^X, an absolute path, so no
-# assertion depends on PATH.
+# The env option names the exact environment of the child. Each
+# subtest that runs the interpreter names it through $^X, an
+# absolute path. Only the bare-name subtest depends on PATH, and
+# that dependence is its subject.
 subtest 'run with env gives the child exactly the named variables' => sub {
 	my $r = Fugu::Process->run(
 		cmd =>
@@ -431,6 +432,7 @@ subtest 'a bad env returns an error and starts nothing' => sub {
 		[ 'an equals sign in a name'      => { 'A=B'  => 'x' } ],
 		[ 'a NUL byte in a name'          => { "A\0B" => 'x' } ],
 		[ 'an undefined value'            => { A      => undef } ],
+		[ 'a reference value'             => { A      => [] } ],
 		[ 'a NUL byte in a value'         => { A      => "x\0y" } ],
 	);
 
