@@ -5,6 +5,7 @@ use v5.36;
 use Test::More;
 use FindBin qw($RealBin);
 use lib "$RealBin/../../lib";
+use Fugu::TestLog;
 
 # Skip if Net::SSH2 is not available
 BEGIN {
@@ -16,11 +17,47 @@ BEGIN {
 
 use_ok('Fugu::SSH');
 
+# A stand-in reader for _read_all. It gives at most chunk bytes per
+# read, and it fails when fail is set. The read method writes into the
+# variable of the caller, so it reads @_ and takes no signature: a
+# signature copies its arguments.
+package Test::Reader {
+
+    sub new
+    {
+	my ($class, %args) = @_;
+	return bless {
+	    content => $args{content} // '',
+	    chunk   => $args{chunk},
+	    fail    => $args{fail},
+	    pos     => 0,
+	}, $class;
+    }
+
+    sub read
+    {
+	my $self = shift;
+	my $length = $_[1];
+
+	return undef if $self->{fail};
+
+	my $want = $self->{chunk} // $length;
+	$want = $length if $length < $want;
+
+	my $data = substr($self->{content}, $self->{pos}, $want);
+	$self->{pos} += length $data;
+	$_[0] = $data;
+
+	return length $data;
+    }
+}
+
 # Test constants
 is(Fugu::SSH::EXIT_SUCCESS(), 0, 'EXIT_SUCCESS is 0');
 is(Fugu::SSH::EXIT_ERROR(), 1, 'EXIT_ERROR is 1');
 is(Fugu::SSH::DEFAULT_TIMEOUT(), 10, 'DEFAULT_TIMEOUT is 10');
 is(Fugu::SSH::BUFFER_SIZE(), 32768, 'BUFFER_SIZE is 32768');
+is(Fugu::SSH::MAX_READ_SIZE(), 64 * 1024 * 1024, 'MAX_READ_SIZE is 64 MiB');
 
 # Test object creation
 {
@@ -59,6 +96,42 @@ is(Fugu::SSH::BUFFER_SIZE(), 32768, 'BUFFER_SIZE is 32768');
 	'run_command reports exit code 1 when the connect fails');
     like($result->{stderr}, qr/Failed to connect/,
 	'run_command reports the failure in stderr');
+}
+
+# _read_all reads $size bytes through the read method of its file
+# argument, so a stand-in class drives every path without a server.
+{
+    my $ssh = Fugu::SSH->new;
+
+    my $reader = Test::Reader->new(content => 'abcdefgh', chunk => 3);
+    is($ssh->_read_all($reader, 8), 'abcdefgh',
+	'_read_all returns the whole content when it arrives in pieces');
+
+    $reader = Test::Reader->new(content => 'abcdefgh');
+    is($ssh->_read_all($reader, 0), '',
+	'_read_all returns the empty string for a size of 0');
+
+    $reader = Test::Reader->new(content => 'abc');
+    ok(!defined $ssh->_read_all($reader, 8),
+	'_read_all returns undef for a short read');
+
+    $reader = Test::Reader->new(content => 'abcdefgh', fail => 1);
+    ok(!defined $ssh->_read_all($reader, 8),
+	'_read_all returns undef when a read fails');
+
+    $reader = Test::Reader->new(content => 'abcdefgh');
+    is($ssh->_read_all($reader, 5), 'abcde',
+	'_read_all stops at the size when the reader offers more bytes');
+}
+
+# read_file returns undef for every failure, and it does not die. A
+# closed port proves the connect failure without a server. A success
+# needs a live host, so FuguVM proves that path against a guest.
+{
+    my $ssh = Fugu::SSH->new(host => 'localhost', port => 59999);
+    my $result = eval { $ssh->read_file('/etc/hostname') };
+    is($@, '', 'read_file does not die for a closed port');
+    ok(!defined $result, 'read_file returns undef for a closed port');
 }
 
 # interactive maps a raw wait status to a 0-255 exit code through
