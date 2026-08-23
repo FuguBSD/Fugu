@@ -105,6 +105,18 @@ Child process management.
 - **LIB-PROCESS-1** — An `env` option must give a child a fixed `%ENV`.
 - **LIB-PROCESS-2** — A `group` option on `terminate` must kill the process
   group of the child.
+- **LIB-PROCESS-3** — An `inherit` option on `spawn_command` and `spawn_peer`
+  must name the descriptors that a child keeps across the exec, each at its
+  own number. FuguTTX HRN-PROC names the `FD_CLOEXEC` clear before the exec,
+  and FuguTTX HRN-WIRELOG names an inherited log descriptor. The child must
+  close every other descriptor from 3 upward, so no unnamed descriptor leaks
+  into a child. The sweep reads the open descriptor list where the platform
+  gives one. On OpenBSD the sweep is a bounded loop to `_SC_OPEN_MAX`, because
+  a `/dev/fd` read needs the `rpath` promise.
+- **LIB-PROCESS-4** — `spawn_peer` must start a peer child over a socketpair,
+  with the child end on a named descriptor number, so a privileged parent runs
+  unprivileged children in the OpenBSD daemon pattern. FuguTTX HRN-PROC names
+  the pattern: one socketpair for each child, created before the fork.
 
 <a id="lib-proxy"></a>
 
