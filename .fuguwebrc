@@ -1,0 +1,37 @@
+# The website, built by fuguweb(1).
+
+site = Fugu
+
+nav "index.html" {
+	label = Home
+}
+
+nav "manuals.html" {
+	label = Manuals
+}
+
+page "index.html" {
+	title = Home
+	body  = index.body.html
+}
+
+page "manuals.html" {
+	title = Manuals
+	index = yes
+}
+
+page "404.html" {
+	title    = Not found
+	body     = 404.body.html
+	unlinked = yes
+}
+
+modules "Fugu modules" {
+	dir    = lib/Fugu
+	anchor = fugu
+}
+
+modules "Protocol modules" {
+	dir    = lib/Protocol
+	anchor = protocol
+}
