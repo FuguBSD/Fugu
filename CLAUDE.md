@@ -53,10 +53,10 @@ The full rules are in [plans/CLAUDE.md](plans/CLAUDE.md).
 
 ## Review
 
-A panel of sub-agents reviews every implementation change before it merges. Each
-panel member gets the same review prompt, and works alone. A finding that a
-majority of the panel reports is a quorum finding. Resolve each quorum finding
-before the merge. The procedure is in
+A panel of sub-agents reviews every minor-level and major-level change before it
+merges. Each panel member gets the same review prompt, and works alone. A
+finding that a majority of the panel reports is a quorum finding. Resolve each
+quorum finding before the merge. The procedure is in
 [.claude/skills/review-panel/SKILL.md](.claude/skills/review-panel/SKILL.md).
 
 ## Workflow
@@ -66,6 +66,10 @@ before the merge. The procedure is in
   `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, and
   `chore`. The README names the scopes of this repository.
 - Group unrelated changes into separate commits.
+- Merge a patch-level change — a fix, a chore, a tooling update, or maintenance
+  — with the [merge-it](.claude/skills/merge-it/SKILL.md) skill. Merge a
+  minor-level or major-level change — a feature or a break — with the
+  [pull-it](.claude/skills/pull-it/SKILL.md) skill.
 
 ## Documentation
 

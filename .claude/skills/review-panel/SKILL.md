@@ -2,8 +2,8 @@
 name: review-panel
 description:
   Review the change set of this branch with a panel of independent sub-agents
-  that share one review prompt. Use before a merge, or when the user asks for a
-  panel review.
+  that share one review prompt. Use before a minor-level or major-level merge,
+  or when the user asks for a panel review.
 ---
 
 # Review panel
