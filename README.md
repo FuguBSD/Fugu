@@ -4,9 +4,10 @@ Generic OpenBSD-style daemon utilities for Perl.
 
 Fugu gives a Perl daemon the plumbing that OpenBSD daemons share: daemonize,
 privilege drop, signal handling, logging, process control, PID files, state
-files, pledge(2)/unveil(2), an event loop, a caching HTTP proxy, SSH and MQTT
-clients, and a native mdnsd(8) control client. The distribution also ships
-`Protocol::Imsg`, a sans-IO codec for the imsg(3) frame.
+files, pledge(2)/unveil(2), signify(1) signature verification, an event loop, a
+caching HTTP proxy, SSH and MQTT clients, and a native mdnsd(8) control client.
+The distribution also ships `Protocol::Imsg`, a sans-IO codec for the imsg(3)
+frame.
 
 Fugu needs core Perl only (v5.36). Every CPAN module it can use is an optional
 feature, loaded lazily. OpenBSD is the production platform; Linux and Darwin
@@ -72,8 +73,8 @@ tarball to GitHub Releases and to PAUSE. The rules are in
 
 ## Commit scopes
 
-`file`, `imsg`, `log`, `mdnsd`, `mqtt`, `process`, `proxy`, `repl`, `ssh`,
-`spec`, `deps`, `ci`.
+`file`, `imsg`, `log`, `mdnsd`, `mqtt`, `process`, `proxy`, `repl`, `signify`,
+`ssh`, `spec`, `deps`, `ci`.
 
 ## License
 

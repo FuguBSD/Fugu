@@ -143,7 +143,9 @@ Signal handlers for graceful shutdown.
 
 ## Fugu::Signify
 
-Verify a file against a signify(1) public key.
+Verify a file against a small set of signify(1) public keys, and verify each
+named file of a signed SHA256 manifest against its digest. The module holds no
+private key and cannot sign.
 
 <a id="lib-statefile"></a>
 

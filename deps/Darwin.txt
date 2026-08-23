@@ -1,4 +1,5 @@
 test pkg libssh2
+test pkg signify-osx
 test cpan Perl::Critic
 test cpan Perl::Tidy
 test cpan Net::SSH2
