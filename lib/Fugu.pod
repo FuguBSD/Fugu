@@ -65,6 +65,8 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Signal> - signal handlers for graceful shutdown
 
+=item L<Fugu::Signify> - verify a signify(1) signature and a SHA256 manifest
+
 =item L<Fugu::StateFile> - a small JSON state file
 
 =item L<Fugu::TestLog> - a quiet process default logger for a test file

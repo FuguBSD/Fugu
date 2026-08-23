@@ -47,7 +47,7 @@ phase applies.
 | [LIB-SSH](library.md#lib-ssh)                    | partial | —       | The read_file of LIB-SSH-1 and the host-key verification of LIB-SSH-2 are absent. [SSH.pm](../lib/Fugu/SSH.pm), [ssh.t](../t/fugu/ssh.t) |
 | [LIB-SANDBOX](library.md#lib-sandbox)            | done    | —       | [Sandbox.pm](../lib/Fugu/Sandbox.pm), [sandbox.t](../t/fugu/sandbox.t)                                                                   |
 | [LIB-SIGNAL](library.md#lib-signal)              | done    | —       | [Signal.pm](../lib/Fugu/Signal.pm), [signal.t](../t/fugu/signal.t)                                                                       |
-| [LIB-SIGNIFY](library.md#lib-signify)            | open    | —       | —                                                                                                                                        |
+| [LIB-SIGNIFY](library.md#lib-signify)            | done    | —       | [Signify.pm](../lib/Fugu/Signify.pm), [signify.t](../t/fugu/signify.t)                                                                   |
 | [LIB-STATEFILE](library.md#lib-statefile)        | done    | —       | [StateFile.pm](../lib/Fugu/StateFile.pm), [statefile.t](../t/fugu/statefile.t)                                                           |
 | [LIB-TESTLOG](library.md#lib-testlog)            | done    | —       | [TestLog.pm](../lib/Fugu/TestLog.pm), [testlog.t](../t/fugu/testlog.t)                                                                   |
 | [LIB-TIMEOUT](library.md#lib-timeout)            | done    | —       | [Timeout.pm](../lib/Fugu/Timeout.pm), [timeout.t](../t/fugu/timeout.t)                                                                   |
