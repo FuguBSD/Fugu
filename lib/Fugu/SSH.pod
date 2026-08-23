@@ -75,8 +75,10 @@ reports exit code 1 and a message in C<stderr>.
 C<write_file($remote_path, $content, $mode)> writes a file over SFTP.
 The default mode is 0644.
 
-The method checks the length that the write reported. A provisioning
-script that arrives half-written is worse than one that never arrived.
+One SFTP write can accept less than the full buffer, so the method
+loops until every byte is accepted, and it reports a write that makes
+no progress as a failure. A provisioning script that arrives
+half-written is worse than one that never arrived.
 
 =head2 read_file
 

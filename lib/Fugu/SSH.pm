@@ -222,14 +222,13 @@ sub write_file ( $self, $remote_path, $content, $mode = 0644 )
 
 			# A short write leaves a truncated remote file. A
 			# provisioning script that arrives half-written is
-			# worse than one that never arrived, so the return
-			# value is checked.
-			my $written = $remote_fh->write($content);
+			# worse than one that never arrived. _write_all
+			# reports a total short of the length as a
+			# failure.
+			my $written = $self->_write_all( $remote_fh, $content );
 			undef $remote_fh;    # Close the file handle
 
-			return EXIT_ERROR
-			    if !defined $written
-			    || $written != length $content;
+			return EXIT_ERROR if !$written;
 
 			return EXIT_SUCCESS;
 		} );
@@ -311,6 +310,30 @@ sub read_file ( $self, $remote_path, $max_size = MAX_READ_SIZE )
 #	$size. It returns undef when a read fails, and it returns undef
 #	when the total differs from $size. A $size of 0 returns the
 #	empty string.
+# $self->_write_all($file, $content):
+#	Write the whole content to $file. One SFTP write can accept
+#	less than the full buffer, so the method loops, and it sends
+#	the remainder again from the accepted offset. That is the
+#	contract of libssh2_sftp_write(3). The method returns 1 when
+#	every byte is accepted, and undef when a write fails. An empty
+#	content returns 1, because the open already created the file.
+sub _write_all ( $self, $file, $content )
+{
+	my $total = 0;
+
+	while ( $total < length $content ) {
+		my $len = $file->write( substr $content, $total );
+
+		# undef is a failed write, and 0 makes no progress:
+		# both would leave a short remote file.
+		return if !defined $len || $len <= 0;
+
+		$total += $len;
+	}
+
+	return 1;
+}
+
 sub _read_all ( $self, $file, $size )
 {
 	my $content = '';
