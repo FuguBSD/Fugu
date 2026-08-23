@@ -465,6 +465,141 @@ subtest 'a bad env returns an error and starts nothing' => sub {
 	is( $r->{stderr},    '',         'stderr is empty' );
 };
 
+# _gone_soon($pid):
+#	Poll until the process is dead, for up to five seconds. The
+#	is_alive call reaps a zombie child of the test. A group member
+#	that is not a child of the test waits for init to reap it, so
+#	it can answer for a moment.
+sub _gone_soon ($pid)
+{
+	for ( 1 .. 100 ) {
+		return 1 unless Fugu::Process->is_alive($pid);
+		select undef, undef, undef, 0.05;
+	}
+
+	return 0;
+}
+
+# _read_pids($file):
+#	Poll until the file holds two pids, then return them. The
+#	child writes the file directly after its fork, so the wait is
+#	short.
+sub _read_pids ($file)
+{
+	for ( 1 .. 100 ) {
+		if ( open my $fh, '<', $file ) {
+			my $content = do { local $/; <$fh> };
+			close $fh;
+
+			# The newline proves that the write is complete,
+			# so a partial pid can never match.
+			my @pids = $content =~ /^(\d+) (\d+)\n\z/;
+			return @pids if @pids == 2;
+		}
+		select undef, undef, undef, 0.05;
+	}
+
+	return;
+}
+
+# The leader-and-grandchild program. It forks a grandchild that
+# sleeps, writes both pids to the named file, and sleeps itself.
+my $LEADER_CODE =
+      'my $pid = fork; die "fork: $!" unless defined $pid; '
+    . 'if ($pid == 0) { sleep 60; exit 0 } '
+    . 'open my $fh, ">", $ARGV[0] or die "open: $!"; '
+    . 'print {$fh} "$$ $pid\n"; close $fh; '
+    . 'sleep 60';
+
+subtest 'run with new_session makes the child a group leader' => sub {
+	my $r = Fugu::Process->run(
+		cmd         => [ $^X, '-e', 'print "$$ ", getpgrp(0)' ],
+		new_session => 1,
+	);
+	ok( $r->{success}, 'the child runs' );
+	my ( $pid, $pgid ) = split / /, $r->{stdout};
+	is( $pgid, $pid, 'the group id of the child equals its pid' );
+};
+
+subtest 'run without new_session keeps the child in the caller group' =>
+    sub {
+	my $r = Fugu::Process->run(
+		cmd => [ $^X, '-e', 'print getpgrp(0)' ],
+	);
+	ok( $r->{success}, 'the child runs' );
+	is( $r->{stdout}, getpgrp(0), 'the child stays in the group' );
+    };
+
+subtest 'run with new_session and a timeout stops the whole group' => sub {
+	my $dir  = tempdir( CLEANUP => 1 );
+	my $file = "$dir/pids.txt";
+
+	my $start = time;
+	my $r     = Fugu::Process->run(
+		cmd         => [ $^X, '-e', $LEADER_CODE, $file ],
+		new_session => 1,
+		timeout     => 2,
+	);
+	my $elapsed = time - $start;
+
+	ok( $r->{timed_out}, 'run reports the timeout' );
+	ok( $elapsed < 15,   'and it returned near the deadline' );
+
+	my ( $leader, $grandchild ) = _read_pids($file);
+	ok( defined $grandchild, 'the child wrote both pids' );
+	return unless defined $grandchild;
+	ok( _gone_soon($leader),     'the leader is gone' );
+	ok( _gone_soon($grandchild), 'the grandchild is gone' );
+};
+
+subtest 'terminate with group stops the leader and the grandchild' => sub {
+	my $dir  = tempdir( CLEANUP => 1 );
+	my $file = "$dir/pids.txt";
+
+	my $result = Fugu::Process->spawn_command(
+		cmd       => [ $^X, '-e', $LEADER_CODE, $file ],
+		daemonize => 1,
+	);
+	ok( $result->{success}, 'the leader spawned' );
+
+	my ( $leader, $grandchild ) = _read_pids($file);
+	ok( defined $grandchild, 'the child wrote both pids' );
+	return unless defined $grandchild;
+
+	my $killed = Fugu::Process->terminate(
+		$leader,
+		group        => 1,
+		grace_period => 2,
+	);
+	ok( $killed,                 'terminate reports the group gone' );
+	ok( _gone_soon($leader),     'the leader is gone' );
+	ok( _gone_soon($grandchild), 'the grandchild is gone' );
+};
+
+subtest 'terminate without group signals the one pid' => sub {
+	my $dir  = tempdir( CLEANUP => 1 );
+	my $file = "$dir/pids.txt";
+
+	my $result = Fugu::Process->spawn_command(
+		cmd       => [ $^X, '-e', $LEADER_CODE, $file ],
+		daemonize => 1,
+	);
+	ok( $result->{success}, 'the leader spawned' );
+
+	my ( $leader, $grandchild ) = _read_pids($file);
+	ok( defined $grandchild, 'the child wrote both pids' );
+	return unless defined $grandchild;
+
+	my $killed =
+	    Fugu::Process->terminate( $leader, grace_period => 2 );
+	ok( $killed,             'the leader is terminated' );
+	ok( _gone_soon($leader), 'the leader is gone' );
+	ok( kill( 0, $grandchild ), 'the grandchild still answers' );
+
+	# Clean up the grandchild
+	kill 'KILL', $grandchild;
+};
+
 subtest 'the module reads the Perl configuration at compile time' => sub {
 
 	# A pledged caller of spawn_perl must open no file at call

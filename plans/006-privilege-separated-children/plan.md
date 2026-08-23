@@ -2,20 +2,14 @@
 
 ## Status
 
-Proposed, in two parts. Implements: LIB-PROCESS without LIB-PROCESS-1. The gate
-reaches one part only.
+Proposed. Defers: LIB-PROCESS, LIB-CONTROL. Both units are `done`, and this plan
+extends them. The gate below holds every part of this plan.
 
-Part one is the `group` option on `Fugu::Process->terminate`. It has a consumer
-of record. FuguTTX `HRN-CANCEL` reads: "The parent kills the process group of a
-running tool with `Fugu::Process->terminate`, in its process-group form: a
-`SIGTERM`, a grace period, then a `SIGKILL`." The allow-list of FuguTTX decision
-D7 holds `Fugu::Process`, so the harness loads the module.
-
-The group form needs a process-group leader. `run` with `new_session` makes one,
-so that option lands with part one, for the same consumer.
-
-Part two is the rest of this plan: the `inherit` list, `spawn_peer`, and every
-`Fugu::Control` change. No consumer can call that work today.
+The `group` option on `Fugu::Process->terminate` and the `new_session` option on
+`Fugu::Process->run` are in the code, with FuguTTX `HRN-CANCEL` as their caller
+of record. This plan holds the rest: the `inherit` list, the descriptor sweep,
+`spawn_peer`, and every `Fugu::Control` change. No consumer can call that work
+today.
 
 `Fugu::Control` is outside the allow-list of D7, so no consumer can load it.
 `HRN-SOCKET` and HRN-CONFIRM-6 therefore keep the control socket and the
@@ -33,14 +27,13 @@ The gate is a rule of this repository, not a preference. `CLAUDE.md` states it:
 > Do not keep test-only API. Delete a sub or option that only tests use,
 > together with its test.
 
-Every method and every option of part two would have a test as its only caller.
-That work must therefore wait for a consumer that names it.
+Every method and every option of this plan would have a test as its only caller.
+The work must therefore wait for a consumer that names it.
 
 ## Purpose
 
 `Fugu::Process` gains the parent side of the OpenBSD daemon pattern. It gains an
-`inherit` descriptor list, a `spawn_peer` method over socketpair(2), a
-`new_session` option on `run`, and a `group` option on `terminate`.
+`inherit` descriptor list and a `spawn_peer` method over socketpair(2).
 
 `Fugu::Control` gains the server side of the same pattern. `listen` gains a
 `mode` argument and a `group` argument. The server gains `peer`, which reports
@@ -56,16 +49,14 @@ kernel facts:
 
 - a socketpair before a fork
 - a descriptor flag before an exec
-- a session before a signal
 - a credential read on a UNIX socket
 
 None of them names a consumer, a role, a socket path or a group.
 
-`Fugu::Process` already owns the fork and the exec. `_fork_exec` on lines 368 to
-406 of `lib/Fugu/Process.pm` does the fork, the redirect and the exec.
-`_exec_pipe` on lines 414 to 424 builds the close-on-exec pipe that reports an
-exec failure exactly. `spawn_command` already calls setsid(2) for a daemon
-child, on line 73:
+`Fugu::Process` already owns the fork and the exec. `_fork_exec` in
+`lib/Fugu/Process.pm` does the fork, the redirect and the exec. `_exec_pipe`
+builds the close-on-exec pipe that reports an exec failure exactly.
+`spawn_command` already calls setsid(2) for a daemon child:
 
 ```perl
 			setsid() or _fail( $exec_w, "setsid: $!" );
@@ -99,7 +90,6 @@ FuguOracle service are C programs, so no Perl library can serve them.
 | FuguTTX    | `HRN-SOCKET`  | none: the unit holds prose only                                                                            | `Fugu::Control` is outside the allow-list of D7, so the harness builds its own socket. The socket carries owner `_ttx`, group `ttxop` and mode `0660`. The frontend reads `SO_PEERCRED` for each connection               |
 | FuguTTX    | `HRN-CONFIRM` | HRN-CONFIRM-6                                                                                              | `Fugu::Control` is outside the allow-list of D7. A confirmation must come from the same peer user id that saw the dry run                                                                                                 |
 | FuguTTX    | `HRN-WIRELOG` | none: the anchor sits on one list item of the session-transcript unit, and the item holds no numbered rule | The parent opens the wire log before the fork, and the model process inherits the descriptor. The harness holds that code, so `inherit` holds no caller of record                                                         |
-| FuguTTX    | `HRN-CANCEL`  | none: the unit holds prose only                                                                            | **The consumer of the `group` option.** The allow-list of D7 holds `Fugu::Process`. The parent kills the process group of a running tool with `Fugu::Process->terminate`, in its process-group form                       |
 | FuguTTX    | `HRN-REPL`    | HRN-REPL-2, HRN-REPL-8                                                                                     | `Fugu::REPL` must not load `Fugu::Control`. The client watches the control socket as a bare handle                                                                                                                        |
 | FuguPass   | `CLI-SPLIT`   | CLI-SPLIT-1, CLI-SPLIT-6, CLI-SPLIT-7                                                                      | Not a consumer. The vault core is C (D-16), and FuguPass holds no control socket                                                                                                                                          |
 | FuguPass   | `CLI-IFACE`   | CLI-IFACE-1, CLI-IFACE-2                                                                                   | Not a consumer. The C core spawns the interface with a request pipe and a reply pipe, not a socketpair                                                                                                                    |
@@ -117,11 +107,10 @@ The p5-Fugu package therefore reaches the target, and the import rule decides
 what the harness loads. The allow-list holds `Fugu::Process`, and it holds no
 `Fugu::Control`.
 
-Five FuguTTX units need this work, and each one is `open` in the FuguTTX
-register. `HRN-CANCEL` reaches the `group` option through `Fugu::Process`.
-`HRN-PROC`, `HRN-SOCKET`, HRN-CONFIRM-6 and `HRN-WIRELOG` keep their code in the
-harness. A later proposal that adds `Fugu::Control` to the allow-list would
-reach `HRN-SOCKET` and HRN-CONFIRM-6.
+Four FuguTTX units need this work, and each one is `open` in the FuguTTX
+register. `HRN-PROC`, `HRN-SOCKET`, HRN-CONFIRM-6 and `HRN-WIRELOG` keep their
+code in the harness. A later proposal that adds `Fugu::Control` to the
+allow-list would reach `HRN-SOCKET` and HRN-CONFIRM-6.
 
 ### Why FuguPass cannot use this work
 
@@ -155,8 +144,6 @@ In scope:
 - One new argument on `spawn_command` and on `spawn_peer`, `inherit`.
 - The descriptor sweep that `inherit` implies.
 - One new method, `Fugu::Process->spawn_peer`.
-- One new option on `run`, `new_session`.
-- One new option on `terminate`, `group`.
 - Two new arguments on `Fugu::Control->listen`, `mode` and `group`.
 - Two new methods, `Fugu::Control->peer` and `Fugu::Control->peer_supported`.
 
@@ -199,8 +186,8 @@ clear the flag. The `inherit` list is that clearing step, named once.
 
 ### The sweep must keep the exec-failure pipe
 
-`_fork_exec` reports an exec failure over a close-on-exec pipe. The comment on
-lines 389 to 390 of `lib/Fugu/Process.pm` states the mechanism:
+`_fork_exec` reports an exec failure over a close-on-exec pipe. The comment in
+`lib/Fugu/Process.pm` states the mechanism:
 
 ```perl
 		# The pipe is close-on-exec, so a successful exec closes
@@ -226,32 +213,6 @@ range, and it ignores each `EBADF`.
 
 OpenBSD has closefrom(3), which does the same work in one call. Core Perl wraps
 neither closefrom(3) nor close_range(2), so the loop is the only portable form.
-
-### A group signal needs a process-group leader
-
-`kill 'TERM', -$pid` signals a process group. The number must be a process-group
-id, which is the pid of the group leader. setsid(2) makes a child a session
-leader and a group leader at the same time, and its group id then equals its
-pid.
-
-`spawn_command` already calls setsid(2) under `daemonize`. `run` has no such
-option today, so a tool that `run` starts stays in the group of the caller. A
-group signal from `run` would then hit the caller. `new_session` closes that
-gap, and it makes `group => 1` safe on the timeout path.
-
-### The timeout path already terminates one process only
-
-`_drain` terminates the child on a timeout, on lines 479 and 480:
-
-```perl
-				Fugu::Process->terminate( $pid,
-					grace_period => 1 );
-```
-
-`_run_passthrough` does the same on line 209. Both kill the leader alone. A
-grandchild that holds the pipe write end therefore survives, and the drain can
-run on. With `new_session` the child is a group leader, so both call sites can
-signal the whole group and the drain ends.
 
 ### The socket must never widen before the group is right
 
@@ -407,46 +368,6 @@ descriptor. Both are programming errors.
 The method makes no session and no process group. A peer child stays in the
 group of the parent, so one signal can reach the whole set.
 
-### Fugu::Process->run, the new_session option
-
-| Argument      | Meaning                                                                                        |
-| ------------- | ---------------------------------------------------------------------------------------------- |
-| `new_session` | If this argument is true, the child calls setsid(2) before the redirect. The default is false. |
-
-The child then leads a new session and a new process group, and its group id
-equals its pid. `run` therefore signals the group on the timeout path, in the
-capture form and in the passthrough form alike.
-
-setsid(2) removes the controlling terminal. A child with `new_session` cannot
-read the terminal and cannot hold the foreground. A caller must not combine
-`new_session` with a command that prompts on the terminal under `passthrough`.
-
-The option applies to both forms of the call, so `_drain` takes the group flag
-as a fifth parameter.
-
-### Fugu::Process->terminate, the group option
-
-| Argument | Meaning                                                                                          |
-| -------- | ------------------------------------------------------------------------------------------------ |
-| `group`  | If this argument is true, each signal goes to the process group of `$pid`. The default is false. |
-
-`$pid` must be the pid of a process-group leader. The method sends
-`kill 'TERM', -$pid`, waits for the grace period, and sends `kill 'KILL', -$pid`
-when a member is still alive.
-
-The liveness test differs between the two forms. The leader form asks
-`is_alive($pid)`, which reaps a zombie child. The group form asks
-`kill 0, -$pid`, which counts the members that the caller can signal. A group
-can outlive its leader, so the group form must not return early on a dead
-leader.
-
-The method returns 1 when no member answers `kill 0, -$pid`. It returns 0 when a
-member answers after the KILL. The method cannot wait for a member that is not
-its child. A member that init has yet to reap can therefore still answer for a
-moment. The plan accepts that bound, and the test allows for it.
-
-`on_kill` and `grace_period` keep their meaning.
-
 ### Fugu::Control->listen, the mode and group arguments
 
 | Argument | Meaning                                                                         |
@@ -528,14 +449,14 @@ sees no change.
 
 ## Files
 
-| File                   | Content                                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------------------ |
-| `lib/Fugu/Process.pm`  | `inherit`, the sweep, `spawn_peer`, `new_session`, `group`                                             |
-| `lib/Fugu/Process.pod` | The same four additions. The DESCRIPTION says "Two methods start a child" today, and it must say three |
-| `lib/Fugu/Control.pm`  | `mode`, `group`, `peer`, `peer_supported`                                                              |
-| `lib/Fugu/Control.pod` | The same four additions, and the field order                                                           |
-| `t/fugu/process.t`     | The new cases                                                                                          |
-| `t/fugu/control.t`     | The new cases                                                                                          |
+| File                   | Content                                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| `lib/Fugu/Process.pm`  | `inherit`, the sweep, and `spawn_peer`                                                            |
+| `lib/Fugu/Process.pod` | The same additions. The DESCRIPTION says "Two methods start a child" today, and it must say three |
+| `lib/Fugu/Control.pm`  | `mode`, `group`, `peer`, `peer_supported`                                                         |
+| `lib/Fugu/Control.pod` | The same four additions, and the field order                                                      |
+| `t/fugu/process.t`     | The new cases                                                                                     |
+| `t/fugu/control.t`     | The new cases                                                                                     |
 
 The module comment of `lib/Fugu/Process.pm`, lines 30 to 33, names two calls
 that start a child. It must name three.
@@ -564,14 +485,6 @@ Linux and on OpenBSD, except the two cases that name a platform.
   clears `FD_CLOEXEC` on a pipe write end, spawns a child, and proves the write
   fails.
 - `inherit` dies on a value that is not an array reference.
-- `run` with `new_session` gives a child whose group id equals its pid. The
-  child prints `$$` and `getpgrp`, and the test compares the two numbers.
-- `run` without `new_session` leaves the child in the group of the caller.
-- `run` with `new_session` and a `timeout` ends within a bounded time, for a
-  child that forks a grandchild and keeps the pipe open.
-- `terminate` with `group` stops a leader and a grandchild. The child writes
-  both pids to a file, and the test proves that neither answers `kill 0`.
-- `terminate` without `group` keeps its meaning: it signals the one pid.
 - `spawn_command` keeps its result shape, its `daemonize` behavior and its three
   redirects.
 
@@ -603,12 +516,11 @@ Linux and on OpenBSD, except the two cases that name a platform.
 - The two `.pod` sidecars document every new argument and every new method. The
   `Fugu::Control` sidecar states the `struct sockpeercred` field order, and it
   states that `peer` reports "not supported" off OpenBSD.
-- The defaults must not change. `listen` gives mode `0600`, `run` makes no
-  session, and `terminate` signals one pid. The `App::FuguVM::Guest` calls to
-  `spawn_command`, `run` and `terminate` keep their exact meaning.
-- The `group` option of `terminate` lands with FuguTTX `HRN-CANCEL` as its
-  caller of record. Every other new sub and every other new option waits for a
-  consumer that names it, because `CLAUDE.md` forbids test-only API.
+- The defaults must not change. `listen` gives mode `0600`. The
+  `App::FuguVM::Guest` calls to `spawn_command`, `run` and `terminate` keep
+  their exact meaning.
+- Every new sub and every new option waits for a consumer that names it, because
+  `lib/CLAUDE.md` forbids test-only API.
 
 ## Open questions
 

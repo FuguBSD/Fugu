@@ -163,6 +163,22 @@ The environment of the child, exactly as on C<spawn_command()>.
 Let the child write straight to the caller's terminal. C<stdout> and
 C<stderr> then come back empty.
 
+=item C<new_session>
+
+If this argument is true, the child calls setsid(2) before the
+redirect. The default is false.
+
+The child then leads a new session and a new process group, and its
+group id equals its pid. On a timeout the method signals the whole
+group, in the capture form and in the passthrough form alike. A
+grandchild that holds a pipe open therefore dies with the child, and
+the read of the pipes ends.
+
+setsid(2) removes the controlling terminal. A child with
+C<new_session> cannot read the terminal and cannot hold the
+foreground. Do not combine C<new_session> with a command that prompts
+on the terminal under C<passthrough>.
+
 =back
 
 The method reads standard output and standard error at the same time.
@@ -205,6 +221,23 @@ The number of seconds to wait between the two signals. The default is
 
 A code reference that the method calls when the process is gone.
 
+=item C<group>
+
+If this argument is true, each signal goes to the process group of
+C<$pid>. The default is false.
+
+C<$pid> must be the pid of a process-group leader. C<run()> with
+C<new_session> and C<spawn_command()> with C<daemonize> each make
+one. The method sends C<SIGTERM> to the group, waits for the grace
+period, and sends C<SIGKILL> to the group when a member is still
+alive.
+
+The liveness test differs between the two forms. The default form
+asks C<is_alive($pid)>, which reaps a zombie child. The group form
+asks kill(2) with signal 0 on the group, and it reaps each child
+member first. A group can outlive its leader, so the group form does
+not return early on a dead leader.
+
 =back
 
 The wait polls with sub-second granularity. Thus a child that stops at
@@ -246,7 +279,9 @@ C<exit_code()> returns a number between 0 and 255.
 C<is_alive()> returns 1 or 0.
 
 C<terminate()> returns 1 if the process is gone. It returns 0 if the
-process continues after C<SIGKILL>.
+process continues after C<SIGKILL>. In the group form, it returns 1
+when no member of the group answers kill(2) with signal 0. It returns
+0 when a member answers after C<SIGKILL>.
 
 C<wait_exit()> returns 1 if the process exits in the timeout period.
 If not, it returns 0.
@@ -285,6 +320,10 @@ C<is_alive()> calls waitpid(2). That call reaps only the children of
 the caller. For all other processes, it uses kill(2) with signal 0.
 This signal cannot show the difference between a live process and a
 zombie.
+
+The group form of C<terminate()> cannot wait for a member that is not
+a child of the caller. A member that init(8) has yet to reap can
+therefore still answer for a moment after the method returns.
 
 The operating system uses process IDs again for new processes. The
 module cannot show the difference between the initial process and a

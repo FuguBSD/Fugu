@@ -40,7 +40,7 @@ phase applies.
 | [LIB-MDNSD](library.md#lib-mdnsd)                | done    | —       | [Mdnsd.pm](../lib/Fugu/Mdnsd.pm), [mdnsd.t](../t/fugu/mdnsd.t), [mdns-control.t](../t/conformance/mdns-control.t)                        |
 | [LIB-PIDFILE](library.md#lib-pidfile)            | done    | —       | [Pidfile.pm](../lib/Fugu/Pidfile.pm), [pidfile.t](../t/fugu/pidfile.t)                                                                   |
 | [LIB-PRIVDROP](library.md#lib-privdrop)          | done    | —       | [Privdrop.pm](../lib/Fugu/Privdrop.pm), [privdrop.t](../t/fugu/privdrop.t)                                                               |
-| [LIB-PROCESS](library.md#lib-process)            | partial | —       | The group option of LIB-PROCESS-2 is absent. [Process.pm](../lib/Fugu/Process.pm), [process.t](../t/fugu/process.t)                      |
+| [LIB-PROCESS](library.md#lib-process)            | done    | —       | [Process.pm](../lib/Fugu/Process.pm), [process.t](../t/fugu/process.t)                                                                   |
 | [LIB-PROXY](library.md#lib-proxy)                | done    | —       | [Proxy.pm](../lib/Fugu/Proxy.pm), [proxy.t](../t/fugu/proxy.t)                                                                           |
 | [LIB-REPL](library.md#lib-repl)                  | done    | —       | [REPL.pm](../lib/Fugu/REPL.pm), [repl.t](../t/fugu/repl.t)                                                                               |
 | [LIB-RANDOM](library.md#lib-random)              | done    | —       | [Random.pm](../lib/Fugu/Random.pm), [random.t](../t/fugu/random.t)                                                                       |

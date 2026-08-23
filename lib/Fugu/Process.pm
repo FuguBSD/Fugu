@@ -126,6 +126,7 @@ sub spawn_command ( $class, %args )
 #		cwd     => $dir       # Optional: run the child in this directory
 #		env     => \%vars     # Optional: the exact child environment
 #		passthrough => 0|1    # Optional: let the child write to the terminal
+#		new_session => 0|1    # Optional: make the child a group leader
 #
 #	The method returns a hashref with success, stdout, stderr,
 #	exit_code, timed_out and, on a startup failure, error. It never
@@ -145,15 +146,25 @@ sub spawn_command ( $class, %args )
 #	stdout and stderr come back empty. Use it for a command that
 #	writes for minutes: an operator who waits needs to see progress,
 #	and a captured stream arrives only after the wait is over.
+#
+#	With new_session the child calls setsid(2) before the
+#	redirect. The child then leads a new session and a new process
+#	group, and its group id equals its pid. The timeout path then
+#	signals the whole group, in both forms of the call. A
+#	grandchild that holds a pipe open therefore dies with the
+#	child, and the drain ends. setsid(2) removes the controlling
+#	terminal, so do not combine new_session with a command that
+#	prompts on the terminal under passthrough.
 sub run ( $class, %args )
 {
 	my $cmd = $args{cmd};
 	unless ( ref $cmd eq 'ARRAY' && @$cmd > 0 ) {
 		return _run_error('Command must be non-empty arrayref');
 	}
-	my $timeout = $args{timeout};
-	my $input   = $args{stdin};
-	my $cwd     = $args{cwd};
+	my $timeout     = $args{timeout};
+	my $input       = $args{stdin};
+	my $cwd         = $args{cwd};
+	my $new_session = $args{new_session} // 0;
 
 	my $env;
 	if ( exists $args{env} ) {
@@ -162,7 +173,8 @@ sub run ( $class, %args )
 		$env = $args{env};
 	}
 
-	return $class->_run_passthrough( $cmd, $timeout, $input, $cwd, $env )
+	return $class->_run_passthrough( $cmd, $timeout, $input, $cwd, $env,
+		$new_session )
 	    if $args{passthrough};
 
 	pipe my $out_r, my $out_w
@@ -174,6 +186,10 @@ sub run ( $class, %args )
 	my ( $pid, $error ) = _fork_exec(
 		$cmd, $cwd, $env,
 		sub ($exec_w) {
+			if ($new_session) {
+				setsid() or _fail( $exec_w, "setsid: $!" );
+			}
+
 			close $out_r;
 			close $err_r;
 			close $in_w;
@@ -203,7 +219,7 @@ sub run ( $class, %args )
 	close $in_w;
 
 	my ( $stdout, $stderr, $timed_out ) =
-	    _drain( $out_r, $err_r, $timeout, $pid );
+	    _drain( $out_r, $err_r, $timeout, $pid, $new_session );
 
 	waitpid $pid, 0;
 	my $code = $class->exit_code($?);
@@ -217,13 +233,14 @@ sub run ( $class, %args )
 	};
 }
 
-# $class->_run_passthrough($cmd, $timeout, $input, $cwd, $env):
+# $class->_run_passthrough($cmd, $timeout, $input, $cwd, $env, $new_session):
 #	Run a child that writes straight to the caller's output. Only
 #	the exec confirmation and the exit status come back.
 sub _run_passthrough (
 	$class, $cmd, $timeout, $input,
-	$cwd = undef,
-	$env = undef
+	$cwd         = undef,
+	$env         = undef,
+	$new_session = 0
     )
 {
 	pipe my $in_r, my $in_w or return _run_error("Cannot create pipe: $!");
@@ -231,6 +248,10 @@ sub _run_passthrough (
 	my ( $pid, $error ) = _fork_exec(
 		$cmd, $cwd, $env,
 		sub ($exec_w) {
+			if ($new_session) {
+				setsid() or _fail( $exec_w, "setsid: $!" );
+			}
+
 			close $in_w;
 
 			open STDIN, '<&', $in_r
@@ -252,7 +273,11 @@ sub _run_passthrough (
 	my $timed_out = 0;
 	if ( defined $timeout ) {
 		unless ( $class->wait_exit( $pid, $timeout ) ) {
-			$class->terminate( $pid, grace_period => 1 );
+			$class->terminate(
+				$pid,
+				grace_period => 1,
+				group        => $new_session
+			);
 			$timed_out = 1;
 		}
 	}
@@ -324,11 +349,22 @@ sub is_alive ( $class, $pid )
 #	%args:
 #		grace_period => $seconds # Time to wait after TERM before KILL (default: 5)
 #		on_kill      => sub()    # Runs after a successful kill
+#		group        => 0|1      # Signal the process group of $pid
 #
 #	The wait polls with sub-second granularity, so a child that
 #	stops at once does not cost a whole second.
+#
+#	With group each signal goes to the process group of $pid, and
+#	$pid must be the pid of a process-group leader. The liveness
+#	test is then kill 0 on the group, because a group can outlive
+#	its leader, so the group form must not return early on a dead
+#	leader. The method cannot wait for a member that is not its
+#	child. A member that init has yet to reap can therefore still
+#	answer for a moment.
 sub terminate ( $class, $pid, %args )
 {
+	return $class->_terminate_group( $pid, %args ) if $args{group};
+
 	return 1 unless $class->is_alive($pid);
 
 	my $grace_period = $args{grace_period} // 5;
@@ -356,6 +392,96 @@ sub terminate ( $class, $pid, %args )
 
 	$on_kill->() if $on_kill;
 	return 1;
+}
+
+# $class->_terminate_group($pid, %args):
+#	The group form of terminate. Each signal goes to the process
+#	group of $pid, with a negative pid on kill. The method returns
+#	1 when no member answers kill 0 on the group. It returns 0
+#	when a member still answers after the KILL.
+#
+#	The guard on $pid is a safety boundary. kill with the group id
+#	0 signals the group of the caller, and kill with the group id
+#	1 can reach far outside the caller. A bad $pid must therefore
+#	signal nothing.
+sub _terminate_group ( $class, $pid, %args )
+{
+	return 1 unless defined $pid && $pid =~ /^\d+$/ && $pid > 1;
+
+	return 1 unless _group_alive($pid);
+
+	my $grace_period = $args{grace_period} // 5;
+	my $on_kill      = $args{on_kill};
+
+	# Send SIGTERM to the whole group
+	my $killed = kill 'TERM', -$pid;
+	unless ($killed) {
+
+		# Every member is already dead, or there is no
+		# permission
+		return _group_alive($pid) ? 0 : 1;
+	}
+
+	_wait_group_exit( $pid, $grace_period );
+
+	# If a member is still alive, kill the group with force
+	if ( _group_alive($pid) ) {
+		kill 'KILL', -$pid;
+		_wait_group_exit( $pid, 1 );
+
+		# Final check
+		return 0 if _group_alive($pid);
+	}
+
+	$on_kill->() if $on_kill;
+	return 1;
+}
+
+# _group_alive($pid):
+#	Report if a member of the process group of $pid still answers
+#	kill 0. The check reaps each child member first, so a zombie
+#	child of the caller does not count as a live member.
+sub _group_alive ($pid)
+{
+	_reap_group($pid);
+
+	return 1 if kill 0, -$pid;
+
+	# A member can turn into a zombie between the reap above and
+	# the check. Reap once more, so a zombie child never outlives
+	# the answer "gone".
+	_reap_group($pid);
+
+	return 0;
+}
+
+# _reap_group($pid):
+#	Reap each zombie child of the caller in the process group of
+#	$pid. The leader comes first, by its own pid: the Darwin
+#	kernel can detach a zombie from its process group, and the
+#	group sweep below then misses it.
+sub _reap_group ($pid)
+{
+	waitpid( $pid, WNOHANG );
+	1 while waitpid( -$pid, WNOHANG ) > 0;
+
+	return;
+}
+
+# _wait_group_exit($pid, $timeout):
+#	Wait until no member of the process group of $pid answers, or
+#	until the timeout ends. The method returns 1 when the group is
+#	gone. It returns 0 on timeout.
+sub _wait_group_exit ( $pid, $timeout )
+{
+	my $deadline = time + $timeout;
+	while ( time < $deadline ) {
+		return 1 unless _group_alive($pid);
+		select undef, undef, undef, POLL_INTERVAL;
+	}
+
+	# Final check
+	return _group_alive($pid) ? 0 : 1;
 }
 
 # $class->wait_exit($pid, $timeout):
@@ -550,12 +676,13 @@ sub _check_env ($env)
 	return;
 }
 
-# _drain($out, $err, $timeout, $pid):
+# _drain($out, $err, $timeout, $pid, $group):
 #	Read both pipes until they close. On a timeout, terminate the
-#	child and stop. Reading both at once matters: a child that
-#	fills one pipe blocks until someone drains it, and a reader
-#	that takes them in sequence would deadlock there.
-sub _drain ( $out, $err, $timeout, $pid )
+#	child and stop. With $group true the terminate signals the
+#	whole process group of $pid. Reading both at once matters: a
+#	child that fills one pipe blocks until someone drains it, and
+#	a reader that takes them in sequence would deadlock there.
+sub _drain ( $out, $err, $timeout, $pid, $group = 0 )
 {
 	my %buffer   = ( $out => '', $err => '' );
 	my $select   = IO::Select->new( $out, $err );
@@ -566,8 +693,11 @@ sub _drain ( $out, $err, $timeout, $pid )
 		if ( defined $deadline ) {
 			my $left = $deadline - time;
 			if ( $left <= 0 ) {
-				Fugu::Process->terminate( $pid,
-					grace_period => 1 );
+				Fugu::Process->terminate(
+					$pid,
+					grace_period => 1,
+					group        => $group
+				);
 				return ( $buffer{$out}, $buffer{$err}, 1 );
 			}
 			$wait = $left < POLL_INTERVAL ? $left : POLL_INTERVAL;
