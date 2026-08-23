@@ -202,7 +202,7 @@ subtest 'expand_tilde' => sub {
 subtest 'share_path finds a shipped file' => sub {
 	# The caller passes its own module file, so a file that the
 	# checkout ships resolves from any working directory.
-	my $found = Fugu::File->share_path( 'Makefile',
+	my $found = Fugu::File->share_path( 'LICENSE',
 		from => "$RealBin/../../lib/Fugu/File.pm" );
 	ok( defined $found, 'a shipped file resolves' );
 	ok( -f $found,      'and the path exists' );
