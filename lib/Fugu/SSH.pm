@@ -21,15 +21,16 @@ package Fugu::SSH;
 
 use Fcntl     qw(O_RDONLY O_WRONLY O_CREAT O_TRUNC);
 use Fugu::CLI qw(EXIT_SUCCESS EXIT_ERROR);
+use Fugu::Log;
 use Fugu::Process;
 use Fugu::Timeout;
 
 # Fugu::SSH - run a command on another machine over SSH.
 #
-# The module wraps Net::SSH2 for the two things a provisioning tool
-# does: run a command and capture its output, and write a file. An
-# interactive session falls back to ssh(1), because Net::SSH2 does not
-# give correct TTY control.
+# The module wraps Net::SSH2 for the things a provisioning tool does:
+# run a command and capture its output, write a file, and read a file
+# back. An interactive session falls back to ssh(1), because Net::SSH2
+# does not give correct TTY control.
 #
 # Net::SSH2 loads at connect time, not at compile time. Thus the
 # module keeps the Fugu core-Perl load contract, and an
@@ -39,6 +40,12 @@ use Fugu::Timeout;
 use constant {
 	DEFAULT_TIMEOUT => 10,
 	BUFFER_SIZE     => 32768,
+
+	# The default size cap of read_file. The method holds the whole
+	# file in memory, and a guest can hand back a disk image, so the
+	# cap fails closed. A caller that needs more names a larger
+	# $max_size.
+	MAX_READ_SIZE => 64 * 1024 * 1024,
 };
 
 sub new ( $class, %args )
@@ -228,6 +235,101 @@ sub write_file ( $self, $remote_path, $content, $mode = 0644 )
 		} );
 
 	return $result // EXIT_ERROR;
+}
+
+# $self->read_file($remote_path, $max_size):
+#	Read a remote file over SFTP and return its bytes. The method
+#	reads the size first, and it refuses a size above $max_size
+#	before it reads one byte. It returns undef for every failure,
+#	and it reports the reason on the debug level. An empty remote
+#	file returns the empty string, so a caller tests defined.
+sub read_file ( $self, $remote_path, $max_size = MAX_READ_SIZE )
+{
+	my $connected = 0;
+
+	my $result = $self->_with_connection(
+		sub ($ssh2) {
+			$connected = 1;
+
+			my $sftp = $ssh2->sftp;
+			if ( !defined $sftp ) {
+				Fugu::Log->default->debug(
+					'Cannot open an SFTP session to %s',
+					$self->{host} );
+				return;
+			}
+
+			my $attrs = $sftp->stat($remote_path);
+			if ( !defined $attrs ) {
+				Fugu::Log->default->debug( 'Cannot stat %s',
+					$remote_path );
+				return;
+			}
+
+			my $size = $attrs->{size};
+			if ( $size > $max_size ) {
+				Fugu::Log->default->debug(
+					'%s holds %d bytes, the cap is %d',
+					$remote_path, $size, $max_size );
+				return;
+			}
+
+			my $remote_fh = $sftp->open( $remote_path, O_RDONLY );
+			if ( !defined $remote_fh ) {
+				Fugu::Log->default->debug( 'Cannot open %s',
+					$remote_path );
+				return;
+			}
+
+			# A file that arrives half-read is worse than one
+			# that never arrived, because the caller cannot see
+			# the difference. _read_all reports a total that
+			# differs from the size as a failure.
+			my $content = $self->_read_all( $remote_fh, $size );
+			undef $remote_fh;    # Close the file handle
+
+			if ( !defined $content ) {
+				Fugu::Log->default->debug(
+					'Cannot read %d bytes from %s',
+					$size, $remote_path );
+				return;
+			}
+
+			return $content;
+		} );
+
+	Fugu::Log->default->debug( 'Cannot connect to %s port %d',
+		$self->{host}, $self->{port} )
+	    if !$connected;
+
+	return $result;
+}
+
+# $self->_read_all($file, $size):
+#	Read $size bytes from $file and return them. One read can give
+#	less than the full size, so the method loops, and it stops at
+#	$size. It returns undef when a read fails, and it returns undef
+#	when the total differs from $size. A $size of 0 returns the
+#	empty string.
+sub _read_all ( $self, $file, $size )
+{
+	my $content = '';
+
+	while ( length($content) < $size ) {
+		my $want = $size - length($content);
+		$want = BUFFER_SIZE if $want > BUFFER_SIZE;
+
+		my $buf;
+		my $len = $file->read( $buf, $want );
+
+		# undef is a failed read, and 0 is an end of file before
+		# $size: both leave a short total.
+		return if !defined $len || $len <= 0;
+
+		$content .= $buf;
+	}
+
+	return length($content) == $size ? $content : ();
 }
 
 sub is_available ($self)

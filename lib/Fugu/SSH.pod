@@ -19,10 +19,10 @@ Fugu::SSH - run a command on another machine over SSH
 
 =head1 DESCRIPTION
 
-Fugu::SSH wraps L<Net::SSH2> for the two things a provisioning tool
-does: run a command and capture its output, and write a file. An
-interactive session falls back to ssh(1), because L<Net::SSH2> does
-not give correct control of a terminal.
+Fugu::SSH wraps L<Net::SSH2> for the things a provisioning tool does:
+run a command and capture its output, write a file, and read a file
+back. An interactive session falls back to ssh(1), because
+L<Net::SSH2> does not give correct control of a terminal.
 
 L<Net::SSH2> loads at connect time and not at compile time. Thus the
 module keeps the core-Perl load contract of Fugu, and an installation
@@ -78,6 +78,26 @@ The default mode is 0644.
 The method checks the length that the write reported. A provisioning
 script that arrives half-written is worse than one that never arrived.
 
+=head2 read_file
+
+C<read_file($remote_path, $max_size)> reads a remote file over SFTP
+and returns its bytes. The default for C<$max_size> is
+C<MAX_READ_SIZE>, 64 MiB.
+
+The method reads the size of the file first, and it refuses a size
+above C<$max_size> before it reads one byte. It then compares the
+byte count with that size, and it reports a short read as a failure.
+A file that arrives half-read is worse than one that never arrived,
+because the caller cannot see the difference.
+
+The method returns C<undef> for every failure: a connect that fails,
+an SFTP session that fails, a stat that fails, a size above
+C<$max_size>, an open that fails, and a byte count that differs from
+the size. It reports each reason on the debug level of L<Fugu::Log>.
+
+An empty remote file returns the empty string, which is false. Test
+C<defined> on the result, and do not test truth.
+
 =head2 is_available
 
 C<is_available()> reports if the host takes an authenticated
@@ -106,7 +126,10 @@ failed remote command would read as a success.
 
 C<run_command()> returns a hash reference.
 
-C<write_file()> returns 0 on success and 1 on failure, like a command.
+The two transfer methods report a result in two shapes.
+C<write_file()> returns 0 on success and 1 on failure, like a
+command. C<read_file()> returns the bytes on success and C<undef> on
+failure, like C<Fugu::File-E<gt>read>.
 
 C<is_available()> and C<wait_available()> return 1 or 0.
 C<interactive()> returns an exit code.
@@ -121,7 +144,7 @@ No method dies for a connection that fails.
 
 =head1 SEE ALSO
 
-ssh(1), L<Fugu::Process>, L<Fugu::Timeout>, L<Net::SSH2>
+ssh(1), L<Fugu::Log>, L<Fugu::Process>, L<Fugu::Timeout>, L<Net::SSH2>
 
 =head1 AUTHORS
 
@@ -132,7 +155,9 @@ Dick Olsson E<lt>hi@senzilla.ioE<gt>
 Every method opens its own connection and closes it at the end. A
 caller that runs many commands pays the handshake for each one.
 
-C<run_command()> holds the whole output of the command in memory.
+C<run_command()> holds the whole output of the command in memory, and
+C<read_file()> holds the whole file. The C<MAX_READ_SIZE> cap of
+C<read_file()> bounds the second one at 64 MiB.
 
 The module does not verify the host key. It is a provisioning tool
 for a machine that the caller just created, on a port on the loopback
