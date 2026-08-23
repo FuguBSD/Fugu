@@ -20,7 +20,7 @@ use v5.36;
 package Fugu::Log;
 
 use IO::Handle;
-use Sys::Syslog qw(:standard :macros);
+use Sys::Syslog qw(:standard :extended :macros);
 
 # Fugu::Log - Unified logging for syslog and stderr
 #
@@ -100,6 +100,21 @@ sub _parse_facility ($facility)
 	return $facility_map{$facility} // LOG_DAEMON;
 }
 
+# _pin_native():
+#	Pin the syslog transport to the native mechanism. OpenBSD
+#	syslog(3) delivers with sendsyslog(2), so a daemon that
+#	pledges "stdio" keeps its log after the pin. A failed pin
+#	restores the default transport list, and that list holds
+#	mechanisms that open a socket. The module must not continue
+#	with that list, so a failure dies here, at the open, and not
+#	at the first log line inside a pledged process.
+sub _pin_native ()
+{
+	unless ( setlogsock('native') ) {
+		die 'Cannot pin the syslog method to native';
+	}
+}
+
 sub new ( $class, %args )
 {
 	my $mode  = $args{mode}  // MODE_STDERR;
@@ -129,6 +144,7 @@ sub new ( $class, %args )
 	}, $class;
 
 	if ( $mode eq MODE_SYSLOG ) {
+		_pin_native();
 		openlog( $ident, 'ndelay,pid', $self->{facility} );
 		$self->{opened} = 1;
 	}
@@ -231,6 +247,10 @@ sub reopen ($self)
 {
 	if ( $self->{mode} eq MODE_SYSLOG ) {
 		closelog() if $self->{opened};
+
+		# The transport list is process-wide state, so a pin
+		# from the first open does not last. Pin it again.
+		_pin_native();
 		openlog( $self->{ident}, 'ndelay,pid', $self->{facility} );
 		$self->{opened} = 1;
 	}

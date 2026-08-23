@@ -4,7 +4,9 @@ use v5.36;
 use Test::More;
 use FindBin    qw($RealBin);
 use lib "$RealBin/../../lib";
+use English    qw(-no_match_vars);
 use File::Temp qw(tempdir);
+use POSIX      ();
 
 use_ok('Fugu::Privdrop');
 
@@ -33,31 +35,220 @@ SKIP: {
 	like( $@, qr/Cannot get GID for group/, 'drop_privileges fails with invalid group' );
 }
 
-# Test 5: drop_privileges when already non-root (a no-op)
-SKIP: {
-	skip 'Running as root, cannot test non-root behavior', 1 if $> == 0;
-	
-	my $orig_uid = $>;
-	my $ok = eval { Fugu::Privdrop->drop_privileges( user => 'nobody' ); 1; };
-	ok( $ok, 'drop_privileges succeeds when already non-root' );
-	is( $>, $orig_uid, 'UID unchanged when already non-root' );
+# run_in_child($code):
+#	Run $code in a forked child, and return what it printed. The
+#	child does the whole privilege drop, so the drop cannot reach
+#	the ids of the test process. The child reports over a pipe,
+#	and it exits with POSIX::_exit so no test hook runs twice.
+sub run_in_child ($code)
+{
+	pipe my $reader, my $writer or die "pipe: $!";
+	my $pid = fork // die "fork: $!";
+	if ( $pid == 0 ) {
+		close $reader;
+		my $report = eval { $code->() } // "DIED: $@";
+		print {$writer} $report;
+		close $writer;
+		POSIX::_exit(0);
+	}
+	close $writer;
+	my $report = do { local $/ = undef; <$reader> };
+	close $reader;
+	waitpid $pid, 0;
+
+	return $report // '';
 }
 
-# Test 6: Actual privilege drop (requires root)
+# Test 5: drop_privileges for a process that was never root
 SKIP: {
-	skip 'Must be root to test actual privilege dropping', 5 unless $> == 0;
-	
-	# This test drops privileges for real. That has an effect on
-	# the rest of the test suite. Thus normal test runs skip it.
-	# Test it manually or in isolation.
-	skip 'Actual privilege drop test skipped (would affect other tests)', 5;
-	
-	# A manual test does these steps:
-	# - Fork a child process
-	# - In the child, call drop_privileges
-	# - Make sure that the UID and the GID have changed
-	# - Make sure that the child cannot get root again
-	# - Exit the child
+	skip 'Running as root, cannot test non-root behavior', 4 if $> == 0;
+
+	my $orig_uid = $>;
+	my $orig_gid = ( split ' ', $EFFECTIVE_GROUP_ID )[0];
+	my $ret =
+	    eval { Fugu::Privdrop->drop_privileges( user => 'nobody' ) };
+	ok( defined $ret, 'the return value is defined' );
+	is( $ret, 0, 'drop_privileges returns 0 for a non-root process' );
+	is( $>,  $orig_uid, 'the UID did not change' );
+	is( ( split ' ', $EFFECTIVE_GROUP_ID )[0],
+		$orig_gid, 'the GID did not change' );
+}
+
+# Test 6: the real privilege drop, in a forked child
+SKIP: {
+	skip 'Must be root to test the real privilege drop', 1
+	    unless $> == 0;
+
+	my ( $uid, $gid ) = ( getpwnam('nobody') )[ 2, 3 ];
+	skip 'no nobody user on this host', 1 unless defined $uid;
+
+	my $report = run_in_child(
+		sub {
+			my $ret =
+			    Fugu::Privdrop->drop_privileges(
+				user => 'nobody' );
+
+			return "ret=$ret" unless $ret == 1;
+			return 'wrong ruid' unless $< == $uid;
+			return 'wrong euid' unless $> == $uid;
+			my ($rgid) = split ' ', $REAL_GROUP_ID;
+			my ( $egid, @members ) = split ' ',
+			    $EFFECTIVE_GROUP_ID;
+			return 'wrong rgid' unless $rgid == $gid;
+			return 'wrong egid' unless $egid == $gid;
+			for my $member (@members) {
+				return "kept group $member"
+				    unless $member == $gid;
+			}
+
+			# The drop must be permanent
+			POSIX::setuid(0);
+			return 'root came back' if $< == 0 || $> == 0;
+
+			return 'ok';
+		}
+	);
+	is( $report, 'ok', 'the child dropped to nobody and stayed there' );
+}
+
+# Test 6b: a drop with a named group lands on that group
+SKIP: {
+	skip 'Must be root to test the real privilege drop', 1
+	    unless $> == 0;
+
+	my ($uid)   = ( getpwnam('nobody') )[2];
+	my $daemon  = getgrnam('daemon');
+	my $primary = ( getpwnam('nobody') )[3];
+	skip 'no nobody user on this host', 1 unless defined $uid;
+	skip 'no daemon group on this host', 1
+	    unless defined $daemon && $daemon != ( $primary // -1 );
+
+	my $report = run_in_child(
+		sub {
+			my $ret = Fugu::Privdrop->drop_privileges(
+				user  => 'nobody',
+				group => 'daemon',
+			);
+
+			return "ret=$ret" unless $ret == 1;
+			my ($rgid) = split ' ', $REAL_GROUP_ID;
+			return "rgid=$rgid" unless $rgid == $daemon;
+
+			return 'ok';
+		}
+	);
+	is( $report, 'ok', 'the named group wins over the primary group' );
+}
+
+# Test 6c: keep_groups keeps the list, and the drop still verifies
+SKIP: {
+	skip 'Must be root to test the real privilege drop', 1
+	    unless $> == 0;
+
+	my ($uid) = ( getpwnam('nobody') )[2];
+	skip 'no nobody user on this host', 1 unless defined $uid;
+
+	my $report = run_in_child(
+		sub {
+			my $ret = Fugu::Privdrop->drop_privileges(
+				user        => 'nobody',
+				keep_groups => 1,
+			);
+
+			return "ret=$ret" unless $ret == 1;
+			return 'wrong euid' unless $> == $uid;
+
+			return 'ok';
+		}
+	);
+	is( $report, 'ok', 'keep_groups passes the two group id checks' );
+}
+
+# Test 6d: uid 0 as the target is a refusal. The guard returns 0 for
+# a normal user before the resolve, so only root reaches the check.
+SKIP: {
+	skip 'Must be root to test the uid 0 refusal', 2 unless $> == 0;
+
+	ok( !eval { Fugu::Privdrop->drop_privileges( user => 'root' ); 1 },
+		'a drop to root dies' );
+	like(
+		$@,
+		qr/Refusing to drop privileges to uid 0/,
+		'and the message names the refusal'
+	);
+}
+
+# Test 6e: a mixed root state is a hard error. Only root can build
+# that state, so the test forks, and the child calls seteuid(2)
+# before it calls the method. A normal user skips.
+SKIP: {
+	skip 'Must be root to build a mixed root state', 1 unless $> == 0;
+
+	my ($uid) = ( getpwnam('nobody') )[2];
+	skip 'no nobody user on this host', 1 unless defined $uid;
+
+	my $report = run_in_child(
+		sub {
+			# Set the effective UID alone; the real UID
+			# stays 0
+			$> = $uid;
+			my $ok = eval {
+				Fugu::Privdrop->drop_privileges(
+					user => 'nobody' );
+				1;
+			};
+			return 'no death' if $ok;
+			return $@;
+		}
+	);
+	like(
+		$report,
+		qr/mixed root state/,
+		'a mixed root state is a death, not a guess'
+	);
+}
+
+# Test 6f: the verification helper, without a drop. The helper reads
+# the live ids, so a test can prove the checks with no root. The
+# keep_groups flag is 1: the group list of a normal user holds more
+# than one group, and the list check is not under test here.
+{
+	my ($rgid) = split ' ', $REAL_GROUP_ID;
+	my ($egid) = split ' ', $EFFECTIVE_GROUP_ID;
+
+	SKIP: {
+		skip 'the real and the effective gid differ', 1
+		    unless $rgid == $egid;
+		is( Fugu::Privdrop->_verify_ids( $<, $rgid, 1 ),
+			1, '_verify_ids returns 1 for the live ids' );
+	}
+
+	my $wrong = $rgid + 1;
+	ok( !eval { Fugu::Privdrop->_verify_ids( $<, $wrong, 1 ); 1 },
+		'a wrong group id is a death' );
+	like(
+		$@,
+		qr/real gid is $rgid, wanted $wrong/,
+		'and the message names the found and the wanted value'
+	);
+
+	SKIP: {
+		skip 'the real and the effective gid differ', 2
+		    unless $rgid == $egid;
+		my $uid = $< + 1;
+		ok(
+			!eval {
+				Fugu::Privdrop->_verify_ids( $uid, $rgid, 1 );
+				1;
+			},
+			'a wrong user id is a death'
+		);
+		like(
+			$@,
+			qr/real uid is $<, wanted $uid/,
+			'and the message names the found and the wanted value'
+		);
+	}
 }
 
 # Test 7: prepare_statedir needs both names

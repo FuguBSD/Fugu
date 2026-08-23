@@ -35,7 +35,7 @@ phase applies.
 | [LIB-FILE](library.md#lib-file)                  | done    | —       | [File.pm](../lib/Fugu/File.pm), [file.t](../t/fugu/file.t)                                                                               |
 | [LIB-IMSG](library.md#lib-imsg)                  | done    | —       | [Imsg.pm](../lib/Fugu/Imsg.pm), [imsg.t](../t/fugu/imsg.t)                                                                               |
 | [LIB-JSONSOCKET](library.md#lib-jsonsocket)      | done    | —       | [JSONSocket.pm](../lib/Fugu/JSONSocket.pm), [jsonsocket.t](../t/fugu/jsonsocket.t)                                                       |
-| [LIB-LOG](library.md#lib-log)                    | partial | —       | The syslog format pin of LIB-LOG-1 is absent. [Log.pm](../lib/Fugu/Log.pm), [log.t](../t/fugu/log.t)                                     |
+| [LIB-LOG](library.md#lib-log)                    | done    | —       | [Log.pm](../lib/Fugu/Log.pm), [log.t](../t/fugu/log.t)                                                                                   |
 | [LIB-MQTT](library.md#lib-mqtt)                  | done    | —       | [MQTT.pm](../lib/Fugu/MQTT.pm), [mqtt.t](../t/fugu/mqtt.t)                                                                               |
 | [LIB-MDNSD](library.md#lib-mdnsd)                | done    | —       | [Mdnsd.pm](../lib/Fugu/Mdnsd.pm), [mdnsd.t](../t/fugu/mdnsd.t), [mdns-control.t](../t/conformance/mdns-control.t)                        |
 | [LIB-PIDFILE](library.md#lib-pidfile)            | done    | —       | [Pidfile.pm](../lib/Fugu/Pidfile.pm), [pidfile.t](../t/fugu/pidfile.t)                                                                   |
