@@ -59,8 +59,16 @@ Newline-delimited JSON over a UNIX socket.
 
 Logging to syslog, standard error, or nowhere.
 
-- **LIB-LOG-1** — In syslog mode, the logger must pin the native format, so a
-  pledged daemon logs the same bytes on every platform.
+- **LIB-LOG-1** — In syslog mode, the logger must give the `syslog_method`
+  list to `setlogsock` before it opens the log, and a failed pin must die at
+  the open. An empty list is the one exception: it pins nothing, and
+  `Sys::Syslog` keeps its own order.
+- **LIB-LOG-2** — A `syslog_method` option on `new` must select the syslog
+  transport, as one mechanism name or a list, with the default `native`. An
+  accessor of the same name must report the list, so a caller audits the
+  transport. The default is the native method that FuguTTX HRN-SAFE-AUDIT pins
+  for the pledged daemon; the option serves a host with no working native
+  transport.
 
 <a id="lib-mqtt"></a>
 
