@@ -1,0 +1,29 @@
+name: Publish
+
+# Every push to main that changes a site source publishes the site.
+# The shared web-publish workflow of FuguBSD/Tooling does the work;
+# this caller keeps the trigger, the permissions, and the concurrency
+# group.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".fuguwebrc"
+      - "web/**"
+      - "lib/**.pod"
+      - ".github/workflows/publish.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time. A new deploy waits, and no run cancels a run
+# that is in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    uses: FuguBSD/Tooling/.github/workflows/web-publish.yml@main
