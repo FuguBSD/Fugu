@@ -124,6 +124,61 @@ is(Fugu::SSH::MAX_READ_SIZE(), 64 * 1024 * 1024, 'MAX_READ_SIZE is 64 MiB');
 	'_read_all stops at the size when the reader offers more bytes');
 }
 
+# A stand-in writer for _write_all. It accepts at most chunk bytes
+# per write, like libssh2_sftp_write(3) with a large buffer, and it
+# fails when fail is set.
+package Test::Writer {
+
+    sub new
+    {
+	my ($class, %args) = @_;
+	return bless {
+	    chunk   => $args{chunk},
+	    fail    => $args{fail},
+	    stall   => $args{stall},
+	    content => '',
+	}, $class;
+    }
+
+    sub write
+    {
+	my ($self, $data) = @_;
+
+	return undef if $self->{fail};
+	return 0 if $self->{stall};
+
+	my $want = $self->{chunk} // length $data;
+	$want = length $data if length($data) < $want;
+
+	$self->{content} .= substr $data, 0, $want;
+
+	return $want;
+    }
+}
+
+# _write_all sends every byte through the write method of its file
+# argument, and one write can accept less than the full buffer.
+{
+    my $ssh = Fugu::SSH->new;
+
+    my $writer = Test::Writer->new(chunk => 3);
+    is($ssh->_write_all($writer, 'abcdefgh'), 1,
+	'_write_all reports success when the bytes go out in pieces');
+    is($writer->{content}, 'abcdefgh', 'and every byte arrives in order');
+
+    $writer = Test::Writer->new;
+    is($ssh->_write_all($writer, ''), 1,
+	'_write_all reports success for an empty content');
+
+    $writer = Test::Writer->new(fail => 1);
+    ok(!defined $ssh->_write_all($writer, 'abcdefgh'),
+	'_write_all returns undef when a write fails');
+
+    $writer = Test::Writer->new(stall => 1);
+    ok(!defined $ssh->_write_all($writer, 'abcdefgh'),
+	'_write_all returns undef when a write makes no progress');
+}
+
 # read_file returns undef for every failure, and it does not die. A
 # closed port proves the connect failure without a server. A success
 # needs a live host, so FuguVM proves that path against a guest.
