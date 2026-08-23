@@ -125,7 +125,10 @@ Run a command on another machine over SSH. An optional feature: the module
 requires `Net::SSH2` lazily.
 
 - **LIB-SSH-1** — `read_file` must read a remote file under a fixed size bound.
-- **LIB-SSH-2** — The client must verify the host key of the peer.
+- **LIB-SSH-2** — A `strict` option and a `known_hosts` option on `new` must
+  verify the host key of the peer, on every connection and before any
+  authentication. The default stays permissive: the module provisions a fresh
+  guest, and such a guest holds a new key after each install.
 
 <a id="lib-sandbox"></a>
 
