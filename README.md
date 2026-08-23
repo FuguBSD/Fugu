@@ -56,11 +56,11 @@ Each module documents its API in a `.pod` sidecar. Start with:
 ## Commands
 
 ```sh
-make check          # lint + test + tidy + spec-coverage + spec-check + ste-lint
-make test           # prove -l -v over every test tier
+make check          # lint + format + test + spec-coverage + spec-check + ste-lint
+make test           # prove -l over every test tier
 prove -l t/fugu/foo.t      # one test file
-make tidy-fix       # auto-fix Perl formatting
-make prettier       # Markdown/JSON/YAML formatting check
+make format-fix     # auto-fix Perl formatting
+make format-md      # Markdown/JSON/YAML formatting check
 make dist           # build the release tarball
 ```
 

@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
     paths:
-      # The Perl files that tidy, lint and the syntax sweep read. The
+      # The Perl files that format, lint and the syntax sweep read. The
       # files in scripts/ have no extension. Thus a glob over the
       # directory is the only way to name all of them.
       - "scripts/*"
@@ -24,7 +24,8 @@ on:
       - "**.yml"
       - ".prettierrc"
       # The toolchain that the jobs install and use
-      - "Makefile"
+      - "GNUmakefile"
+      - "mk/*"
       - "cpanfile"
       - "deps/*.txt"
   pull_request:
@@ -39,13 +40,14 @@ on:
       - "**.json"
       - "**.yml"
       - ".prettierrc"
-      - "Makefile"
+      - "GNUmakefile"
+      - "mk/*"
       - "cpanfile"
       - "deps/*.txt"
 
 jobs:
-  tidy:
-    name: Tidy
+  format:
+    name: Format
     runs-on: ubuntu-latest
 
     steps:
@@ -57,17 +59,17 @@ jobs:
           dependencies: test
 
       - name: Check formatting
-        run: make tidy
+        run: make format
 
-  prettier:
-    name: Prettier
+  format-md:
+    name: Format MD
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Check Markdown/JSON/YAML formatting
-        run: make prettier
+        run: make format-md
 
   lint:
     name: Lint

@@ -176,7 +176,9 @@ sub get ( $self, $key, $default = undef )
 #	Return the names of the top-level settings, sorted.
 sub setting_names ($self)
 {
-	return sort keys %{ $self->{settings} };
+	my @names = sort keys %{ $self->{settings} };
+
+	return @names;
 }
 
 # $self->parse_bool($value, $default):

@@ -38,7 +38,8 @@
 # every package of the staged modules. PAUSE then indexes each
 # package with its version, and a consumer can assert a minimum,
 # e.g. use Fugu::Daemon 0.1.0. CI passes --version so that the tag
-# and the tarball agree.
+# and the tarball agree. An empty --version value counts as absent:
+# the dist target of mk/perl.mk always passes the flag.
 #
 # The PM map lists every module and every share file. Share files
 # install under auto/share/dist/<dist>/, the File::ShareDir layout,
@@ -97,8 +98,8 @@ sub _read_toolingrc ($file)
 		next if $key !~ /^dist\./;
 		my $name = $key =~ s/^dist\.//r;
 
-		defined $value && $value ne ''
-		    or die "dist: $file: '$key' has no value\n";
+		die "dist: $file: '$key' has no value\n"
+		    if !defined $value || $value eq '';
 
 		if ( $single{$name} ) {
 			die "dist: $file: duplicate '$key'\n"
@@ -141,6 +142,8 @@ GetOptions(
 	'out=s'     => \$out,
 ) or die "usage: dist [--version X.Y] [--out DIR]\n";
 
+undef $version if defined $version && $version eq '';
+
 if ( !defined $version ) {
 	my $tag = qx(git describe --tags --match 'v*' --abbrev=0 2>/dev/null);
 	chomp( $tag //= '' );
@@ -169,7 +172,9 @@ sub _files_under ( $dir, $pattern )
 		$dir
 	);
 
-	return sort @files;
+	my @sorted = sort @files;
+
+	return @sorted;
 }
 
 # _stage($file):

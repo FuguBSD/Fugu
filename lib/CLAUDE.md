@@ -5,8 +5,8 @@ Applies when working on Perl code in this repository.
 ## Coding style
 
 OpenBSD style(9): 8-character tabs, continuation lines indent 4 spaces.
-`make tidy` and `make lint` enforce the format — run `make tidy-fix` rather than
-hand-formatting. `.perlcriticrc` deliberately relaxes many rules to match
+`make format` and `make lint` enforce the format — run `make format-fix` rather
+than hand-formatting. `.perlcriticrc` deliberately relaxes many rules to match
 OpenBSD style; do not "fix" code toward generic Perl::Critic defaults.
 
 Rules the tools cannot enforce:

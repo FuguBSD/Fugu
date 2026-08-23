@@ -19,6 +19,9 @@ use v5.36;
 
 package Fugu::Privdrop;
 
+# The English names below keep the group assignments parseable for
+# the lint: PPI pairs a literal "$(" with the next "$)".
+use English    qw(-no_match_vars);
 use File::Path qw(make_path);
 use POSIX      qw(setuid setgid);
 
@@ -136,7 +139,7 @@ sub drop_privileges ( $class, %args )
 	unless ( POSIX::setgid($gid) ) {
 		die "Cannot setgid to $gid: $!";
 	}
-	$( = $gid;    # Set the real GID
+	$REAL_GROUP_ID = $gid;
 
 	# Set the effective GID and the supplementary groups together.
 	# Perl calls setgroups(2) only for the entries after the first.
@@ -144,7 +147,7 @@ sub drop_privileges ( $class, %args )
 	# one group. To keep root's supplementary groups is fail-open,
 	# so it is opt-in. The mdnsd socket group is the case that
 	# needs it.
-	$) = $keep_groups ? "$gid" : "$gid $gid";
+	$EFFECTIVE_GROUP_ID = $keep_groups ? "$gid" : "$gid $gid";
 
 	# Drop the user privileges
 	unless ( POSIX::setuid($uid) ) {

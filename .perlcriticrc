@@ -18,6 +18,17 @@ severity = 4
 # File handles must stay open during flock operations
 [-InputOutput::RequireBriefOpen]
 
+# A method can share a name with a builtin: the arrow call site is
+# never ambiguous (for example $file->read and $server->listen)
+[-Subroutines::ProhibitBuiltinHomonyms]
+
+# A daemon assigns its %SIG handlers for its lifetime; local would
+# remove them at scope exit
+[-Variables::RequireLocalizedPunctuationVars]
+
+# select with a fractional timeout is the portable sub-second sleep
+[-BuiltinFunctions::ProhibitSleepViaSelect]
+
 # Modern Perl signatures use the prototype syntax in a different way
 [-Subroutines::ProhibitSubroutinePrototypes]
 
