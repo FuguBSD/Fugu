@@ -22,6 +22,17 @@ The OpenBSD-style configuration grammar.
 
 A control socket for a running daemon, with its client.
 
+- **LIB-CONTROL-1** — A `mode` option and a `group` option on `listen` must set
+  the socket mode and group, and the socket must never accept a wider set of
+  users than the final set. FuguTTX HRN-SOCKET names such a socket: group
+  `ttxop`, mode `0660`, and membership as the operator grant.
+- **LIB-CONTROL-2** — The server must report the peer credentials of the
+  connection that a handler answers, read once per connection with
+  `SO_PEERCRED` in the `struct sockpeercred` field order, on OpenBSD alone. A
+  companion predicate must tell "not supported" from "the read failed". FuguTTX
+  HRN-SOCKET names the read, and FuguTTX HRN-CONFIRM-6 names the peer user id
+  that gates a confirmation.
+
 <a id="lib-daemon"></a>
 
 ## Fugu::Daemon
