@@ -49,8 +49,14 @@ The destination for messages. The value is one of:
 
 =item C<syslog>
 
-Messages go through syslog(3). The logger calls openlog(3)
-immediately with the C<ndelay> and C<pid> options.
+Messages go through syslog(3). The logger pins the transport to the
+C<native> mechanism with C<setlogsock> from L<Sys::Syslog>, and then
+calls openlog(3) immediately with the C<ndelay> and C<pid> options.
+
+The pin keeps a pledged daemon alive. On OpenBSD the C<native>
+mechanism delivers with sendsyslog(2), which sits inside the C<stdio>
+promise. Every other mechanism opens a socket, and a daemon that
+pledges C<stdio> dies at that call.
 
 =item C<stderr>
 
@@ -118,6 +124,10 @@ daemon calls this after it drops privileges: the syslog(3) connection
 belongs to the user that opened it. In the other modes the method
 does nothing.
 
+In syslog mode the method pins the C<native> transport again before
+it opens the connection. The transport list of L<Sys::Syslog> is
+process-wide state, so a pin from the first open does not last.
+
 This replaces the older pattern of discarding the logger and building
 an identical one. That pattern needed every call site to learn the
 new object.
@@ -167,6 +177,12 @@ C<new> dies if C<mode> is not one of the three names above. An
 unknown C<level> or C<facility> is not an error. The level becomes
 C<info>, and the facility becomes C<LOG_DAEMON>.
 
+In syslog mode, C<new> and C<reopen> die when C<setlogsock> reports a
+failed pin. A failed C<setlogsock> restores the default transport
+list, and that list holds mechanisms that open a socket. A pledged
+daemon with that list dies at its first log line, with SIGABRT and no
+diagnosis. A clear death at the open is the better outcome.
+
 =head1 SEE ALSO
 
 syslog(3), L<Fugu::Daemon>, L<Sys::Syslog>, syslog.conf(5)
@@ -187,5 +203,10 @@ and closelog(3) act on process-wide state. Thus, when a second logger
 goes out of scope, it closes the connection that the first logger
 still uses. Use C<reopen> on the one logger instead of building a
 second one.
+
+The C<native> mechanism reports success in every case. The C library
+drops a message that it cannot deliver, and no error reaches the
+caller. A host with no working native transport therefore loses every
+log line, and the module cannot detect the loss.
 
 =cut

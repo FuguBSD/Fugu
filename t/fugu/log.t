@@ -149,4 +149,89 @@ use_ok('Fugu::Log');
 		'logging through the default works' );
 }
 
+# The syslog tests replace the imported Sys::Syslog subs inside the
+# Fugu::Log package, so no test opens a live syslog connection. The
+# import copies each code reference, so a change in Sys::Syslog alone
+# reaches nothing.
+
+# Test 12: syslog mode pins the native transport before openlog
+{
+	my @calls;
+	no warnings 'redefine';
+	local *Fugu::Log::setlogsock =
+	    sub { push @calls, [ 'setlogsock', @_ ]; 1 };
+	local *Fugu::Log::openlog  = sub { push @calls, [ 'openlog', @_ ]; 1 };
+	local *Fugu::Log::closelog = sub { 1 };
+
+	my $log = Fugu::Log->new( mode => 'syslog', ident => 'fugutest' );
+	is( scalar @calls, 2, 'new makes two syslog calls' );
+	is_deeply(
+		$calls[0],
+		[ 'setlogsock', 'native' ],
+		'the first call pins the native transport'
+	);
+	is( $calls[1][0], 'openlog', 'openlog comes after the pin' );
+	is( $calls[1][1], 'fugutest', 'openlog gets the ident' );
+
+	# Test 13: reopen pins the transport again, before openlog
+	@calls = ();
+	$log->reopen;
+	is_deeply(
+		$calls[0],
+		[ 'setlogsock', 'native' ],
+		'reopen pins the native transport again'
+	);
+	is( $calls[-1][0], 'openlog', 'and openlog comes after the pin' );
+
+	# Free the logger while the overrides still hold, so DESTROY
+	# reaches no live closelog
+	undef $log;
+}
+
+# Test 14: the other modes never touch the transport
+{
+	my @calls;
+	no warnings 'redefine';
+	local *Fugu::Log::setlogsock =
+	    sub { push @calls, [ 'setlogsock', @_ ]; 1 };
+	local *Fugu::Log::openlog = sub { push @calls, [ 'openlog', @_ ]; 1 };
+
+	my $stderr_log = Fugu::Log->new( mode => 'stderr' );
+	my $quiet_log  = Fugu::Log->new( mode => 'quiet' );
+	$stderr_log->reopen;
+	$quiet_log->reopen;
+	is_deeply( \@calls, [],
+		'a stderr logger and a quiet logger call setlogsock never' );
+}
+
+# Test 15: a failed pin is a death at the open, in new and in reopen
+{
+	my $pin_ok = 1;
+	no warnings 'redefine';
+	local *Fugu::Log::setlogsock = sub { $pin_ok };
+	local *Fugu::Log::openlog    = sub { 1 };
+	local *Fugu::Log::closelog   = sub { 1 };
+
+	my $log = Fugu::Log->new( mode => 'syslog' );
+
+	$pin_ok = 0;
+	ok( !eval { Fugu::Log->new( mode => 'syslog' ); 1 },
+		'new dies when setlogsock reports a failure' );
+	like(
+		$@,
+		qr/Cannot pin the syslog method to native/,
+		'and the message names the method'
+	);
+
+	ok( !eval { $log->reopen; 1 },
+		'reopen dies when setlogsock reports a failure' );
+	like(
+		$@,
+		qr/Cannot pin the syslog method to native/,
+		'and the message names the method'
+	);
+
+	undef $log;
+}
+
 done_testing();
