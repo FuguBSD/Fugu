@@ -57,8 +57,9 @@ sub method($self, $param)
 
 - Delete an old code path outright. Never keep an alias, a bridge, or a
   migration.
-- Do not keep test-only API. Delete a sub or an option that only tests use,
-  together with its test.
+- Implement an API only for a documented need. A specification unit, in this
+  repository or in an other FuguBSD repository, must name the need. Delete a sub
+  or an option that no specification names, together with its test.
 - Validate each input once, at its boundary. Do not check the same invariant
   again downstream.
 
