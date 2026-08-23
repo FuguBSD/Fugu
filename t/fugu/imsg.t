@@ -13,16 +13,34 @@ use Test::More;
 use FindBin qw($RealBin);
 use lib "$RealBin/../../lib";
 use Protocol::Imsg;
-use Socket qw(AF_UNIX SOCK_STREAM PF_UNSPEC);
+use Socket qw(AF_UNIX SOCK_STREAM PF_UNSPEC SOL_SOCKET SO_SNDBUF SO_RCVBUF);
 use Time::HiRes qw(time);
 
 use_ok('Fugu::Imsg');
 
-# pair(): two Fugu::Imsg objects over a fresh socketpair
-sub pair ()
+# sized_socketpair(): a socketpair with room for one largest frame in
+# each direction. The default unix socket buffers on Darwin hold 8192
+# bytes, and a blocking write of one 16384-byte frame then waits for a
+# read that this one-process test has not started yet. The doubled
+# size covers the accounting differences between the kernels.
+sub sized_socketpair ()
 {
 	socketpair( my $a, my $b, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
 	    or die "socketpair: $!";
+	for my $fh ( $a, $b ) {
+		for my $opt ( SO_SNDBUF, SO_RCVBUF ) {
+			setsockopt( $fh, SOL_SOCKET, $opt,
+				pack 'i', 2 * Protocol::Imsg::MAX_IMSGSIZE() )
+			    or die "setsockopt: $!";
+		}
+	}
+	return ( $a, $b );
+}
+
+# pair(): two Fugu::Imsg objects over a fresh socketpair
+sub pair ()
+{
+	my ( $a, $b ) = sized_socketpair();
 	return (
 		Fugu::Imsg->new( fh => $a ),
 		Fugu::Imsg->new( fh => $b ),
@@ -33,8 +51,7 @@ sub pair ()
 # that writes bytes the transport would never produce
 sub receiver ()
 {
-	socketpair( my $a, my $b, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
-	    or die "socketpair: $!";
+	my ( $a, $b ) = sized_socketpair();
 	return ( $a, Fugu::Imsg->new( fh => $b ) );
 }
 
