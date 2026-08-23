@@ -1,23 +1,54 @@
-# Build artifacts
-build/
-local/
+# .gitignore: canonical copy, owned by FuguBSD/Tooling.
+# The org ignore list. One list serves every consumer, so it holds
+# the union of all consumer needs. A pattern that a repository does
+# not use is harmless there.
 
-# Exploratory testing
+# Secrets
+.env
+
+# Scratch space of the development rules
 explore/
-
-# Editor/IDE
-.idea/
-.vscode/
-
-# macOS
-.DS_Store
-
-# Agent files
 SCRATCHPAD*.md
 .claude/worktrees/
 
-# External projects
-external/
+# Operating system
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
 
 # Website build
 web/build/
+
+# Perl build
+build/
+local/
+external/
+*.cat1
+
+# Python build
+.venv/
+__pycache__/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+
+# OpenTofu state
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.auto.tfvars
+*.tfplan
+crash.log
+crash.*.log
+
+# Virtual machine state and images
+.fuguvm/
+.cache/
+*.qcow2
+*.img
+*.iso
+*.pid
+*.log
