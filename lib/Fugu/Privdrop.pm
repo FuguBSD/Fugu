@@ -27,7 +27,7 @@ use POSIX      qw(setuid setgid);
 
 # Fugu::Privdrop - give up root permanently.
 #
-# The module keeps no state and has two class methods. A daemon
+# The module keeps no state and has two public class methods. A daemon
 # prepares its state directory while it is still root, then drops to an
 # unprivileged user for the event loop. Both steps fail loudly: a
 # partial privilege drop is worse than no drop at all.
@@ -110,7 +110,11 @@ sub prepare_statedir ( $class, %args )
 #		group       => $groupname # Group to drop to (optional, default: the user's primary group)
 #		keep_groups => 0|1        # Keep root's supplementary groups (default: 0)
 #
-#	The method returns 1 on success. It dies on error.
+#	The method returns 1 for a verified drop. It returns 0 for a
+#	process that was never root: the method then changes nothing,
+#	and the caller can tell the no-op from a drop. It dies on
+#	every error, and for a mixed root state, and for uid 0 as the
+#	target.
 #
 #	Example:
 #		# Start as root. Do the privileged operations.
@@ -130,10 +134,23 @@ sub drop_privileges ( $class, %args )
 	    or die 'user parameter required for drop_privileges';
 	my $keep_groups = $args{keep_groups} // 0;
 
-	# If the process is already non-root, there is nothing to do
-	return 1 if $> != 0;
+	# The guard reads both user ids. A process that was never
+	# root gets 0, so a caller can tell the no-op from a drop. A
+	# process with exactly one root id can call seteuid(2) and get
+	# root back, and the module cannot guess which id the caller
+	# wants, so that state is a hard error.
+	return 0 if $< != 0 && $> != 0;
+	if ( $< != 0 || $> != 0 ) {
+		die 'Cannot drop privileges from a mixed root state: '
+		    . "real $<, effective $>";
+	}
 
 	my ( $uid, $gid ) = $class->_resolve( $user, $args{group} );
+
+	# A drop to root is not a drop
+	if ( $uid == 0 ) {
+		die 'Refusing to drop privileges to uid 0';
+	}
 
 	# Drop the group privileges first. Do this before setuid.
 	unless ( POSIX::setgid($gid) ) {
@@ -156,17 +173,60 @@ sub drop_privileges ( $class, %args )
 	$< = $uid;    # Set the real UID
 	$> = $uid;    # Set the effective UID
 
-	# Make sure the process cannot get root back
-	if ( $> == 0 || $< == 0 ) {
-		die 'Failed to drop privileges - still running as root';
+	# Verify each id against the target. The four assignments
+	# above report nothing: Perl performs each syscall and drops
+	# the result. The checks run outside an eval on purpose: an
+	# eval would swallow the die and report a successful drop for
+	# a process that kept a root id.
+	$class->_verify_ids( $uid, $gid, $keep_groups );
+
+	# Try to escalate. The attempt must fail. The second
+	# verification proves that the attempt changed nothing.
+	POSIX::setuid(0);
+	$class->_verify_ids( $uid, $gid, $keep_groups );
+
+	return 1;
+}
+
+# $class->_verify_ids($uid, $gid, $keep_groups):
+#	Verify the group ids and the user ids after the drop. The
+#	group checks come first: the group calls run before the user
+#	calls, and a wrong group id is the silent failure. $( and $)
+#	each hold a space-separated list, so each check splits the
+#	value and compares the fields as numbers. The method dies on
+#	the first failure. It returns 1 otherwise.
+sub _verify_ids ( $, $uid, $gid, $keep_groups )
+{
+	my ($rgid) = split ' ', $REAL_GROUP_ID;
+	if ( $rgid != $gid ) {
+		die "Privilege drop failed: real gid is $rgid, wanted $gid";
 	}
 
-	# Try to escalate. The attempt must fail. The check runs outside
-	# an eval on purpose: an eval would swallow the die and report a
-	# successful drop for a process that kept root.
-	POSIX::setuid(0);
-	if ( $> == 0 || $< == 0 ) {
-		die 'Privilege drop failed - able to regain root';
+	my ( $egid, @members ) = split ' ', $EFFECTIVE_GROUP_ID;
+	if ( $egid != $gid ) {
+		die "Privilege drop failed: effective gid is $egid, "
+		    . "wanted $gid";
+	}
+
+	# getgroups(2) reports a set, not a sequence, and the set can
+	# hold the effective group id. Thus every member must equal
+	# $gid, and the length proves nothing. With keep_groups the
+	# caller kept a list that root gave the process. The module
+	# cannot know that list, so it must not verify it.
+	unless ($keep_groups) {
+		for my $member (@members) {
+			next if $member == $gid;
+			die 'Privilege drop failed: the group list '
+			    . "holds $member, wanted $gid";
+		}
+	}
+
+	if ( $< != $uid ) {
+		die "Privilege drop failed: real uid is $<, wanted $uid";
+	}
+	if ( $> != $uid ) {
+		die "Privilege drop failed: effective uid is $>, "
+		    . "wanted $uid";
 	}
 
 	return 1;

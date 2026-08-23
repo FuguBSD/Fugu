@@ -88,22 +88,72 @@ socket after it drops to its own user.
 
 =back
 
-If the effective user ID is not 0, the method returns immediately.
-Thus a program that is already unprivileged can call it in all cases.
-In the other case, the method resolves the user and the group. It
-calls setgid(2), then sets the supplementary groups with
-setgroups(2), then calls setuid(2), and sets the real and effective
-IDs. Then it makes sure that the two IDs are not 0. It also makes sure
-that a call to setuid(2) with 0 does not bring root back.
+The method reads both user IDs first, and acts on three cases. When
+the real and the effective user ID are both 0, the method does the
+drop. When neither ID is 0, the method changes nothing and returns 0.
+When exactly one ID is 0, the method dies: a process in that mixed
+state can call seteuid(2) and get root back, and the method cannot
+guess which ID the caller wants.
+
+For the drop, the method resolves the user and the group, and it dies
+when the resolved user ID is 0. It calls setgid(2), then sets the
+supplementary groups with setgroups(2), then calls setuid(2), and
+sets the real and effective IDs.
+
+The method then verifies each ID against the target, in this order:
+
+=over 4
+
+=item 1.
+
+The real group ID equals the target group ID.
+
+=item 2.
+
+The effective group ID equals the target group ID.
+
+=item 3.
+
+With C<keep_groups> 0, every member of the supplementary group list
+equals the target group ID.
+
+=item 4.
+
+The real user ID equals the target user ID.
+
+=item 5.
+
+The effective user ID equals the target user ID.
+
+=back
+
+The method then calls setuid(2) with 0, and verifies every ID one
+more time. The second verification proves that the attempt to get
+root back changed nothing.
 
 =head1 RETURN VALUES
 
 C<prepare_statedir()> returns 1 on success. It returns C<undef> when
 the directory itself is not usable.
 
-C<drop_privileges()> returns 1 on success. A call from a process that
-is already unprivileged is a success. The method never returns on
+C<drop_privileges()> returns one of two values. It never returns on
 failure.
+
+=over 4
+
+=item 1
+
+The method dropped privilege, and every check passed.
+
+=item 0
+
+The process was never root. The method changed nothing.
+
+=back
+
+Both values are defined, so a caller can tell a drop from a no-op,
+and neither value reports an error. The value 0 is false. A caller
+that must run as root must test for 1.
 
 =head1 EXAMPLES
 
@@ -140,7 +190,17 @@ The C<user> argument is absent.
 
 =item *
 
+Exactly one of the real and the effective user ID is 0. The message
+matches C<mixed root state>.
+
+=item *
+
 The method cannot resolve the user or the group.
+
+=item *
+
+The resolved user ID is 0. A drop to root is not a drop. The message
+matches C<Refusing to drop privileges to uid 0>.
 
 =item *
 
@@ -148,11 +208,13 @@ setgid(2) or setuid(2) fails.
 
 =item *
 
-The process holds root after the calls.
+A verified ID differs from its target after the drop. The message
+names the check, the value it found, and the value it wanted, for
+example C<Privilege drop failed: real gid is 0, wanted 1000>.
 
 =item *
 
-A later setuid(2) with 0 brings root back.
+A later setuid(2) with 0 changes any ID.
 
 =back
 
@@ -179,5 +241,9 @@ the owner of the directory and of the files one level inside it.
 
 A daemon that must keep a root-owned file, for example a PID file in
 F</var/run>, must not put that file inside the prepared directory.
+
+With C<keep_groups> 1 the process keeps a supplementary group list
+that root gave it, and that list can hold group 0. The method cannot
+know that list, so it does not verify it. The caller owns that risk.
 
 =cut

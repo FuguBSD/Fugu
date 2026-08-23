@@ -73,8 +73,8 @@ tarball to GitHub Releases and to PAUSE. The rules are in
 
 ## Commit scopes
 
-`file`, `imsg`, `log`, `mdnsd`, `mqtt`, `process`, `proxy`, `repl`, `signify`,
-`ssh`, `spec`, `deps`, `ci`.
+`file`, `imsg`, `log`, `mdnsd`, `mqtt`, `privdrop`, `process`, `proxy`, `repl`,
+`signify`, `ssh`, `spec`, `deps`, `ci`.
 
 ## License
 
