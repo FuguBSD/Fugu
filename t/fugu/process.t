@@ -7,6 +7,7 @@ use lib "$RealBin/../../lib";
 
 use Cwd        ();
 use File::Temp qw(tempdir);
+use Fugu::CLI  qw(EXIT_ERROR);
 
 use_ok('Fugu::Process');
 
@@ -286,6 +287,201 @@ subtest 'run starts the child in the named directory' => sub {
 	);
 	ok( !$r->{success}, 'an absent directory fails a passthrough run' );
 	like( $r->{error}, qr/Cannot chdir/, 'and says why' );
+};
+
+# The env option names the exact environment of the child. Each
+# subtest that runs the interpreter names it through $^X, an
+# absolute path. Only the bare-name subtest depends on PATH, and
+# that dependence is its subject.
+subtest 'run with env gives the child exactly the named variables' => sub {
+	my $r = Fugu::Process->run(
+		cmd =>
+		    [ $^X, '-e', 'print "$_=$ENV{$_}\n" for sort keys %ENV' ],
+		env => { BBB => 'two', AAA => 'one' },
+	);
+	ok( $r->{success}, 'the child runs' );
+	is( $r->{stdout}, "AAA=one\nBBB=two\n",
+		'the child holds the named variables and nothing else' );
+};
+
+subtest 'run without env gives the child the parent environment' => sub {
+	local $ENV{FUGU_TEST_MARKER} = 'from-the-parent';
+	my $r = Fugu::Process->run(
+		cmd => [ $^X, '-e', 'print $ENV{FUGU_TEST_MARKER} // ""' ],
+	);
+	ok( $r->{success}, 'the child runs' );
+	is( $r->{stdout}, 'from-the-parent', 'the marker reached the child' );
+};
+
+subtest 'env => {} gives the child an empty environment' => sub {
+	my $r = Fugu::Process->run(
+		cmd => [ $^X, '-e', 'print scalar keys %ENV' ],
+		env => {},
+	);
+	ok( $r->{success}, 'the child runs' );
+	is( $r->{stdout}, '0', 'the child holds no variable' );
+};
+
+subtest 'the parent %ENV does not change' => sub {
+	local $ENV{FUGU_TEST_MARKER} = 'stays';
+	my %before = %ENV;
+
+	Fugu::Process->run(
+		cmd => [ $^X, '-e', '1' ],
+		env => { ONLY => 'this' },
+	);
+	is_deeply( \%ENV, \%before, 'the same keys and values after run' );
+
+	my $result = Fugu::Process->spawn_command(
+		cmd => [ $^X, '-e', '1' ],
+		env => { ONLY => 'this' },
+	);
+	Fugu::Process->wait_exit( $result->{pid}, 5 ) if $result->{success};
+	is_deeply( \%ENV, \%before,
+		'the same keys and values after spawn_command' );
+};
+
+subtest 'a passthrough run carries env to the child' => sub {
+
+	# Passthrough captures nothing, so the proof is the exit code:
+	# the child exits 0 only when the variable matches.
+	my $r = Fugu::Process->run(
+		cmd => [
+			$^X, '-e',
+			'exit((($ENV{FUGU_PASS} // q{}) eq q{yes}) ? 0 : 1)'
+		],
+		env         => { FUGU_PASS => 'yes' },
+		passthrough => 1,
+	);
+	ok( $r->{success}, 'the child saw the variable' );
+	is( $r->{exit_code}, 0, 'and exited 0' );
+};
+
+subtest 'spawn_command carries env to the child' => sub {
+	my $dir = tempdir( CLEANUP => 1 );
+	my $out = "$dir/env.txt";
+
+	my $result = Fugu::Process->spawn_command(
+		cmd =>
+		    [ $^X, '-e', 'print "$_=$ENV{$_}\n" for sort keys %ENV' ],
+		stdout => $out,
+		env    => { ONE => '1', TWO => '2' },
+	);
+	ok( $result->{success}, 'the child spawned' );
+	Fugu::Process->wait_exit( $result->{pid}, 5 );
+
+	open my $fh, '<', $out or die "Cannot read $out: $!";
+	my $content = do { local $/; <$fh> };
+	close $fh;
+	is( $content, "ONE=1\nTWO=2\n",
+		'the file holds the exact environment' );
+};
+
+subtest 'spawn_perl carries env and the child keeps its modules' => sub {
+	my $dir = tempdir( CLEANUP => 1 );
+	my $out = "$dir/perl.txt";
+
+	# The -I flags carry @INC in the argument list, so a child
+	# with no PERL5LIB still loads a module of this checkout.
+	my $result = Fugu::Process->spawn_perl(
+		code => 'use Fugu::CLI; '
+		    . 'print join(",", map { "$_=$ENV{$_}" } sort keys %ENV)',
+		stdout => $out,
+		env    => { FUGU_PERL => 'loaded' },
+	);
+	ok( $result->{success}, 'the child spawned' );
+	Fugu::Process->wait_exit( $result->{pid}, 5 );
+
+	open my $fh, '<', $out or die "Cannot read $out: $!";
+	my $content = do { local $/; <$fh> };
+	close $fh;
+	is( $content, 'FUGU_PERL=loaded',
+		'the module loaded and the environment is exact' );
+};
+
+subtest 'a bare command name needs PATH in env' => sub {
+	my $dir  = tempdir( CLEANUP => 1 );
+	my $prog = "$dir/fugu-env-prog";
+
+	open my $fh, '>', $prog or die "Cannot write $prog: $!";
+	print {$fh} "#!/bin/sh\nexit 0\n";
+	close $fh;
+	chmod 0755, $prog or die "Cannot chmod $prog: $!";
+
+	# The default path of execvp(3) does not hold the temporary
+	# directory, so the bare name fails without PATH.
+	my $r = Fugu::Process->run(
+		cmd => ['fugu-env-prog'],
+		env => {},
+	);
+	ok( !$r->{success}, 'the bare name fails without PATH' );
+	like( $r->{error}, qr/Cannot exec fugu-env-prog/,
+		'and the error names the command' );
+
+	$r = Fugu::Process->run(
+		cmd => ['fugu-env-prog'],
+		env => { PATH => $dir },
+	);
+	ok( $r->{success}, 'the same name succeeds with PATH in env' );
+};
+
+subtest 'a bad env returns an error and starts nothing' => sub {
+	my @bad = (
+		[ 'a value that is not a hashref' => 'not-a-hashref' ],
+		[ 'an empty name'                 => { ''     => 'x' } ],
+		[ 'an equals sign in a name'      => { 'A=B'  => 'x' } ],
+		[ 'a NUL byte in a name'          => { "A\0B" => 'x' } ],
+		[ 'an undefined value'            => { A      => undef } ],
+		[ 'a reference value'             => { A      => [] } ],
+		[ 'a NUL byte in a value'         => { A      => "x\0y" } ],
+		[ 'a wide character in a name'    => { "\x{263a}" => 'x' } ],
+		[ 'a wide character in a value'   => { A => "\x{263a}" } ],
+	);
+
+	for my $case (@bad) {
+		my ( $name, $env ) = @$case;
+
+		my $r = Fugu::Process->run(
+			cmd => [ $^X, '-e', '1' ],
+			env => $env,
+		);
+		ok( !$r->{success}, "run rejects $name" );
+		ok( $r->{error},    'and says why' );
+
+		my $s = Fugu::Process->spawn_command(
+			cmd => [ $^X, '-e', '1' ],
+			env => $env,
+		);
+		ok( !$s->{success},    "spawn_command rejects $name" );
+		ok( !exists $s->{pid}, 'and starts nothing' );
+	}
+
+	my $r = Fugu::Process->run(
+		cmd => [ $^X, '-e', '1' ],
+		env => 'not-a-hashref',
+	);
+	is( $r->{exit_code}, EXIT_ERROR, 'the run shape: EXIT_ERROR' );
+	is( $r->{stdout},    '',         'stdout is empty' );
+	is( $r->{stderr},    '',         'stderr is empty' );
+};
+
+subtest 'the module reads the Perl configuration at compile time' => sub {
+
+	# A pledged caller of spawn_perl must open no file at call
+	# time. The proof: Config.pm and Config_heavy.pl sit in %INC
+	# directly after the compile, with no method call.
+	my $code =
+	      'use Fugu::Process; '
+	    . 'print $INC{q{Config.pm}} ? q{y} : q{n}; '
+	    . 'print $INC{q{Config_heavy.pl}} ? q{y} : q{n};';
+
+	my $r = Fugu::Process->run(
+		cmd => [ $^X, "-I$RealBin/../../lib", '-e', $code ],
+	);
+	ok( $r->{success}, 'the module compiles' ) or diag $r->{stderr};
+	is( $r->{stdout}, 'yy',
+		'%INC holds Config.pm and Config_heavy.pl after the compile'
+	);
 };
 
 done_testing();
