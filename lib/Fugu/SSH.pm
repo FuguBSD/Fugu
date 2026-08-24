@@ -100,10 +100,17 @@ sub _connect ($self)
 		    if defined $self->{known_hosts};
 
 		unless ( $ssh2->check_hostkey(@check) ) {
+
+			# The error of the back end tells a wrong key
+			# from a file that holds no key for the host.
+			my $reason = ( $ssh2->error )[2];
+			$reason = 'no verified key'
+			    unless defined $reason && length $reason;
+
 			$ssh2->disconnect;
-			die sprintf
-			    "The host key of %s port %d does not match %s\n",
-			    $self->{host}, $self->{port}, $file;
+			die sprintf "Cannot verify the host key of %s"
+			    . " port %d against %s: %s\n",
+			    $self->{host}, $self->{port}, $file, $reason;
 		}
 	}
 

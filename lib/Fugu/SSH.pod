@@ -181,11 +181,13 @@ version.
 
 No method dies for a connection that fails. One exception exists: in
 the strict mode, a host key that does not verify makes the connecting
-method die, and the one-line message names the host, the port and the
-file. A wrong key is permanent, a retry cannot repair it, and a
-caller that asked for verification must not lose the answer to a
-missing return-value test. C<interactive()> is the other shape of the
-same fault: it does not die, and ssh(1) returns 255.
+method die. The one-line message names the host, the port, the file,
+and the reason of the back end, which tells a wrong key from a file
+that holds no key for the host. A wrong key is permanent, a retry
+cannot repair it, and a caller that asked for verification must not
+lose the answer to a missing return-value test. C<interactive()> is
+the other shape of the same fault: it does not die, and ssh(1)
+returns 255.
 
 =head1 SEE ALSO
 

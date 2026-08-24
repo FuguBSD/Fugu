@@ -307,6 +307,13 @@ package Test::SSH2 {
 	push @{ $self->{calls} }, 'disconnect';
 	return 1;
     }
+
+    sub error
+    {
+	my $self = shift;
+	return (-1, 'KNOWN_HOSTS',
+	    $self->{error_string} // 'the file holds no key for the host');
+    }
 }
 
 SKIP: {
@@ -372,8 +379,10 @@ SKIP: {
 	);
 
 	ok(!eval { $ssh->_connect; 1 }, 'a wrong key dies');
-	like($@, qr/^The host key of guest port 2222 does not match \/tmp\/hosts\n\z/,
-	    'the one-line message names the host, the port and the file');
+	like($@,
+	    qr{^Cannot verify the host key of guest port 2222 against /tmp/hosts: .+\n\z},
+	    'the one-line message names the host, the port, the file'
+		. ' and the reason');
 	is_deeply(
 	    $standin->{calls},
 	    [ 'timeout', 'connect', 'check_hostkey', 'disconnect' ],
@@ -396,6 +405,19 @@ SKIP: {
 	    'and it never calls check_hostkey');
 	ok(!defined $standin->{check_args}, 'no check arguments exist');
     }
+}
+
+# The strict mode needs Net::SSH2 0.60, and the static test runs
+# before any connect, so an old library dies without a network step.
+{
+    no warnings 'redefine';
+    local *Net::SSH2::can = sub { return 0 };
+
+    my $ssh = Fugu::SSH->new(host => 'guest', strict => 1);
+    ok(!eval { $ssh->_connect; 1 },
+	'an old Net::SSH2 dies in the strict mode');
+    like($@, qr/needs Net::SSH2 0\.60 or later/,
+	'and the message names the version');
 }
 
 # interactive maps a raw wait status to a 0-255 exit code through

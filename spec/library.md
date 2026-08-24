@@ -27,11 +27,11 @@ A control socket for a running daemon, with its client.
   users than the final set. FuguTTX HRN-SOCKET names such a socket: group
   `ttxop`, mode `0660`, and membership as the operator grant.
 - **LIB-CONTROL-2** — The server must report the peer credentials of the
-  connection that a handler answers, read once per connection with
-  `SO_PEERCRED` in the `struct sockpeercred` field order, on OpenBSD alone. A
-  companion predicate must tell "not supported" from "the read failed". FuguTTX
-  HRN-SOCKET names the read, and FuguTTX HRN-CONFIRM-6 names the peer user id
-  that gates a confirmation.
+  connection that a handler answers, read once per connection with `SO_PEERCRED`
+  in the `struct sockpeercred` field order, on OpenBSD alone. A companion
+  predicate must tell "not supported" from "the read failed". FuguTTX HRN-SOCKET
+  names the read, and FuguTTX HRN-CONFIRM-6 names the peer user id that gates a
+  confirmation.
 
 <a id="lib-daemon"></a>
 
@@ -70,10 +70,10 @@ Newline-delimited JSON over a UNIX socket.
 
 Logging to syslog, standard error, or nowhere.
 
-- **LIB-LOG-1** — In syslog mode, the logger must give the `syslog_method`
-  list to `setlogsock` before it opens the log, and a failed pin must die at
-  the open. An empty list is the one exception: it pins nothing, and
-  `Sys::Syslog` keeps its own order.
+- **LIB-LOG-1** — In syslog mode, the logger must give the `syslog_method` list
+  to `setlogsock` before it opens the log, and a failed pin must die at the
+  open. An empty list is the one exception: it pins nothing, and `Sys::Syslog`
+  keeps its own order.
 - **LIB-LOG-2** — A `syslog_method` option on `new` must select the syslog
   transport, as one mechanism name or a list, with the default `native`. An
   accessor of the same name must report the list, so a caller audits the
@@ -117,13 +117,13 @@ Child process management.
 - **LIB-PROCESS-2** — A `group` option on `terminate` must kill the process
   group of the child.
 - **LIB-PROCESS-3** — An `inherit` option on `spawn_command` and `spawn_peer`
-  must name the descriptors that a child keeps across the exec, each at its
-  own number. FuguTTX HRN-PROC names the `FD_CLOEXEC` clear before the exec,
-  and FuguTTX HRN-WIRELOG names an inherited log descriptor. The child must
-  close every other descriptor from 3 upward, so no unnamed descriptor leaks
-  into a child. The sweep reads the open descriptor list where the platform
-  gives one. On OpenBSD the sweep is a bounded loop to `_SC_OPEN_MAX`, because
-  a `/dev/fd` read needs the `rpath` promise.
+  must name the descriptors that a child keeps across the exec, each at its own
+  number. FuguTTX HRN-PROC names the `FD_CLOEXEC` clear before the exec, and
+  FuguTTX HRN-WIRELOG names an inherited log descriptor. The child must close
+  every other descriptor from 3 upward, so no unnamed descriptor leaks into a
+  child. The sweep reads the open descriptor list where the platform gives one.
+  On OpenBSD the sweep is a bounded loop to `_SC_OPEN_MAX`, because a `/dev/fd`
+  read needs the `rpath` promise.
 - **LIB-PROCESS-4** — `spawn_peer` must start a peer child over a socketpair,
   with the child end on a named descriptor number, so a privileged parent runs
   unprivileged children in the OpenBSD daemon pattern. FuguTTX HRN-PROC names
@@ -158,7 +158,7 @@ requires `Net::SSH2` lazily.
 - **LIB-SSH-1** — `read_file` must read a remote file under a fixed size bound.
 - **LIB-SSH-2** — A `strict` option and a `known_hosts` option on `new` must
   verify the host key of the peer, on every connection and before any
-  authentication. The default stays permissive: the module provisions a fresh
+  authentication. The default is permissive: the module provisions a fresh
   guest, and such a guest holds a new key after each install.
 
 <a id="lib-sandbox"></a>
