@@ -460,6 +460,35 @@ subtest 'an unresolvable group is a recoverable failure' => sub {
 	ok( !-e $path, 'and no file stays at the path' );
 };
 
+subtest 'a numeric group without a group entry is refused too' => sub {
+
+	# A chown to a group id that no group holds reports success,
+	# so the boundary must catch the number like it catches a
+	# name.
+	my $bogus;
+	for my $candidate ( 61000 .. 61050 ) {
+		next if defined getgrgid($candidate);
+		$bogus = $candidate;
+		last;
+	}
+	plan skip_all => 'every probed group id exists'
+	    unless defined $bogus;
+
+	my $path    = "$dir/bogusgid.sock";
+	my $control = Fugu::Control->new( path => $path );
+	is(
+		$control->listen(
+			loop  => Fugu::EventLoop->new,
+			group => $bogus,
+		),
+		undef,
+		'listen returns undef'
+	);
+	like( $control->error, qr/\Q$bogus\E/,
+		'the reason names the group id' );
+	ok( !-e $path, 'and no file stays at the path' );
+};
+
 subtest 'a failed chown takes the socket down' => sub {
 	plan skip_all => 'root can chgrp to any group' if $> == 0;
 
@@ -507,10 +536,24 @@ subtest 'the credential read answers or fails closed' => sub {
 
 	my ( $peer, $fault ) = Fugu::Control::_read_peer($a_end);
 
-	if ( defined eval { Socket::SO_PEERCRED() } ) {
-		ok( defined $peer, 'a defined constant gives credentials' )
-		    or diag( $fault // 'no fault recorded' );
-		is( $fault, undef, 'and no fault' );
+	if ( Fugu::Control->peer_supported ) {
+
+		# The peer of a socketpair is this process, and the
+		# field order is the sockpeercred order, so the values
+		# must match exactly.
+		is( $fault, undef, 'the read reports no fault' );
+		is( $peer->{uid}, $>, 'the uid is the effective uid' );
+		is( $peer->{gid}, ( split ' ', $) )[0],
+			'the gid is the effective gid' );
+		is( $peer->{pid}, $$, 'the pid is this process' );
+	}
+	elsif ( defined eval { Socket::SO_PEERCRED() } ) {
+
+		# The platform defines the constant with an other
+		# field order, so only the fail-closed shape holds
+		# here. The fabricated-bytes subtest below locks the
+		# unpack itself.
+		ok( defined $peer || defined $fault, 'one of the two answers' );
 	}
 	else {
 		is( $peer, undef, 'no credentials come back' );

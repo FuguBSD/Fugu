@@ -145,9 +145,9 @@ sub error ($self)
 #	bits of the final mode. It chowns the path to the group, and
 #	it chmods to the mode last. The order narrows first and
 #	widens last: at every instant the users that can connect are a
-#	subset of the final set. A daemon drops privileges first and
-#	calls listen after, so the chgrp needs no root: a process can
-#	chgrp its own file to a group that it belongs to.
+#	subset of the final set. A daemon drops privileges first, and
+#	it calls listen after. A process can chgrp its own file to a
+#	group that it belongs to, so the chgrp needs no root.
 #
 #	A stale socket from a daemon that did not shut down cleanly is
 #	removed first. bind(2) fails on an existing name, and a daemon
@@ -167,7 +167,16 @@ sub listen ( $self, %args )
 
 	my $gid;
 	if ( defined $group ) {
-		$gid = $group =~ /^\d+$/ ? $group : getgrnam($group);
+
+		# A numeric group must exist too: a chown to a group
+		# id that no group holds would report success, and the
+		# socket would carry a meaningless owner.
+		if ( $group =~ /^\d+$/ ) {
+			$gid = defined getgrgid($group) ? $group : undef;
+		}
+		else {
+			$gid = getgrnam($group);
+		}
 		unless ( defined $gid ) {
 			$self->{error} = "Cannot resolve group $group";
 			return;
@@ -447,8 +456,11 @@ sub _read_peer ($client)
 
 	my $cred = getsockopt( $client, SOL_SOCKET, $option );
 	return ( undef, "getsockopt: $!" ) unless defined $cred;
+
+	# A size other than 12 names an other struct layout, so the
+	# read fails closed instead of unpacking a guess.
 	return ( undef, length($cred) . ' credential bytes, not 12' )
-	    if length($cred) < 12;
+	    unless length($cred) == 12;
 
 	my ( $uid, $gid, $pid ) = _unpack_peer($cred);
 

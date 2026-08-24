@@ -85,9 +85,9 @@ With no C<group> the mode holds from birth, through a umask(2) guard.
 With a C<group> the socket binds under the owner bits of the final
 mode, takes the group with chown(2), and widens to C<mode> with
 chmod(2) last.
-A daemon drops privileges first and calls C<listen> after: a process
-can chgrp its own file to a group that it belongs to, so the group
-form needs no root.
+A daemon drops privileges first, and it calls C<listen> after.
+A process can chgrp its own file to a group that it belongs to, so
+the group form needs no root.
 
 =item C<accept_one($loop)>
 
