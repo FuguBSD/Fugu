@@ -800,6 +800,31 @@ subtest 'a descriptor outside inherit does not reach spawn_command' => sub {
 	is( $content, 'closed', 'the sweep closed the pipe' );
 };
 
+subtest 'spawn_peer carries env to the child' => sub {
+	my $r = Fugu::Process->spawn_peer(
+		cmd => [
+			$^X, '-e',
+			'open my $peer, q{+<&=}, 3 or die "open: $!"; '
+			    . 'print {$peer} join( q{,}, '
+			    . 'map { "$_=$ENV{$_}" } sort keys %ENV ); '
+			    . 'close $peer'
+		],
+		env => { ONE => '1', TWO => '2' },
+	);
+	ok( $r->{success}, 'the peer spawned' ) or diag $r->{error};
+	is( readline( $r->{socket} ), 'ONE=1,TWO=2',
+		'the child holds the named variables and nothing else' );
+	close $r->{socket};
+	Fugu::Process->wait_exit( $r->{pid}, 5 );
+
+	my $bad = Fugu::Process->spawn_peer(
+		cmd => [ $^X, '-e', '1' ],
+		env => 'not-a-hashref',
+	);
+	ok( !$bad->{success},    'a bad env starts nothing' );
+	ok( !exists $bad->{pid}, 'and carries no pid' );
+};
+
 subtest 'spawn_peer survives an exec pipe on the requested number' => sub {
 
 	# Predict the numbers: the socketpair takes the two lowest

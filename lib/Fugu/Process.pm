@@ -139,6 +139,7 @@ sub spawn_command ( $class, %args )
 #		cmd     => \@command  # Required: the command to execute
 #		fd      => $number    # The child end lands here (default: 3)
 #		inherit => \@handles  # Optional: extra descriptors, as above
+#		env     => \%vars     # Optional: the exact child environment
 #
 #	The method returns {success => 1, pid => $pid, socket => $fh}
 #	with the parent end, or {success => 0, error => $msg}. The
@@ -171,6 +172,13 @@ sub spawn_peer ( $class, %args )
 		    if fileno($fh) == $fd;
 	}
 
+	my $env;
+	if ( exists $args{env} ) {
+		my $env_error = _check_env( $args{env} );
+		return { success => 0, error => $env_error } if $env_error;
+		$env = $args{env};
+	}
+
 	socketpair(
 		my $parent_end,
 		my $child_end,
@@ -182,7 +190,7 @@ sub spawn_peer ( $class, %args )
 	    };
 
 	my ( $pid, $error ) = _fork_exec(
-		$cmd, undef, undef,
+		$cmd, undef, $env,
 		sub ($exec_w) {
 			close $parent_end;
 			_occupy_fd( $exec_w, $child_end, $fd );

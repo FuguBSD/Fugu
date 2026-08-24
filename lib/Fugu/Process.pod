@@ -132,10 +132,11 @@ leave one open, and a caller can clear the flag itself. Name such a
 descriptor in C<inherit> when the child must keep it.
 
 On Linux and Darwin the sweep walks the open-descriptor list of the
-process, so a large descriptor limit costs nothing. On OpenBSD the
-sweep is a loop to C<_SC_OPEN_MAX>, which is small there, and it
-reads no file, so it needs no pledge(2) promise beyond what the
-caller holds.
+process, from F</proc/self/fd> or F</dev/fd>, so a large descriptor
+limit costs nothing. Where neither list opens, and on OpenBSD, the
+sweep is a loop to C<_SC_OPEN_MAX>. The OpenBSD limit is small, and
+the loop reads no file, so it needs no pledge(2) promise beyond what
+the caller holds.
 
 The method keeps each named descriptor at its own number. A caller
 that must tell the child a number reads C<fileno> before the call,
@@ -180,6 +181,12 @@ C<inherit> descriptor. Both are programming errors.
 =item C<inherit>
 
 Extra handles for the child, exactly as on C<spawn_command()>.
+
+=item C<env>
+
+The environment of the child, exactly as on C<spawn_command()>. A
+peer child of the privilege-separation pattern holds no secret of
+the parent environment when the caller names an exact one.
 
 =back
 
