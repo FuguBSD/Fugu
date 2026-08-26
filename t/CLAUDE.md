@@ -59,5 +59,5 @@ description:
 One test may carry several citations. A citation asserts the section's
 requirement — do not cite a section the test merely mentions.
 
-`make spec-coverage` (`scripts/spec-coverage`) computes coverage of `spec/`
-and stale-citation detection.
+`make spec-coverage` (`scripts/spec-coverage`) computes coverage of `spec/` and
+stale-citation detection.
