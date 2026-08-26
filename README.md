@@ -7,8 +7,8 @@ privilege drop, signal handling, logging, process control, PID files, state
 files, and pledge(2)/unveil(2).
 
 It adds an event loop, a caching HTTP proxy, SSH and MQTT clients, a native
-mdnsd(8) control client, and signify(1) signature verification. The
-distribution ships `Protocol::Imsg`, a sans-IO codec for the imsg(3) frame.
+mdnsd(8) control client, and signify(1) signature verification. The distribution
+ships `Protocol::Imsg`, a sans-IO codec for the imsg(3) frame.
 
 Fugu needs core Perl only (v5.36). Every CPAN module it can use is an optional
 feature, loaded lazily. OpenBSD is the production platform; Linux and Darwin
