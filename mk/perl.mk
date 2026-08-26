@@ -1,10 +1,11 @@
-# mk/perl.mk: canonical copy, owned by FuguBSD/Tooling.
-# The perl fragment: lint, format, dist, and the dependency targets.
-# The fragment uses the portable make subset, so every dispatcher
-# includes it without change.
+# The perl pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
+# The perl fragment: lint, format, and dist. The fragment uses the
+# portable make subset, so every dispatcher includes it without
+# change.
 
 PERL_SRC_DIRS	?= lib scripts
-DEPS		?= scripts/deps
 DIST		?= scripts/dist
 VERSION		?=
 
@@ -41,13 +42,4 @@ format-perl-fix:
 dist:
 	@$(DIST) --version '$(VERSION)'
 
-deps:
-	$(DEPS) runtime
-
-deps-test: deps
-	$(DEPS) test
-
-deps-develop: deps deps-test
-	$(DEPS) develop
-
-.PHONY: lint-perl format-perl format-perl-fix dist deps deps-test deps-develop
+.PHONY: lint-perl format-perl format-perl-fix dist

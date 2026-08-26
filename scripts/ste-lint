@@ -1,5 +1,8 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
+# The org pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
 # $OpenBSD$
 #
 # Copyright (c) 2026 Dick Olsson <hi@senzilla.io>

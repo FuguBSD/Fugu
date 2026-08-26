@@ -46,10 +46,12 @@ documents its API in a `.pod` sidecar. Start with:
 make check          # lint + format + test + spec-coverage + spec-check + ste-lint
 make test           # prove -l over every test tier
 prove -l t/fugu/foo.t      # one test file
-make format-fix     # auto-fix Perl formatting
-make format-md      # Markdown/JSON/YAML formatting check
+make format-fix     # auto-fix the Perl, Markdown, JSON and YAML formatting
 make dist           # build the release tarball
 ```
+
+`make check` runs the Markdown format gate, and prettier runs through bunx. The
+operator installs bun, for example from Homebrew. No deps manifest provides it.
 
 ## Releases
 

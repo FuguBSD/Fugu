@@ -5,6 +5,11 @@ description:
   change such as a fix, a chore, a tooling update, or maintenance.
 ---
 
+<!--
+The org pack of FuguBSD/Tooling owns this file. Do not edit a synced
+copy. Edit the canonical copy in FuguBSD/Tooling.
+-->
+
 # Merge it
 
 Merge a patch-level change to `main` without a pull request. The squash merge

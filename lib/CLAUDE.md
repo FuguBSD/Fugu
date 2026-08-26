@@ -1,3 +1,8 @@
+<!--
+The perl pack of FuguBSD/Tooling owns this file. Do not edit a synced
+copy. Edit the canonical copy in FuguBSD/Tooling.
+-->
+
 # lib/
 
 Applies when working on Perl code in this repository.

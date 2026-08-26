@@ -1,4 +1,7 @@
-# Perl::Critic configuration for the FuguBSD repositories
+# The perl pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
+# Perl::Critic configuration for the FuguBSD repositories.
 # The rules follow OpenBSD pkg_add style.
 severity = 4
 

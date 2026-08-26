@@ -58,21 +58,12 @@ jobs:
         with:
           dependencies: test
 
-      - name: Check formatting
-        run: make format
-
-  format-md:
-    name: Format MD
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
+      # The format gate runs prettier through bunx.
       - name: Setup bun
         uses: FuguBSD/Tooling/actions/setup-bun@main
 
-      - name: Check Markdown/JSON/YAML formatting
-        run: make format-md
+      - name: Check formatting
+        run: make format
 
   lint:
     name: Lint

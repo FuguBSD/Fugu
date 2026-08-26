@@ -1,4 +1,7 @@
-# Perltidy configuration for the FuguBSD repositories
+# The perl pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
+# Perltidy configuration for the FuguBSD repositories.
 # The settings follow OpenBSD pkg_add style.
 
 # Indentation: 8-character tabs, as style(9) requires

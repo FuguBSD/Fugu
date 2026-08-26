@@ -1,5 +1,8 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
+# The perl pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
 # $OpenBSD$
 #
 # Copyright (c) 2026 Dick Olsson <hi@senzilla.io>
@@ -20,9 +23,7 @@
 #
 # usage: dist [--version X.Y] [--out DIR]
 #
-# This is the canonical copy of the script, owned by FuguBSD/Tooling
-# at perl/sync/scripts/dist and synced verbatim into every consumer
-# repository. It carries no repository identity of its own: the
+# The script carries no repository identity of its own: the
 # identity comes from .toolingrc at the repository root.
 #
 # The script stages build/<dist>-<VERSION>/ with the sources, writes

@@ -1,7 +1,9 @@
-# Shared website instructions
+<!--
+The web pack of FuguBSD/Tooling owns this file. Do not edit a synced
+copy. Edit the canonical copy in FuguBSD/Tooling.
+-->
 
-The `web` pack of FuguBSD/Tooling owns this file. `scripts/sync` overwrites it.
-Edit the canonical copy in FuguBSD/Tooling.
+# Shared website instructions
 
 This directory holds the website sources. fuguweb(1) reads `.fuguwebrc` and
 renders the sources that it names: the `*.body.html` fragments, and the mdoc,

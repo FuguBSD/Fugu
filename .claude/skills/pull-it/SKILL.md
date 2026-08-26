@@ -5,6 +5,11 @@ description:
   or major-level change, such as a new feature.
 ---
 
+<!--
+The org pack of FuguBSD/Tooling owns this file. Do not edit a synced
+copy. Edit the canonical copy in FuguBSD/Tooling.
+-->
+
 # Pull it
 
 Merge a minor-level or major-level change to `main` through a pull request.

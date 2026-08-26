@@ -1,3 +1,8 @@
+<!--
+The org pack of FuguBSD/Tooling owns this file. Do not edit a synced
+copy. Edit the canonical copy in FuguBSD/Tooling.
+-->
+
 # CLAUDE.md
 
 This directory holds the specification. [index.md](index.md) is the entry point.

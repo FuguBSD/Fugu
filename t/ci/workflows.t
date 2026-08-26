@@ -1,11 +1,13 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
+# The org pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
 # Guards for the workflows of a consumer repository
 #
 # The canonical setup-perl and setup-uv actions live in
 # FuguBSD/Tooling, and this repository references them across
-# repositories. This test is itself a synced copy, owned by
-# FuguBSD/Tooling at org/sync/t/ci/workflows.t.
+# repositories.
 # Nothing under .github/ runs outside a runner, so the test reads the
 # workflows as text and asserts the invariants that only fail in CI:
 # that every reference points at the shared action, that every value

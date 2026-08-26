@@ -1,4 +1,6 @@
-# .gitignore: canonical copy, owned by FuguBSD/Tooling.
+# The org pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
 # The org ignore list. One list serves every consumer, so it holds
 # the union of all consumer needs. A pattern that a repository does
 # not use is harmless there.

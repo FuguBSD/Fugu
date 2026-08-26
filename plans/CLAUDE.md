@@ -1,3 +1,8 @@
+<!--
+The org pack of FuguBSD/Tooling owns this file. Do not edit a synced
+copy. Edit the canonical copy in FuguBSD/Tooling.
+-->
+
 # plans/
 
 Applies when working on files under `plans/`.

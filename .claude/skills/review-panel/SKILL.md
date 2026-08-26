@@ -6,6 +6,11 @@ description:
   or when the user asks for a panel review.
 ---
 
+<!--
+The org pack of FuguBSD/Tooling owns this file. Do not edit a synced
+copy. Edit the canonical copy in FuguBSD/Tooling.
+-->
+
 # Review panel
 
 Review the current change with a panel of independent sub-agents. Resolve each
