@@ -2,9 +2,10 @@
 # ex:ts=8 sw=4:
 # Guards for the workflows of a consumer repository
 #
-# The canonical setup-perl action lives in FuguBSD/Tooling, and this
-# repository references it across repositories. This test is itself a
-# synced copy, owned by FuguBSD/Tooling at org/sync/t/ci/workflows.t.
+# The canonical setup-perl and setup-uv actions live in
+# FuguBSD/Tooling, and this repository references them across
+# repositories. This test is itself a synced copy, owned by
+# FuguBSD/Tooling at org/sync/t/ci/workflows.t.
 # Nothing under .github/ runs outside a runner, so the test reads the
 # workflows as text and asserts the invariants that only fail in CI:
 # that every reference points at the shared action, that every value
@@ -17,7 +18,8 @@ use FindBin qw($RealBin);
 
 my $workflow = "$RealBin/../../.github/workflows";
 
-use constant ACTION => 'FuguBSD/Tooling/perl/actions/setup-perl@main';
+use constant ACTION    => 'FuguBSD/Tooling/perl/actions/setup-perl@main';
+use constant UV_ACTION => 'FuguBSD/Tooling/python/actions/setup-uv@main';
 
 my %ENVIRONMENTS = map { $_ => 1 } qw(runtime test develop);
 
@@ -81,6 +83,15 @@ for my $file (@files) {
 			    . ( $env // '(default)' )
 			    . ' is a known environment'
 		);
+	}
+
+	# The same pin for the uv toolchain: a stale or wrong setup-uv
+	# path fails here, not many minutes into a runner job.
+	for my $i ( 0 .. $#lines ) {
+		next unless $lines[$i] =~ m{uses:\s*(\S*setup-uv\S*)\s*$};
+		is( $1, UV_ACTION,
+			      "$file line @{[$i + 1]} references"
+			    . ' the shared uv action' );
 	}
 }
 
