@@ -5,7 +5,7 @@
 
 SPEC_CHECK	?= scripts/spec-check
 STE_LINT	?= scripts/ste-lint
-PRETTIER	?= npx prettier@3.9.6
+PRETTIER	?= bunx prettier@3.9.6
 PROVE		?= prove -l
 TEST_GLOBS	?= t/ci/*.t
 
@@ -22,8 +22,8 @@ test-prove:
 	$(PROVE) $(TEST_GLOBS)
 
 # format-md and format-md-fix stay out of every aggregate: prettier
-# runs through npx, and no deps manifest provides node. CI runs
-# format-md in its own job.
+# runs through bunx, and no deps manifest provides bun. CI runs
+# format-md in its own job, after the setup-bun action.
 format-md:
 	@$(PRETTIER) --check --no-error-on-unmatched-pattern '**/*.md' '**/*.json' '**/*.yml' || { echo "Run 'make format-md-fix' to fix formatting"; exit 1; }
 
