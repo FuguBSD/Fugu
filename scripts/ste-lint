@@ -22,15 +22,20 @@
 #
 # The FuguBSD repositories write ASD-STE100 Simplified Technical
 # English. This lint rejects the words and the patterns that the
-# standard bans and that reviews reject: filler connectives, vague
-# intensifiers, and references to an earlier state. It scans the
-# Markdown prose of the repository: the root documents, spec/ (first
-# level), plans/, lib/, t/, .github/ and .claude/. Reference material
-# under docs/ and under a spec/ subdirectory is exempt. Code fences
-# and inline code are exempt.
+# standard bans and that reviews reject. The rules also catch the
+# common marks of machine-generated prose: inflated vocabulary,
+# marketing claims, chat artifacts, and typographic punctuation.
 #
-# The word list is deliberately short. It holds no word that correct
-# technical prose needs. Fix the prose, never the list.
+# The lint scans the Markdown prose of the repository: the root
+# documents, spec/ (first level), plans/, lib/, t/, .github/ and
+# .claude/. Reference material under docs/ and under a spec/
+# subdirectory is exempt. Code fences and inline code are exempt.
+# A directory under .claude/worktrees/ is a separate checkout,
+# so it is exempt.
+#
+# Three tables below hold the rules. To add a rule, edit one
+# table. The tables hold no word that correct technical prose
+# needs. Fix the prose, never the tables.
 #
 # Like scripts/deps, this script is bootstrap tooling: core modules
 # only, and v5.34 because macOS still ships perl 5.34.
@@ -49,42 +54,244 @@ my $root;
 GetOptions( 'root=s' => \$root ) or die "usage: ste-lint [--root DIR]\n";
 $root //= dirname( dirname( File::Spec->rel2abs(__FILE__) ) );
 
+# The rule tables.
+#
+# @WORDS holds one banned word for each entry. A word matches on
+# its own, in any letter case, in any inflection that the table
+# lists. Before you add a word, make sure that no correct
+# technical sentence needs it. For example, "unveil" and "key"
+# stay approved: OpenBSD prose needs unveil(2) and cryptographic
+# keys.
 my @WORDS = (
-	'additionally', 'crucial',
-	'crucially',    'cutting-edge',
-	'delve',        'delved',
-	'delves',       'delving',
-	'elegant',      'elegantly',
-	'empower',      'empowers',
-	'empowering',   'formerly',
-	'foster',       'fosters',
-	'fostering',    'furthermore',
-	'game-changer', 'game-changing',
-	'holistic',     'holistically',
-	'leverage',     'leveraged',
-	'leverages',    'leveraging',
-	'load-bearing', 'moreover',
-	'pivotal',      'previously',
-	'seamless',     'seamlessly',
-	'showcase',     'showcases',
-	'showcasing',   'state-of-the-art',
-	'streamline',   'streamlined',
-	'streamlines',  'streamlining',
-	'utilize',      'utilized',
-	'utilizes',     'utilizing',
-	'world-class',
-);
-my $words = join '|', map { quotemeta } @WORDS;
 
+	# Filler connectives. Start the sentence with the point.
+	qw(
+	    additionally akin albeit furthermore hence moreover
+	    thereby thus whilst
+	),
+
+	# Hedge and filler adverbs. State the fact, or quantify it.
+	qw(
+	    amidst arguably essentially importantly interestingly
+	    notably particularly remarkably significantly swiftly
+	    ultimately undoubtedly
+	),
+
+	# References to an earlier state. Describe the current design
+	# only.
+	qw(
+	    aforementioned former formerly historically latter
+	    previously traditionally
+	),
+
+	# Vague intensifiers and praise. Give the measure instead.
+	qw(
+	    adept commendable compelling crucial crucially enduring
+	    exemplary formidable foundational invaluable noteworthy
+	    paramount pertinent pivotal poised profound profoundly
+	    renowned unparalleled unprecedented valuable vital vitally
+	),
+
+	# Marketing claims.
+	qw(
+	    best-in-class burgeoning comprehensive comprehensively
+	    cutting-edge effortless effortlessly elegant elegantly
+	    ever-evolving fast-paced game-changer game-changing
+	    groundbreaking holistic holistically impactful innovation
+	    innovative intuitive optimal pioneering powerful
+	    revolutionary robust robustly seamless seamlessly
+	    seamlessness sophisticated state-of-the-art top-notch
+	    transformative vibrant world-class
+	),
+
+	# Inflated verbs. Use the plain verb.
+	qw(
+	    boast boasted boasting boasts bolster bolstered bolstering
+	    bolsters catalyze catalyzed commence commenced commences
+	    delve delved delves delving democratize democratized
+	    elucidate elucidated elucidates embark embarked embarking
+	    embarks emphasize emphasized emphasizes emphasizing empower
+	    empowered empowering empowers encompass encompassed
+	    encompasses encompassing enhance enhanced enhances enhancing
+	    ensure ensured ensures ensuring excel excelled excels
+	    exemplified exemplifies exemplify facilitate facilitated
+	    facilitates facilitating foster fostered fostering fosters
+	    garner garnered garnering garners leverage leveraged
+	    leverages leveraging nestled revolutionize revolutionized
+	    revolutionizes showcase showcases showcasing spearhead
+	    spearheaded spearheads streamline streamlined streamlines
+	    streamlining supercharge supercharged surpass surpassed
+	    surpasses surpassing unleash unleashed unleashes unleashing
+	    utilize utilized utilizes utilizing
+	),
+
+	# Inflated nouns and adjectives.
+	qw(
+	    insight insights interplay intricacies intricate journey
+	    journeys landscape landscapes meticulous meticulously
+	    multifaceted myriad nuance nuanced nuances paradigm
+	    paradigms plethora realm realms synergy synergies tapestries
+	    tapestry testament testaments
+	),
+
+	# Vague quantities. Count, or name the set.
+	qw(numerous various),
+
+	# Condescension. The reader decides what is easy.
+	qw(easily simply straightforward),
+
+	# The future tense. STE100 writes the present tense.
+	qw(will),
+
+	# Claude-isms.
+	qw(load-bearing),
+);
+
+# @PHRASES holds one banned word sequence for each entry. A phrase
+# matches its words in order, in any letter case, across spaces
+# and tabs on one line.
+my @PHRASES = (
+	'a game changer',
+	'a number of',
+	'a significant shift',
+	'a turning point',
+	'a variety of',
+	'a vast array of',
+	'a wealth of',
+	'a wide range of',
+	'acts as',
+	'an indelible mark',
+	'as an ai language model',
+	'as mentioned above',
+	'as mentioned earlier',
+	'as of my last knowledge update',
+	'as we can see',
+	'as we have seen',
+	'at the end of the day',
+	'based on the information provided',
+	'bear in mind',
+	'cannot be overstated',
+	'deep dive',
+	'deeply rooted',
+	'dive into',
+	'dives into',
+	'diverse array',
+	"don't hesitate",
+	'double-edged sword',
+	'due to the fact',
+	'everything you need to know',
+	'experts argue',
+	'feel free to',
+	'final thoughts',
+	'first and foremost',
+	'going forward',
+	'great question',
+	'having said that',
+	'hope this helps',
+	'important to note',
+	'in addition',
+	'in conclusion',
+	'in essence',
+	'in order to',
+	'in summary',
+	'in the world of',
+	"in today's",
+	'it goes without saying',
+	'it is important to',
+	'it should be noted',
+	"it's important to",
+	'keep in mind',
+	'key takeaway',
+	'key takeaways',
+	'last but not least',
+	"let's delve",
+	"let's dive",
+	"let's explore",
+	'look no further',
+	'more important than ever',
+	'moving forward',
+	'needless to say',
+	'no longer',
+	'please note',
+	'pushing the boundaries',
+	'regenerate response',
+	'serves as',
+	'setting the stage',
+	'stands as',
+	'studies show',
+	'take it to the next level',
+	'that being said',
+	'the beauty of',
+	'the ultimate guide',
+	'to sum up',
+	'to summarize',
+	'treasure trove',
+	'unlock the potential',
+	'used to be',
+	'when it comes to',
+	'with that said',
+	'with the advent of',
+	'without further ado',
+	'worth mentioning',
+	'worth noting',
+);
+
+# @PATTERNS holds one regular expression and one label for each
+# structure that the word tables cannot hold. A label can hold one
+# "%s"; the capture group of the expression fills it. Use at most
+# one capture group in an expression.
 my @PATTERNS = (
-	[ qr/\bno longer\b/i,                   'no longer' ],
 	[ qr/\bnot only\b.*\bbut(?: also)?\b/i, 'not only ... but (also)' ],
 	[ qr/\bnot just\b.*\bbut\b/i,           'not just ... but' ],
 	[ qr/\bis(?:n't| not) (?:just|only|merely)\b/i, 'is not just' ],
-	[ qr/\bworth noting\b/i,                        'worth noting' ],
-	[ qr/\bin conclusion\b/i,                       'in conclusion' ],
-	[ qr/\b$words\b/i,                              'banned word' ],
+	[ qr/\bnot about\b.*\babout\b/i,                'not about ... about' ],
+	[ qr/\bin the past\b(?![ \t]+\w)/i,             'in the past' ],
+	[
+		qr/\bplay(?:s|ed|ing)? (?:a|an|the) (?:\w+ ){0,3}role\b/i,
+		'plays a role'
+	],
+	[
+qr/\b((?:is|are|was|were|be|been|being)\s+(?:\w+ly\s+)?(?:\w{2,}ed(?<!indeed)|born|borne|bound|broken|built|brought|caught|chosen|cut|done|drawn|driven|fed|found|given|grown|held|hidden|kept|known|led|left|lost|made|meant|met|paid|put|read|run|seen|sent|set|shown|sold|sought|split|taken|taught|thought|thrown|told|understood|written)\s+by)\b/i,
+		'passive voice "%s"'
+	],
+	[
+qr/,\s+(highlighting|underscoring|reflecting|demonstrating|signaling|solidifying|cementing|enabling|allowing)\b(?!,| and\b| or\b)/i,
+		'trailing participle "%s"'
+	],
+	[
+		qr/[\x{2018}\x{2019}\x{201C}\x{201D}\x{2026}]/,
+		'typographic punctuation'
+	],
+	[
+qr/[\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}\x{2B00}-\x{2BFF}\x{FE0F}]/,
+		'emoji'
+	],
+	[
+qr/^\s*(?:>\s*)?(?:(?:[-*+]|\d+\.)\s+)?\*\*[^*]+(?::\*\*|\*\*:)/,
+		'bold lead with a colon'
+	],
+	[ qr/!(?:[\s)\]"']|$)/, 'exclamation mark' ],
+	[
+qr/oaicite|contentReference|attributableIndex|grok_render|turn\d+(?:search|view|image)\d+|utm_source=chatgpt/,
+		'AI citation artifact'
+	],
 );
+
+# The compiled rule list. Each rule holds a regexp, a label, and
+# an optional per-match flag. With the flag, the rule reports every
+# match on a line; the word rule uses it, so each banned word gets
+# its own finding. Without the flag, a rule reports at most one
+# finding for each line.
+my @RULES;
+{
+	my $words = join '|', map { quotemeta } @WORDS;
+	push @RULES, [ qr/\b($words)\b/i, 'banned word "%s"', 1 ];
+	for my $phrase (@PHRASES) {
+		my $re = join '[ \t]+', map { quotemeta } split ' ', $phrase;
+		push @RULES, [ qr/\b$re\b/i, qq(banned phrase "$phrase") ];
+	}
+	push @RULES, @PATTERNS;
+}
 
 # _files():
 #	The Markdown prose files in lint scope, relative to the root.
@@ -107,6 +314,10 @@ sub _files ()
 			for my $name ( sort grep { !/^\.{1,2}\z/ } readdir $sh )
 			{
 				my $rel = "$sub/$name";
+
+				# A worktree is a separate checkout. Scan
+				# one checkout only.
+				next if $rel eq '.claude/worktrees';
 				push @stack, $rel if -d "$root/$rel";
 				push @files, $rel
 				    if -f "$root/$rel" && $name =~ /\.md\z/;
@@ -139,11 +350,25 @@ for my $file ( _files() ) {
 		}
 		next if $fence;
 		$line =~ s/`[^`]*`//g;
-		for my $pattern (@PATTERNS) {
-			next unless $line =~ $pattern->[0];
-			say STDERR "$file:$number: $pattern->[1]: "
-			    . ( $line =~ s/^\s+|\s+$//gr );
-			$found++;
+		for my $rule (@RULES) {
+			my ( $re, $label, $global ) = @$rule;
+
+			# A list-context match returns the captures, or
+			# (1) with no capture group, or () on no match.
+			my @matches =
+			    $global ? $line =~ /$re/g : ( $line =~ $re );
+
+			# One finding per rule per line, except for a
+			# per-match rule.
+			splice @matches, 1 unless $global;
+			for my $match (@matches) {
+				my $what = $label;
+				$what = sprintf $what, $match
+				    if $what =~ /%s/;
+				say STDERR "$file:$number: $what: "
+				    . ( $line =~ s/^\s+|\s+$//gr );
+				$found++;
+			}
 		}
 	}
 	close $fh;
