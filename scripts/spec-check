@@ -174,7 +174,7 @@ sub _doc_codes ($index_text)
 	for my $line ( split /\n/, _strip_fences($index_text) ) {
 		next
 		    unless $line =~
-		    /^\|\s*([A-Z][A-Z0-9]*)\s*\|\s*\[([a-z0-9-]+\.md)\]/;
+		    /^\|\s*([A-Z][A-Z0-9]*)\s*\|\s*\[([A-Za-z0-9-]+\.md)\]/;
 		$codes{$2} = $1;
 	}
 

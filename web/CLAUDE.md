@@ -6,10 +6,9 @@ copy. Edit the canonical copy in FuguBSD/Tooling.
 # Shared website instructions
 
 This directory holds the website sources. fuguweb(1) reads `.fuguwebrc` and
-renders the sources that it names: the `*.body.html` fragments, and the mdoc,
-POD, and Markdown sources of the repository. On a push to `main`, the
-`publish.yml` workflow of the repository calls the shared `web-publish.yml`
-workflow, which builds the site and deploys it to GitHub Pages.
+renders the sources that it names. On a push to `main`, `publish.yml` calls the
+shared `web-publish.yml` workflow, which builds and deploys the site to GitHub
+Pages.
 
 ## The visitor
 

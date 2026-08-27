@@ -3,24 +3,24 @@ The org pack of FuguBSD/Tooling owns this file. Do not edit a synced
 copy. Edit the canonical copy in FuguBSD/Tooling.
 -->
 
-# CLAUDE.md
+# spec/
 
-This directory holds the specification. [index.md](index.md) is the entry point.
-It holds the plan contract, the ID conventions, and the document tables.
-[DECISIONS.md](DECISIONS.md) holds the decisions. A plan must not go against a
-decision.
+Applies when working on files under `spec/`. [index.md](index.md) is the entry
+point: it holds the plan contract, the ID conventions, and the document tables.
+[DECISIONS.md](DECISIONS.md) holds the decisions.
 
 ## Format
 
 - One document specifies one area of work.
-- All text complies with ASD-STE100 Simplified Technical English: short
-  sentences, the active voice, one instruction per sentence, "must" for a
-  requirement, "must not" for a prohibition, "can" for a capability.
+- Each design document describes the target design in the current state only: no
+  amendment, and no reference to an earlier state.
+- [ROADMAP.md](ROADMAP.md), [STATUS.md](STATUS.md), and `LEARNING.md` are
+  records, not design documents. Only a record says when work occurs, and only a
+  record refers to an earlier state.
+- `LEARNING.md` holds the learning of each campaign. A repository adds it only
+  when it runs campaigns.
 - A rule item can join tightly coupled requirements on one object with "and
-  must". Each sentence stays short and active.
-- Each document describes the target design in the current state only. Do not
-  write an amendment, and do not refer to an earlier state.
-- Only [ROADMAP.md](ROADMAP.md) and [STATUS.md](STATUS.md) say when work occurs.
+  must".
 
 ## The ID overlay
 
@@ -35,35 +35,31 @@ unit, and the unit ID is the anchor in upper case:
 - **DOC-EXAMPLE-1** — The example function must …
 ```
 
-- The anchor of a unit must start with the code of its document, in lower case,
-  followed by a hyphen. The document codes are in [index.md](index.md).
-- A unit extends from its anchor to the next unit anchor or heading, whichever
-  comes first.
-- A rule ID names one requirement inside a unit, as a bold-lead list item, as
-  the example above shows. Rule numbers only append: never renumber, and never
-  reuse a number.
-- A plan cites units and rules: `Implements: DOC-EXAMPLE without DOC-EXAMPLE-1`
-  and `Defers: DOC-OTHER`.
+- The anchor starts with the document code, in lower case, followed by a hyphen.
+  [index.md](index.md) holds the codes.
+- A unit extends from its anchor to the next unit anchor or heading.
+- A rule ID names one requirement inside a unit, as a bold-lead list item.
+- Rule numbers only append: never renumber, and never reuse a number.
 - An ID must not change. To retire a unit: delete its anchor and its register
   row, and add the ID to the "Retired IDs" table of the register.
-- A citation of a unit of a sibling repository is a prose token with the
-  repository name in front, for example `FuguOracle OPS-GET-4`. It is never a
-  link, and it never names a plan.
+- A plan cites units and rules: `Implements: DOC-EXAMPLE without DOC-EXAMPLE-1`
+  and `Defers: DOC-OTHER`.
+- A citation of a unit of a sibling repository is a prose token, for example
+  `FuguOracle OPS-GET-4`: never a link, and never a plan name.
 
 ## STATUS.md, the implementation register
 
-[STATUS.md](STATUS.md) is the only home of implementation state: one row per
-unit, with a state (`open`, `partial`, `done`, `n-a`), a "Done by" phase, and a
-note. When your change implements a unit, or a part of a unit, set the state of
-the unit in the register in the same change. A `partial` note names each absent
-part. A `done` note links the code or the tests. The "Done by" value names a
-phase of [ROADMAP.md](ROADMAP.md), or "—" when no phase applies.
+One row per unit: a state, a "Done by" phase, and a note.
+
+- The states are `open`, `partial`, `done`, and `n-a`.
+- A `partial` note names each absent part.
+- A `done` note links the code or the tests.
+- The "Done by" value names a phase of [ROADMAP.md](ROADMAP.md), or "—" when no
+  phase applies.
 
 ## Checks
 
-`make spec-check` validates the links, the anchors, the register, the rule
-definitions, the citations, the schedule lint, and the plans. A plan that cites
-a `done` unit under `Implements:` fails the check: delete or trim the plan in
-the change that sets the state. On a pull request, CI adds a drift gate: a
-change to a document with a `partial` or `done` unit must also change STATUS.md
-or a mapped code root.
+`make spec-check` validates the links, the anchors, the register, the rules, the
+citations, the schedule lint, and the plans. On a pull request, CI adds a drift
+gate: a change to a document with a `partial` or `done` unit must also change
+STATUS.md or a mapped code root.

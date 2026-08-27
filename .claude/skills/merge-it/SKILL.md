@@ -12,8 +12,7 @@ copy. Edit the canonical copy in FuguBSD/Tooling.
 
 # Merge it
 
-Merge a patch-level change to `main` without a pull request. The squash merge
-keeps the history of `main` clean.
+Merge a patch-level change to `main` without a pull request.
 
 ## Procedure
 
