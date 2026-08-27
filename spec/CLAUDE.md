@@ -17,7 +17,7 @@ point: it holds the plan contract, the ID conventions, and the document tables.
 - [ROADMAP.md](ROADMAP.md), [STATUS.md](STATUS.md), and `LEARNING.md` are
   records, not design documents. Only a record says when work occurs, and only a
   record refers to an earlier state.
-- `LEARNING.md` holds the learning of each campaign. A repository adds it only
+- `LEARNING.md` holds the learning of each rehearsal. A repository adds it only
   when it runs campaigns.
 - A rule item can join tightly coupled requirements on one object with "and
   must".
