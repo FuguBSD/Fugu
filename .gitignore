@@ -7,6 +7,7 @@
 
 # Secrets
 .env
+.claude/settings.local.json*
 
 # Scratch space of the development rules
 explore/
