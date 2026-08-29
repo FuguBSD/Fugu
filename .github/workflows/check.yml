@@ -1,49 +1,12 @@
 name: Check
 
-# Use explicit includes, never excludes. A path that no job reads must
-# not start this workflow only because nobody excluded it. The list is
-# the union of the paths that the three jobs below read.
+# The gitleaks job reads every path, so no paths filter applies:
+# every push must run the secrets scan.
 on:
   push:
     branches: [main]
-    paths:
-      # The Perl files that format, lint and the syntax sweep read. The
-      # files in scripts/ have no extension. Thus a glob over the
-      # directory is the only way to name all of them.
-      - "scripts/*"
-      - "t/ci/workflows.t"
-      - "lib/**.pm"
-      - ".perlcriticrc"
-      - ".perltidyrc"
-      # Prettier formats every Markdown, JSON and YAML file in the
-      # tree, so this workflow must see all of them. The YAML glob also
-      # makes the workflow run again on edits to itself and to the
-      # composite action under .github/.
-      - "**.md"
-      - "**.json"
-      - "**.yml"
-      - ".prettierrc"
-      # The toolchain that the jobs install and use
-      - "GNUmakefile"
-      - "mk/*"
-      - "cpanfile"
-      - "deps/*.txt"
   pull_request:
     branches: [main]
-    paths:
-      - "scripts/*"
-      - "t/ci/workflows.t"
-      - "lib/**.pm"
-      - ".perlcriticrc"
-      - ".perltidyrc"
-      - "**.md"
-      - "**.json"
-      - "**.yml"
-      - ".prettierrc"
-      - "GNUmakefile"
-      - "mk/*"
-      - "cpanfile"
-      - "deps/*.txt"
 
 jobs:
   format:
@@ -123,3 +86,20 @@ jobs:
       - name: Drift gate
         if: github.event_name == 'pull_request'
         run: scripts/spec-check --drift "origin/${{ github.base_ref }}"
+
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+
+    steps:
+      # The gate scans the git history, so the checkout is full
+      # (WFL-GITLEAKS-2). A shallow checkout hides old commits.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup gitleaks
+        uses: FuguBSD/Tooling/actions/setup-gitleaks@main
+
+      - name: Scan for secrets
+        run: make gitleaks

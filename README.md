@@ -43,7 +43,7 @@ documents its API in a `.pod` sidecar. Start with:
 ## Commands
 
 ```sh
-make check          # lint + format + test + spec-coverage + spec-check + ste-lint
+make check          # lint + format + test + spec-coverage + spec-check + ste-lint + gitleaks
 make test           # prove -l over every test tier
 prove -l t/fugu/foo.t      # one test file
 make format-fix     # auto-fix the Perl, Markdown, JSON and YAML formatting
@@ -51,7 +51,8 @@ make dist           # build the release tarball
 ```
 
 `make check` runs the Markdown format gate, and prettier runs through bunx. The
-operator installs bun, for example from Homebrew. No deps manifest provides it.
+operator installs bun and gitleaks, for example from Homebrew. No deps manifest
+provides them.
 
 ## Releases
 
