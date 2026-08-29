@@ -1,0 +1,11 @@
+# The org pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
+# The shared gitleaks configuration (MK-GITLEAKS). The gate runs the
+# default rules of the installed gitleaks release, unchanged. This
+# file carries no repository identity (SYNC-IDENTITY). A repo-specific
+# false positive goes into the consumer .gitleaksignore, one
+# fingerprint per line, never into this file.
+
+[extend]
+useDefault = true

@@ -1,19 +1,20 @@
 # The org pack of FuguBSD/Tooling owns this file. Do not edit a
 # synced copy. Edit the canonical copy in FuguBSD/Tooling.
 #
-# The org fragment: the specification gates, the prose gate, the test
-# runner, the deps targets, and the Markdown formatting pair. The
-# fragment uses the portable make subset, so every dispatcher
-# includes it without change.
+# The org fragment: the specification gates, the prose gate, the
+# gitleaks gate, the test runner, the deps targets, and the Markdown
+# formatting pair. The fragment uses the portable make subset, so
+# every dispatcher includes it without change.
 
 SPEC_CHECK	?= scripts/spec-check
 STE_LINT	?= scripts/ste-lint
 DEPS		?= scripts/deps
+GITLEAKS	?= gitleaks
 PRETTIER	?= bunx prettier@3.9.6
 PROVE		?= prove -l
 TEST_GLOBS	?= t/ci/*.t
 
-CHECK_TARGETS		+= lint format test spec-check ste-lint
+CHECK_TARGETS		+= lint format test spec-check ste-lint gitleaks
 TEST_TARGETS		+= test-prove
 FORMAT_TARGETS		+= format-md
 FORMAT_FIX_TARGETS	+= format-md-fix
@@ -23,6 +24,14 @@ spec-check:
 
 ste-lint:
 	@$(STE_LINT)
+
+# The gitleaks gate runs three scans: the git history, the unstaged
+# changes to the tracked files, and the staged changes (MK-GITLEAKS).
+# --redact keeps a found secret out of the terminal and the CI log.
+gitleaks:
+	@$(GITLEAKS) git --no-banner --redact -v --log-level warn .
+	@$(GITLEAKS) git --no-banner --redact -v --log-level warn --pre-commit .
+	@$(GITLEAKS) git --no-banner --redact -v --log-level warn --pre-commit --staged .
 
 test-prove:
 	$(PROVE) $(TEST_GLOBS)
@@ -46,5 +55,5 @@ format-md:
 format-md-fix:
 	$(PRETTIER) --write --no-error-on-unmatched-pattern '**/*.md' '**/*.json' '**/*.yml'
 
-.PHONY: spec-check ste-lint test-prove deps deps-test deps-develop
+.PHONY: spec-check ste-lint gitleaks test-prove deps deps-test deps-develop
 .PHONY: format-md format-md-fix
