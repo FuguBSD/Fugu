@@ -52,21 +52,8 @@ sub method($self, $param)
 - Never ignore the return value of a system call:
   `open my $fh, '<', $file or do { warn "..."; return; };`
 - No threads — multiplex with `IO::Select`.
-- Fail cleanly: diagnose invalid input in a human-readable message, never a
-  stack trace. Leave no partial file, orphaned process, or corrupt state behind.
-  Make repeatable operations truly idempotent.
 - Take randomness from `/dev/urandom`. Design for pledge(2) and unveil(2). Fail
   closed. Never trust external input.
-
-## Simplicity
-
-- Delete an old code path outright. Never keep an alias, a bridge, or a
-  migration.
-- Implement an API only for a documented need. A specification unit, in this
-  repository or in an other FuguBSD repository, must name the need. Delete a sub
-  or an option that no specification names, together with its test.
-- Validate each input once, at its boundary. Do not check the same invariant
-  again downstream.
 
 ## Modules and documentation
 
@@ -78,5 +65,3 @@ sub method($self, $param)
 - Unit tests use `Test::More` with `done_testing()`. A test skips gracefully
   when a dependency is unavailable (`plan skip_all => ...`). Mirror an existing
   test when adding one.
-- Be resilient to timing variations.
-- Every feature needs tests.

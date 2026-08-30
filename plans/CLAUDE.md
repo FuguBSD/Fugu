@@ -19,9 +19,8 @@ Applies when working on files under `plans/`.
 ## Location
 
 - A plan lives in the repository that implements it. It must not describe work
-  that another repository implements.
-- A citation across a repository boundary names the repository and the unit, for
-  example `FuguOracle OPS-GET-4`, never a plan.
+  that another repository implements. The citation forms live in
+  [spec/CLAUDE.md](../spec/CLAUDE.md).
 
 ## Numbering
 
