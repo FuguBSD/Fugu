@@ -14,8 +14,9 @@ explore/
 SCRATCHPAD*.md
 .claude/worktrees/
 
-# Project clones of the workspace checkout
+# Project clones and the learning library of the workspace checkout
 Projects/
+Wiki/
 
 # Operating system
 .DS_Store
