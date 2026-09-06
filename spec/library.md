@@ -178,8 +178,10 @@ Signal handlers for graceful shutdown.
 ## Fugu::Signify
 
 Verify a file against a small set of signify(1) public keys, and verify each
-named file of a signed SHA256 manifest against its digest. The module holds no
-private key and cannot sign.
+file of a signed SHA256 manifest against its digest. A manifest key is the text
+between the parentheses, and the module holds it as text: it can be a file name,
+a file path, or a download URL. The caller maps each key to a local path. The
+module holds no private key and cannot sign.
 
 <a id="lib-statefile"></a>
 
