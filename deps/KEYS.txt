@@ -1,0 +1,17 @@
+# The org pack of FuguBSD/Tooling owns this file. Do not edit a
+# synced copy. Edit the canonical copy in FuguBSD/Tooling.
+#
+# The signify public keys that verify a signed release. scripts/deps
+# reads this file for the signify tier, and it reads deps/KEYS.local.txt
+# after it. A consumer pins a third-party key in the local file, which
+# sync never touches.
+#
+# A line holds a name and then one of two forms:
+#
+#   <name> <key-body>
+#   <name> <url> <sha256>
+#
+# The body form gives the 56 base64 characters of the key body. The URL
+# form gives the published key file and its sha256 digest, and the
+# digest is the trust anchor. The line order is the trust order, so the
+# current key comes first.
