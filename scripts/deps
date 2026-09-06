@@ -22,11 +22,36 @@
 # deps: install the OS packages, CPAN modules and prebuilt binaries
 # that deps/<OS>.txt names.
 #
-# usage: deps [--dry-run] [--arch NAME] [--os NAME] <runtime|test|develop>
+# usage: deps [--dry-run] [--arch NAME] [--os NAME] <tool|runtime|test|develop>
+#        deps --update-sums [--force] [--arch NAME] [--os NAME]
 #
 # The script reads deps/<OS>.txt relative to the current directory,
 # not relative to this script. A guest can run 'make deps' out of an
 # extracted tarball, and that tree is different from any checkout.
+#
+# Every download that a manifest entry names gets a check before it
+# reaches the install directory. deps/SHA256.txt records the sha256
+# digest of a download with a versioned URL, keyed by that URL. A
+# stable URL carries a signify signature over a SHA256 manifest, and
+# deps/KEYS.txt declares the public keys. An entry with neither one
+# is an error.
+#
+# The URL is the key, and not the file name, because one digest file
+# gathers many upstreams. Two upstreams can publish one file name, and
+# a shared key would let the digest of one entry serve the other. The
+# signed manifest of a release keys on the file name instead. One
+# release directory holds unique names, so that key is unambiguous.
+#
+# The cpanm bootstrap is the one download that no manifest names, and
+# it carries no check. It runs only when cpanm is absent. A
+# repository that wants no unchecked download names a cpanminus
+# package in its tool environment, and the bootstrap never runs.
+#
+# The same digest file resolves the platform words. A manifest writes
+# {os} and {arch}, and the script forms one candidate URL for each
+# alias of the two words. It then takes the candidate that the digest
+# file records. No manifest holds a hardcoded platform word, and no
+# lookup goes to the network.
 #
 # This script is the bootstrap. Nothing it needs may be something it
 # installs. Thus it uses only core modules and no v5.36. macOS still
@@ -34,43 +59,69 @@
 # things install a perl first.  The 5.34 bundle turns on strict but not
 # warnings. Warnings start at 5.35. Thus the script asks for warnings
 # by name.
+#
+# The signature check runs signify(1) as a command, and the digest
+# check uses the core module Digest::SHA. Fugu::Signify holds the same
+# logic, and this script must not load it. A dist line installs Fugu,
+# so the module is absent on the first run.
 use v5.34;
 use warnings;
 use experimental 'signatures';
 
+# A child process writes to fd 1 directly, and say buffers. In a pipe
+# the die message would therefore land before the trace that explains
+# it.
+STDOUT->autoflush(1);
+
+use Digest::SHA    ();
 use File::Basename qw(dirname);
 use File::Spec;
 use File::Temp   qw(tempdir);
 use Getopt::Long qw(GetOptions);
+use MIME::Base64 qw(decode_base64);
 use POSIX        qw(uname);
 
 my $USAGE =
-"usage: deps [--dry-run] [--arch NAME] [--os NAME] <runtime|test|develop>\n";
+      "usage: deps [--dry-run] [--arch NAME] [--os NAME] "
+    . "<tool|runtime|test|develop>\n"
+    . "       deps --update-sums [--force] [--arch NAME] [--os NAME]\n";
 
 my $dry_run = 0;
+my $update  = 0;
+my $force   = 0;
 my $os;
 my $arch;
 
 GetOptions(
-	'dry-run' => \$dry_run,
-	'arch=s'  => \$arch,
-	'os=s'    => \$os,
+	'dry-run'     => \$dry_run,
+	'update-sums' => \$update,
+	'force'       => \$force,
+	'arch=s'      => \$arch,
+	'os=s'        => \$os,
 ) or die $USAGE;
 
-use constant ENVIRONMENTS => qw(runtime test develop);
+use constant ENVIRONMENTS => qw(tool runtime test develop);
 
-my $env = shift @ARGV;
-defined $env
-    or die $USAGE;
+# The alias tables. A release asset spells one platform in more than
+# one way, so the script forms a candidate for each spelling. The
+# order is the preference order: --update-sums records the first
+# candidate that answers, and it reports every other one.
+my %OS_ALIAS = (
 
-# An unrecognized environment selects nothing. The shell version then
-# reported success for having installed it. Say so instead.
-grep { $_ eq $env } ENVIRONMENTS
-    or die "deps: unknown environment '$env' (expected "
-    . join( ', ', ENVIRONMENTS ) . ")\n";
+	# GitHub answers an asset path in any letter case, so macOS
+	# also covers macos. Two spellings of one name would download
+	# the same bytes twice and raise a false ambiguity.
+	Darwin  => [qw(darwin macOS osx)],
+	Linux   => [qw(linux)],
+	OpenBSD => [qw(openbsd)],
+);
 
-$os   //= ( uname() )[0];
-$arch //= ( uname() )[4];
+my %ARCH_ALIAS = (
+	x86_64  => [qw(amd64 x64 x86_64)],
+	amd64   => [qw(amd64 x64 x86_64)],
+	aarch64 => [qw(arm64 aarch64)],
+	arm64   => [qw(arm64 aarch64)],
+);
 
 # _run(@cmd):
 #	Run a command in list form. Die on anything but a clean exit.
@@ -128,10 +179,22 @@ sub _which ($program)
 	return;
 }
 
+# _archive_type($url):
+#	The archive type that the URL's suffix names: 'tar' for
+#	.tar.gz and .tgz, 'zip' for .zip, undef for a plain file.
+sub _archive_type ($url)
+{
+	return 'tar' if $url =~ /\.(?:tar\.gz|tgz)\z/;
+	return 'zip' if $url =~ /\.zip\z/;
+
+	return;
+}
+
 # _read_manifest($file, $want):
 #	Parse deps/<OS>.txt into (\@pkgs, \@dists, \@cpan, \@bins)
-#	for environment $want. Whitespace separates the fields, as
-#	sh's 'read env type name' read them.
+#	for environment $want. An undefined $want takes every
+#	environment, which --update-sums needs. Whitespace separates
+#	the fields, as sh's 'read env type name' read them.
 #
 #	The function validates every non-comment line, not only the
 #	lines that match $want. The shell version filtered first. Thus a
@@ -143,8 +206,11 @@ sub _read_manifest ( $file, $want )
 	    or die "deps: open $file: $!\n";
 
 	my %by_type = ( pkg => [], dist => [], cpan => [], bin => [] );
+	my $n       = 0;
 	while ( my $line = <$fh> ) {
 		chomp $line;
+		$n++;
+		my $where = "$file:$n";
 		my ( $env, $type, $name ) = split ' ', $line, 3;
 
 		next unless defined $env;
@@ -159,9 +225,33 @@ sub _read_manifest ( $file, $want )
 			die
 "Expected: <environment> <pkg|dist|cpan> <package-name>\n";
 		}
+
+		# An unknown environment word made the line invisible: it
+		# matched no wanted environment, and the run then claimed
+		# success for an install that never happened.
+		if ( !grep { $_ eq $env } ENVIRONMENTS ) {
+			die "ERROR: Unknown environment '$env' (expected "
+			    . join( ', ', ENVIRONMENTS ) . ")\n";
+		}
 		if ( !exists $by_type{$type} ) {
 			die "ERROR: Unknown type '$type' "
 			    . "(expected 'pkg', 'dist', 'cpan' or 'bin')\n";
+		}
+
+		# A dist line is one URL. A pkg name and a cpan name
+		# reach a package manager, so neither may read as an
+		# option, and neither may name a download that no tier
+		# covers.
+		if ( $type eq 'dist' ) {
+			_check_url( $name, $where );
+		}
+		elsif ( $type ne 'bin' ) {
+			$name =~ /\A-/
+			    and die "ERROR: A $type name must not start "
+			    . "with a dash: $name\n";
+			$name =~ m{\A[a-z][a-z0-9+.-]*://}i
+			    and die "ERROR: A $type name must not be a URL: "
+			    . "$name\n";
 		}
 
 		# A bin name carries two or three words: the command, its
@@ -169,7 +259,7 @@ sub _read_manifest ( $file, $want )
 		# Validate the shape here, with the other format checks,
 		# so a bad line in any environment fails at once.
 		if ( $type eq 'bin' ) {
-			my ( undef, $url, $member ) = split ' ', $name, 3;
+			my ( $cmd, $url, $member ) = split ' ', $name, 3;
 			if ( !defined $url || $url eq '' ) {
 				warn "ERROR: Invalid format in $file: $line\n";
 				die
@@ -183,15 +273,207 @@ sub _read_manifest ( $file, $want )
 				die "ERROR: A file path in the archive "
 				    . "needs an archive URL\n";
 			}
+			_check_url( $url, $where );
+			_check_bin_names( $cmd, $member, $where );
 		}
 
-		next unless $env eq $want;
+		next if defined $want && $env ne $want;
 
 		push @{ $by_type{$type} }, $name;
 	}
 	close $fh;
 
 	return ( $by_type{pkg}, $by_type{dist}, $by_type{cpan}, $by_type{bin} );
+}
+
+# _check_url($url, $where):
+#	Hold a download URL to the shapes that the digest file allows.
+#	The URL becomes a key of deps/SHA256.txt, whose line format
+#	reserves the parenthesis and the space. The URL must also name
+#	a file, which becomes the name of the download inside a
+#	temporary directory.
+sub _check_url ( $url, $where )
+{
+	my ($file) = $url =~ m{([^/]+)\z};
+	if ( !defined $file || $file eq '' ) {
+		die "$where: cannot name the file of $url\n";
+	}
+	if ( $url =~ /[()\s]/ ) {
+		die "$where: the URL '$url' must hold no parenthesis and no "
+		    . "space, which the line format of deps/SHA256.txt "
+		    . "reserves\n";
+	}
+
+	return;
+}
+
+# _check_bin_names($name, $member):
+#	Hold the command name and the archive path to the shapes that
+#	a file name allows. The command name becomes a file name in
+#	the install directory, and the archive path becomes one in a
+#	temporary directory. tar and unzip read a leading dash as an
+#	option, and one of those options runs a command.
+sub _check_bin_names ( $name, $member, $where )
+{
+	$name =~ /\A[A-Za-z0-9][A-Za-z0-9._-]*\z/
+	    or die "$where: the command name '$name' holds letters, digits, "
+	    . "a dot, a dash and an underscore\n";
+
+	return unless defined $member;
+
+	my @part = split m{/}, $member;
+	( grep { $_ eq '..' || $_ eq '' } @part )
+	    and die "$where: the archive path '$member' must hold no empty "
+	    . "and no parent segment\n";
+	$member =~ /\A-/
+	    and die "$where: the archive path '$member' must not start with "
+	    . "a dash\n";
+
+	return;
+}
+
+# _read_digests($file, $want_url):
+#	Parse a BSD-format sha256 list into a key-to-digest hash. The
+#	format is one 'SHA256 (key) = hexdigest' line for each entry. A
+#	bad line, a digest that is not 64 hexadecimal characters, and a
+#	duplicate key are each an error: a silent skip drops a check.
+#
+#	Two files use this parser. deps/SHA256.txt keys on the download
+#	URL, and the signed manifest of a release keys on the file
+#	name. $want_url selects the consumer file, whose key must hold
+#	a scheme.
+#
+#	An older deps/SHA256.txt keys on the file name. Such a line
+#	matches no candidate, so the entry would lose its pin without
+#	a word. The second answer holds each legacy key, and the
+#	caller decides: the install stops (SYNC-DOWNLOAD-18), and
+#	--update-sums drops the line (SYNC-DOWNLOAD-19).
+sub _read_digests ( $file, $want_url = 0 )
+{
+	return wantarray ? ( {}, [] ) : {} unless -f $file;
+
+	open my $fh, '<', $file
+	    or die "deps: open $file: $!\n";
+
+	my ( %digest, @legacy );
+	my $n = 0;
+	while ( my $line = <$fh> ) {
+		chomp $line;
+		$n++;
+		next if $line =~ /\A\s*\z/;
+
+		if ( $line !~ /\ASHA256 \(([^()\s]+)\) = ([0-9a-f]{64})\z/ ) {
+			die "deps: $file:$n: not a sha256 line: $line\n";
+		}
+		my ( $url, $sum ) = ( $1, $2 );
+		if ( exists $digest{$url} ) {
+			die "deps: $file:$n: duplicate URL: $url\n";
+		}
+		push @legacy, $url
+		    if $want_url && $url !~ m{\A[a-z][a-z0-9+.-]*://}i;
+		$digest{$url} = $sum;
+	}
+	close $fh;
+
+	return wantarray ? ( \%digest, \@legacy ) : \%digest;
+}
+
+# _write_digests($file, $digests):
+#	Write the digest hash back in BSD format, sorted by URL, so a
+#	second run of --update-sums makes a stable diff.
+sub _write_digests ( $file, $digests )
+{
+	open my $fh, '>', $file
+	    or die "deps: write $file: $!\n";
+	for my $name ( sort keys %$digests ) {
+		say {$fh} "SHA256 ($name) = $digests->{$name}";
+	}
+	close $fh;
+
+	return;
+}
+
+# _valid_body($body):
+#	True when $body is the key body of a signify public key: 56
+#	base64 characters that decode to 42 bytes with the prefix 'Ed'.
+#	signify(1) reads a two-line file, and the first line carries no
+#	trust, so one word holds the whole key.
+sub _valid_body ($body)
+{
+	return 0 unless $body =~ m{\A[A-Za-z0-9+/=]{56}\z};
+
+	my $raw = decode_base64($body);
+
+	return 0 unless length($raw) == 42;
+
+	return substr( $raw, 0, 2 ) eq 'Ed';
+}
+
+# _read_keys($dir):
+#	Parse deps/KEYS.txt and deps/KEYS.local.txt into a list of
+#	keys, in the order that the files name them. The order is the
+#	trust order: the current key comes first.
+#
+#	A line holds a name and then one of two forms. Two fields give
+#	the body form, and the second field is the key body. Three
+#	fields give the URL form, and the two fields are the URL of the
+#	key file and its sha256 digest. The org pack owns KEYS.txt, and
+#	a consumer pins a third-party key in KEYS.local.txt.
+sub _read_keys ($dir)
+{
+	my ( @keys, %seen );
+	for my $name (qw(KEYS.txt KEYS.local.txt)) {
+		my $file = File::Spec->catfile( $dir, $name );
+		next unless -f $file;
+
+		open my $fh, '<', $file
+		    or die "deps: open $file: $!\n";
+
+		my $n = 0;
+		while ( my $line = <$fh> ) {
+			chomp $line;
+			$n++;
+			next if $line =~ /\A\s*(?:#|\z)/;
+
+			my @field = split ' ', $line;
+
+			# The name becomes a file name in a temporary
+			# directory, so it must hold no path.
+			$field[0] =~ /\A[A-Za-z0-9][A-Za-z0-9._-]*\z/
+			    or die "deps: $file:$n: a key name holds "
+			    . "letters, digits, a dot, a dash and an "
+			    . "underscore\n";
+			$seen{ $field[0] }++
+			    and die "deps: $file:$n: "
+			    . "duplicate key name: $field[0]\n";
+
+			if ( @field == 2 ) {
+				_valid_body( $field[1] )
+				    or die "deps: $file:$n: "
+				    . "not a signify key body\n";
+				push @keys,
+				    { name => $field[0], body => $field[1] };
+			}
+			elsif ( @field == 3 ) {
+				$field[2] =~ /\A[0-9a-f]{64}\z/
+				    or die "deps: $file:$n: "
+				    . "not a sha256 digest\n";
+				push @keys,
+				    {
+					name   => $field[0],
+					url    => $field[1],
+					digest => $field[2],
+				    };
+			}
+			else {
+				die "deps: $file:$n: "
+				    . "a key line holds two or three fields\n";
+			}
+		}
+		close $fh;
+	}
+
+	return \@keys;
 }
 
 # _install_packages($os, @pkgs):
@@ -263,63 +545,409 @@ sub _install_cpanm ()
 	return;
 }
 
-# _install_dists(@urls):
-#	Fetch distribution tarballs and install each with cpanm. A dist
-#	line names a release-asset URL, normally the latest release of a
-#	sibling repository. The fetch goes through scripts/ftp, so every
-#	platform uses its native downloader.
-sub _install_dists (@urls)
+# _sha256_file($path):
+#	The sha256 digest of a file, in lower-case hexadecimal.
+sub _sha256_file ($path)
 {
-	say 'Installing distributions: ', join ' ', @urls;
+	open my $fh, '<', $path
+	    or die "deps: open $path: $!\n";
+	binmode $fh;
+	my $sha = Digest::SHA->new(256);
+	$sha->addfile($fh);
+	close $fh;
 
-	_install_cpanm() unless defined _which('cpanm');
+	return $sha->hexdigest;
+}
 
-	my $tmp = tempdir( CLEANUP => 1 );
-	for my $url (@urls) {
-		my ($name) = $url =~ m{([^/]+)\z};
-		if ( !defined $name || $name eq '' ) {
-			die "deps: cannot name the file of $url\n";
+# _check_digest($path, $want, $key, $source):
+#	Compare the digest of a downloaded file against the wanted
+#	one. A mismatch stops the install and names both digests. The
+#	source is 'recorded' or 'signed', and it selects the repair
+#	that the operator can act on. The key names the line to
+#	repair: the URL for a recorded digest, and the file name for a
+#	signed manifest.
+sub _check_digest ( $path, $want, $key, $source )
+{
+	my $got = _sha256_file($path);
+	return if $got eq $want;
+
+	my $advice =
+	    $source eq 'signed'
+	    ? "  the signature verifies, so the served file disagrees "
+	    . "with the release\n"
+	    . "  report it upstream, and install nothing until it "
+	    . "agrees\n"
+	    : "  compare the upstream checksum file, then "
+	    . "'deps --update-sums --force' rewrites the line\n";
+
+	die "deps: $key does not match its $source digest\n"
+	    . "  expected $want\n"
+	    . "  got      $got\n"
+	    . $advice;
+}
+
+# _signify_cmd():
+#	The name of the signify command. OpenBSD holds signify(1) in
+#	base, and Debian names the same program signify-openbsd.
+sub _signify_cmd ()
+{
+	for my $name (qw(signify signify-openbsd)) {
+		return $name if defined _which($name);
+	}
+
+	die "deps: signify(1) is absent, and a signature check needs it\n"
+	    . "  name a signify package in the tool environment of the "
+	    . "manifest, which installs first (MK-DEPS-5)\n"
+	    . "  a recorded digest needs no signify(1), and "
+	    . "'deps --update-sums' records one\n";
+}
+
+# _key_file($tmp, $key):
+#	The path of a public key file in the temporary directory. The
+#	body form writes the two lines that signify(1) reads. The URL
+#	form downloads the published file and holds it to the recorded
+#	digest, which is the trust anchor.
+sub _key_file ( $tmp, $key )
+{
+	# Each call writes the file again. A cached copy would carry
+	# the check of an earlier entry, and a failed check must leave
+	# nothing behind for a later one to reuse.
+	my $path = File::Spec->catfile( $tmp, "$key->{name}.pub" );
+	unlink $path;
+
+	if ( defined $key->{body} ) {
+		open my $fh, '>', $path
+		    or die "deps: write $path: $!\n";
+		say {$fh} "untrusted comment: $key->{name} public key";
+		say {$fh} $key->{body};
+		close $fh;
+
+		return $path;
+	}
+
+	_run( _ftp_path(), $path, $key->{url} );
+	my $got = _sha256_file($path);
+	if ( $got ne $key->{digest} ) {
+		unlink $path;
+		die "deps: the key $key->{name} does not match its digest\n"
+		    . "  expected $key->{digest}\n"
+		    . "  got      $got\n";
+	}
+
+	return $path;
+}
+
+# _verify_signature($tmp, $sums, $sig, $keys):
+#	Verify the signature over the SHA256 manifest with the declared
+#	keys, in trust order. The name of the first key that verifies,
+#	or an error.
+sub _verify_signature ( $tmp, $sums, $sig, $keys )
+{
+	@$keys
+	    or die "deps: no key is declared, so no signature verifies\n";
+
+	my $signify = _signify_cmd();
+	my @failed;
+	for my $key (@$keys) {
+
+		# A key that does not answer, or that fails its digest,
+		# must not stop the trust order. A rotation declares
+		# the next key beside the current one, and either one
+		# can be unreachable for a time.
+		my $pub = eval { _key_file( $tmp, $key ) };
+		if ( !defined $pub ) {
+			my $why = $@ // "unknown\n";
+			chomp $why;
+
+			# The operator must see a pinned key that
+			# fails its digest. A later key that verifies
+			# must not hide it.
+			warn "deps: the key $key->{name} did not load: "
+			    . "$why\n";
+			push @failed, "$key->{name}: $why";
+			next;
 		}
 
-		my $file = File::Spec->catfile( $tmp, $name );
-		_run( _ftp_path(), $file,         $url );
-		_run( 'cpanm',     _cpanm_opts(), $file );
+		my $status = system $signify, '-V', '-q', '-p', $pub, '-x',
+		    $sig, '-m', $sums;
+		next if $status != 0;
+
+		say "Verified the manifest with the key $key->{name}";
+
+		return $key->{name};
+	}
+
+	die "deps: no declared key verifies the signature of $sums\n"
+	    . join( q{}, map { "  $_\n" } @failed );
+}
+
+# _check_tier($env, $url, $digests, $keys):
+#	Report an entry that no tier can check. The check reads the
+#	digest file and the key set only, so a caller can run it over
+#	every entry before the first download (SYNC-DOWNLOAD-2).
+sub _check_tier ( $env, $url, $digests, $keys )
+{
+	return if exists $digests->{$url};
+
+	# The tool environment installs the commands that a later
+	# check needs, and signify(1) is one of them. A tool entry
+	# takes the digest tier only (MK-DEPS-4).
+	if ( $env eq 'tool' ) {
+		die "deps: $url has no recorded digest, and a tool entry "
+		    . "must not use the signify tier\n"
+		    . "  the file keys on the whole download URL, and an "
+		    . "older file keys on the file name\n"
+		    . "  'deps --update-sums' records a versioned URL, "
+		    . "and '--update-sums --force' records any URL\n";
+	}
+
+	if ( !@$keys ) {
+		die "deps: $url has no recorded digest, and no key is "
+		    . "declared, so nothing verifies it\n"
+		    . "  a versioned URL takes a digest from "
+		    . "'deps --update-sums'\n"
+		    . "  a stable URL needs a signed SHA256 beside it, "
+		    . "and a key in deps/KEYS.local.txt\n"
+		    . "  'deps --update-sums --force' pins the bytes of "
+		    . "a stable URL, and the pin breaks at the next "
+		    . "release\n";
 	}
 
 	return;
 }
 
-# _archive_type($url):
-#	The archive type that the URL's suffix names: 'tar' for
-#	.tar.gz and .tgz, 'zip' for .zip, undef for a plain file.
-sub _archive_type ($url)
+# _fetch_verified($env, $tmp, $url, $digests, $keys):
+#	Download one file into the temporary directory and check its
+#	bytes. The recorded digest comes first. Without one, the
+#	script derives SHA256 and SHA256.sig from the directory of the
+#	URL. It verifies the signature, and then it holds the file to
+#	the signed manifest. The path of the checked file.
+sub _fetch_verified ( $env, $tmp, $url, $digests, $keys )
 {
-	return 'tar' if $url =~ /\.(?:tar\.gz|tgz)\z/;
-	return 'zip' if $url =~ /\.zip\z/;
+	my ($name) = $url =~ m{([^/]+)\z};
+	if ( !defined $name || $name eq '' ) {
+		die "deps: cannot name the file of $url\n";
+	}
+
+	# deps/SHA256.txt keys on the URL, and the signed manifest of a
+	# release keys on the file name. One release directory holds
+	# unique file names, so that key is right there, and only the
+	# consumer file gathers many upstreams.
+	# The manifest of the signify tier lands beside the download,
+	# so a download named SHA256 would share one path. The
+	# download therefore takes a directory of its own.
+	my $dir = File::Spec->catdir( $tmp, 'asset' );
+	mkdir $dir or die "deps: mkdir $dir: $!\n";
+	my $file = File::Spec->catfile( $dir, $name );
+	my $want = $digests->{$url};
+
+	_check_tier( $env, $url, $digests, $keys );
+
+	if ( defined $want ) {
+		_run( _ftp_path(), $file, $url );
+		_check_digest( $file, $want, $url, 'recorded' )
+		    unless $dry_run;
+
+		return $file;
+	}
+
+	# The signature covers the manifest, and the manifest covers
+	# the file, so the signature verifies before the file
+	# downloads.
+	my $base = _base($url);
+	if ( !defined $base || $base eq '' ) {
+		die "deps: cannot name the directory of $url\n";
+	}
+
+	my $sums = File::Spec->catfile( $tmp, 'SHA256' );
+	my $sig  = File::Spec->catfile( $tmp, 'SHA256.sig' );
+	for my $part ( [ $sums, 'SHA256' ], [ $sig, 'SHA256.sig' ] ) {
+		next
+		    unless _quiet( $tmp, _ftp_path(), @$part[0],
+			"$base/$part->[1]" );
+		die "deps: the signify tier needs $base/$part->[1], and "
+		    . "the server does not answer it\n"
+		    . "  a release that publishes no signature needs a "
+		    . "recorded digest\n"
+		    . "  'deps --update-sums' records a versioned URL, "
+		    . "and '--update-sums --force' records any URL\n";
+	}
+
+	if ($dry_run) {
+		_run( _ftp_path(), $file, $url );
+
+		return $file;
+	}
+
+	_verify_signature( $tmp, $sums, $sig, $keys );
+	my $signed      = _read_digests($sums);
+	my $signed_want = $signed->{$name};
+	if ( !defined $signed_want ) {
+		die "deps: the signed manifest of $base does not name $name\n";
+	}
+
+	_run( _ftp_path(), $file, $url );
+	_check_digest( $file, $signed_want, $name, 'signed' );
+
+	return $file;
+}
+
+# _install_dists($env, $os, $arch, $digests, $keys, @urls):
+#	Fetch distribution tarballs and install each with cpanm. A dist
+#	line names a release-asset URL, normally the latest release of a
+#	sibling repository. The fetch goes through scripts/ftp, so every
+#	platform uses its native downloader, and every tarball gets its
+#	check before cpanm reads it.
+sub _install_dists ( $env, $os, $arch, $digests, $keys, @urls )
+{
+	say 'Installing distributions: ', join ' ', @urls;
+
+	# Every entry resolves and gets its tier before the first
+	# install, so a set that one entry cannot verify installs
+	# nothing (SYNC-DOWNLOAD-2).
+	my @resolved;
+	for my $url (@urls) {
+		my ($value) = _resolve( $url, undef, $os, $arch, $digests );
+		_check_tier( $env, $value, $digests, $keys );
+		push @resolved, $value;
+	}
+
+	_install_cpanm() unless defined _which('cpanm');
+
+	for my $url (@resolved) {
+		my $tmp  = tempdir( CLEANUP => 1 );
+		my $file = _fetch_verified( $env, $tmp, $url, $digests, $keys );
+		_run( 'cpanm', _cpanm_opts(), $file );
+	}
 
 	return;
 }
 
-# _target_arch($machine):
-#	The architecture word that a release-asset name uses. Linux
-#	and Darwin report x86_64 and aarch64. Release assets, like
-#	OpenBSD, use amd64 and arm64. Other names pass through.
-sub _target_arch ($machine)
+# _os_words($os):
+#	Every asset spelling of one operating system name, in
+#	preference order. An unknown name gives its own lower case.
+sub _os_words ($os)
 {
-	return 'amd64' if $machine eq 'x86_64';
-	return 'arm64' if $machine eq 'aarch64';
-
-	return $machine;
+	return @{ $OS_ALIAS{$os} // [ lc $os ] };
 }
 
-# _install_bins($os, $arch, @bins):
+# _arch_words($arch):
+#	Every asset spelling of one machine architecture, in
+#	preference order. An unknown name passes through.
+sub _arch_words ($arch)
+{
+	return @{ $ARCH_ALIAS{$arch} // [$arch] };
+}
+
+# _expand($text, $os_word, $arch_word):
+#	One text with both placeholders replaced.
+sub _expand ( $text, $os_word, $arch_word )
+{
+	my $out = $text;
+	$out =~ s/\{os\}/$os_word/g;
+	$out =~ s/\{arch\}/$arch_word/g;
+
+	return $out;
+}
+
+# _candidates($text, $os, $arch):
+#	Every distinct expansion of one text, in preference order,
+#	with the word pair that made each one.
+sub _candidates ( $text, $os, $arch )
+{
+	my ( @out, %seen );
+	for my $os_word ( _os_words($os) ) {
+		for my $arch_word ( _arch_words($arch) ) {
+			my $value = _expand( $text, $os_word, $arch_word );
+			next if $seen{$value}++;
+			push @out, [ $value, $os_word, $arch_word ];
+		}
+	}
+
+	return @out;
+}
+
+# _resolve($url, $member, $os, $arch, $digests):
+#	The URL and the archive path with the platform words in place.
+#	The digest file selects the spelling: the script forms one
+#	candidate for each alias pair, and it takes the candidate that
+#	the file names. No match and more than one match are each an
+#	error, and neither one asks the network.
+sub _resolve ( $url, $member, $os, $arch, $digests )
+{
+	# Each placeholder of the archive path must also sit in the
+	# URL. The archive path names a path inside the archive, and
+	# only the URL selects the platform.
+	for my $word (qw(os arch)) {
+		next unless defined $member && $member =~ /\{$word\}/;
+		next if $url =~ /\{$word\}/;
+		die "deps: the archive path holds {$word}, and the URL "
+		    . "does not: $url\n";
+	}
+
+	return ( $url, $member ) if $url !~ /\{(?:os|arch)\}/;
+
+	# The digest file keys on the URL, so a candidate matches when
+	# the file records that whole URL. Two candidates never share a
+	# key, so more than one match is a real ambiguity.
+	my @hit;
+	for my $candidate ( _candidates( $url, $os, $arch ) ) {
+		next unless exists $digests->{ $candidate->[0] };
+		push @hit, $candidate;
+	}
+
+	if ( !@hit ) {
+		die "deps: deps/SHA256.txt records no digest for $url\n"
+		    . "  the file keys on the whole download URL. An "
+		    . "older file keys on the file name, and every line "
+		    . "of it needs a rewrite\n"
+		    . "  run 'deps --update-sums' and check the new lines\n";
+	}
+	if ( @hit > 1 ) {
+		die "deps: deps/SHA256.txt records more than one candidate "
+		    . "of $url:\n"
+		    . join( q{}, map { "  $_->[0]\n" } @hit )
+		    . "  'deps --update-sums --force' keeps one candidate "
+		    . "and drops the others\n";
+	}
+
+	my ( $value, $os_word, $arch_word ) = @{ $hit[0] };
+
+	return ( $value,
+		defined $member
+		? _expand( $member, $os_word, $arch_word )
+		: undef );
+}
+
+# _extract_bin($tmp, $file, $archive, $member):
+#	Install the one file $member out of a checked archive as
+#	$file. tar unpacks .tar.gz and .tgz, and unzip unpacks .zip.
+#	Both unpack only $member, into the temporary directory that
+#	already holds the archive.
+sub _extract_bin ( $tmp, $file, $archive, $member )
+{
+	if ( _archive_type($archive) eq 'tar' ) {
+		_run( 'tar', '-xzf', $archive, '-C', $tmp, $member );
+	}
+	else {
+		_run( 'unzip', '-q', $archive, $member, '-d', $tmp );
+	}
+
+	_run( 'cp', File::Spec->catfile( $tmp, split m{/}, $member ), $file );
+
+	return;
+}
+
+# _install_bins($env, $os, $arch, $digests, $keys, @bins):
 #	Install prebuilt binaries into ~/.local/bin. A bin entry
 #	holds a command name, a download URL and, for an archive, the
-#	file path in the archive. In the URL and the path, {os}
-#	becomes the OS name in lower case, and {arch} becomes the
-#	machine architecture in the release-asset spelling. The fetch
-#	goes through scripts/ftp, and chmod sets the execute bit.
-sub _install_bins ( $os, $arch, @bins )
+#	file path in the archive. In the URL and the path, {os} and
+#	{arch} become the platform words that the digest file names.
+#
+#	Every download lands in a temporary directory and gets its
+#	check there. A failed check therefore leaves the install
+#	directory as it was, and the working binary stays in place.
+sub _install_bins ( $env, $os, $arch, $digests, $keys, @bins )
 {
 	say 'Installing binaries: ',
 	    join ' ', map { ( split ' ', $_, 2 )[0] } @bins;
@@ -332,49 +960,45 @@ sub _install_bins ( $os, $arch, @bins )
 	my $bindir = File::Spec->catdir( $home, '.local', 'bin' );
 	_run( 'mkdir', '-p', $bindir );
 
+	# Every entry resolves before the first install. The
+	# resolution asks no network (SYNC-ALIAS-4), so an entry that
+	# no digest names stops the run while ~/.local/bin is still as
+	# it was.
+	my @entry;
 	for my $bin (@bins) {
 		my ( $name, $url, $member ) = split ' ', $bin, 3;
-		for ( grep { defined } $url, $member ) {
-			s/\{os\}/lc $os/ge;
-			s/\{arch\}/_target_arch($arch)/ge;
-		}
 
+		_check_bin_names( $name, $member, "deps: $name" );
+		( $url, $member ) =
+		    _resolve( $url, $member, $os, $arch, $digests );
+
+		# The alias words expand into the archive path, so the
+		# shape gets its check again after the expansion.
+		_check_bin_names( $name, $member, "deps: the entry $name" );
+
+		# An entry that no tier covers stops the run here,
+		# while ~/.local/bin is still as it was
+		# (SYNC-DOWNLOAD-2).
+		_check_tier( $env, $url, $digests, $keys );
+		push @entry, [ $name, $url, $member ];
+	}
+
+	for my $bin (@entry) {
+		my ( $name, $url, $member ) = @$bin;
+
+		my $tmp  = tempdir( CLEANUP => 1 );
 		my $file = File::Spec->catfile( $bindir, $name );
+		my $asset =
+		    _fetch_verified( $env, $tmp, $url, $digests, $keys );
+
 		if ( defined $member ) {
-			_extract_bin( $file, $url, $member );
+			_extract_bin( $tmp, $file, $asset, $member );
 		}
 		else {
-			_run( _ftp_path(), $file, $url );
+			_run( 'cp', $asset, $file );
 		}
 		_run( 'chmod', '755', $file );
 	}
-
-	return;
-}
-
-# _extract_bin($file, $url, $member):
-#	Fetch an archive and install the one file $member out of it
-#	as $file. tar unpacks .tar.gz and .tgz, and unzip unpacks
-#	.zip. Both unpack only $member, into a temporary directory.
-sub _extract_bin ( $file, $url, $member )
-{
-	my ($asset) = $url =~ m{([^/]+)\z};
-	if ( !defined $asset || $asset eq '' ) {
-		die "deps: cannot name the file of $url\n";
-	}
-
-	my $tmp     = tempdir( CLEANUP => 1 );
-	my $archive = File::Spec->catfile( $tmp, $asset );
-	_run( _ftp_path(), $archive, $url );
-
-	if ( _archive_type($asset) eq 'tar' ) {
-		_run( 'tar', '-xzf', $archive, '-C', $tmp, $member );
-	}
-	else {
-		_run( 'unzip', '-q', $archive, $member, '-d', $tmp );
-	}
-
-	_run( 'cp', File::Spec->catfile( $tmp, split m{/}, $member ), $file );
 
 	return;
 }
@@ -392,7 +1016,391 @@ sub _install_cpan (@modules)
 	return;
 }
 
-my $manifest = File::Spec->catfile( 'deps', "$os.txt" );
+# _quiet($tmp, @cmd):
+#	Run a command with its output in a file of the temporary
+#	directory. The signed-manifest probe asks for a file that most
+#	releases do not carry, so its 404 is the normal answer and not
+#	a fault of the run.
+sub _quiet ( $tmp, @cmd )
+{
+	my $log = File::Spec->catfile( $tmp, 'probe.log' );
+
+	open my $out, '>&', \*STDOUT or return system @cmd;
+	open my $err, '>&', \*STDERR or return system @cmd;
+	open STDOUT,  '>',  $log     or return system @cmd;
+	open STDERR,  '>&', \*STDOUT or return system @cmd;
+
+	my $status = system @cmd;
+
+	open STDOUT, '>&', $out or die "deps: restore stdout: $!\n";
+	open STDERR, '>&', $err or die "deps: restore stderr: $!\n";
+
+	return $status;
+}
+
+# The probe counter of _signed. Each probe of one run takes its own
+# directory under the temporary directory of the caller.
+my $PROBE = 0;
+
+# _signed($tmp, $base, $keys):
+#	The signed SHA256 manifest that sits in one directory, or
+#	undef. The answer holds the base, the path of the manifest,
+#	and whether a declared key verified it.
+#
+#	The caller must pass a resolved base. A base that still holds
+#	a placeholder names no server, and the probe would then report
+#	no manifest for an entry that carries one.
+#
+#	A manifest that answers is enough to keep an entry off the
+#	digest tier, whether or not a key verifies it. A verification
+#	needs signify(1), and a missing command must not turn into a
+#	recorded digest.
+sub _signed ( $tmp, $base, $keys )
+{
+	return unless defined $base && $base ne '';
+	if ( $base =~ /\{(?:os|arch)\}/ ) {
+		die "deps: the signed-manifest probe needs a resolved "
+		    . "directory, and it got $base\n";
+	}
+
+	# Each probe takes its own directory. One shared path would
+	# let a later probe that finds nothing remove the manifest of
+	# an earlier answer.
+	my $dir = File::Spec->catdir( $tmp, 'probe' . $PROBE++ );
+	mkdir $dir or die "deps: mkdir $dir: $!\n";
+	my $sums = File::Spec->catfile( $dir, 'SHA256' );
+	my $sig  = File::Spec->catfile( $dir, 'SHA256.sig' );
+	return if _quiet( $tmp, _ftp_path(), $sums, "$base/SHA256" );
+
+	# The manifest answered, so a signature belongs beside it. A
+	# server that withholds only the signature must not turn this
+	# entry into a recorded digest.
+	return { base => $base, path => $sums, verified => 0 }
+	    if _quiet( $tmp, _ftp_path(), $sig, "$base/SHA256.sig" );
+
+	my $key = eval { _verify_signature( $tmp, $sums, $sig, $keys ) };
+
+	return {
+		base     => $base,
+		path     => $sums,
+		verified => defined $key ? 1 : 0,
+	};
+}
+
+# _base($url):
+#	The directory part of a URL, or undef.
+sub _base ($url)
+{
+	my ($base) = $url =~ m{\A(.*)/[^/]+\z};
+
+	return defined $base && $base ne '' ? $base : undef;
+}
+
+# _drop_siblings($digests, $report, $known, $taken):
+#	Remove every other recorded candidate of one entry. Two
+#	recorded candidates make the install ambiguous (SYNC-SUMS-8).
+sub _drop_siblings ( $digests, $report, $known, $taken )
+{
+	for my $other (@$known) {
+		next if $other eq $taken;
+		delete $digests->{$other};
+		push @$report, "removed $other";
+	}
+
+	return;
+}
+
+# _drop_legacy($digests, $report, $legacy, $taken):
+#	Remove the file-name key that one recorded URL replaces
+#	(SYNC-DOWNLOAD-19). One run reads the manifest of one
+#	operating system, so a key that this run cannot replace must
+#	stay. A blanket drop would take the pin of every other
+#	platform with it.
+sub _drop_legacy ( $digests, $report, $legacy, $taken )
+{
+	my ($name) = $taken =~ m{([^/]+)\z};
+	return 0 unless defined $name;
+
+	my $dropped = 0;
+	for my $key (@$legacy) {
+		next unless $key eq $name;
+		next unless exists $digests->{$key};
+		delete $digests->{$key};
+		push @$report, "dropped the file-name key $key";
+		$dropped++;
+	}
+
+	return $dropped;
+}
+
+# _update_sums($os, $arch, $keys, $manifest, $file):
+#	Try the alias candidates over the network and record the
+#	digest of each answer in deps/SHA256.txt. The operator runs
+#	this command, and the install path never does.
+#
+#	The command records the first candidate that answers. It
+#	reports every other one, because the install path rejects a
+#	URL that matches more than one candidate.
+sub _update_sums ( $os, $arch, $keys, $manifest, $file )
+{
+	my ( undef, $dists, undef, $bins ) = _read_manifest( $manifest, undef );
+
+	my ( $digests, $legacy ) = _read_digests( $file, 1 );
+
+	my @urls = @$dists;
+	push @urls, ( split ' ', $_, 3 )[1] for @$bins;
+
+	my ( $missed, $recorded ) = ( 0, 0 );
+	my @report;
+	my $tmp = tempdir( CLEANUP => 1 );
+	my $n   = 0;
+
+	for my $url (@urls) {
+
+		# A digest covers a versioned URL only, so a stable
+		# name stays on the signify tier. The test reads the
+		# manifest and not the network. A server that withholds
+		# its signature must not make this command pin the
+		# bytes that it serves.
+		#
+		# A candidate URL that the file already records stays,
+		# so a version bump needs no hand edit. This branch
+		# leaves a file that already holds two candidates of one
+		# entry as it is, and only --force repairs that. --force
+		# also repairs a digest that no longer matches the
+		# release.
+		# The alias words expand into the URL, and a candidate
+		# becomes a key of the digest file. The shape therefore
+		# gets its check again after the expansion, so no run
+		# writes a line that a later run cannot read
+		# (SYNC-DOWNLOAD-12).
+		my @candidate = _candidates( $url, $os, $arch );
+		_check_url( $_->[0], 'deps: the resolved URL' )
+		    for @candidate;
+		my @known =
+		    grep { exists $digests->{$_} } map { $_->[0] } @candidate;
+		if ( @known && !$force ) {
+
+			# The file already holds the URL of this entry,
+			# so the file-name line that it replaces goes.
+			$recorded +=
+			    _drop_legacy( $digests, \@report, $legacy,
+				$known[0] );
+			push @report, "kept $known[0]";
+			next;
+		}
+
+		# An entry with a placeholder is never stable, because
+		# the resolution reads the digest file (SYNC-ALIAS-5).
+		# A version in any part of the URL makes the name a
+		# versioned one. A stable name stays on the signify
+		# tier, and the test reads the manifest, not the
+		# network.
+		my ($path) = $url =~ m{\A[a-z][a-z0-9+.-]*://[^/]+(/.*)\z}i;
+		if (
+			  !$force
+			&& $url !~ /\{(?:os|arch)\}/
+			&& (       $url =~ m{/releases/latest/}
+				|| !defined $path
+				|| $path !~ /[0-9]/ ) )
+		{
+			push @report, "skipped the stable name: $url";
+			next;
+		}
+
+		# A signed manifest beside the URL decides the tier. An
+		# entry without a placeholder installs through the
+		# signify tier, so it needs no digest. An entry with a
+		# placeholder needs one (SYNC-ALIAS-5), and the signed
+		# manifest is where it comes from: a digest that the
+		# download itself supplies would ignore the signature.
+		#
+		# The probe needs a resolved directory. A placeholder in
+		# the directory gives each candidate its own base, so
+		# the probe asks each base. Any answer keeps the entry
+		# off the digest tier.
+		#
+		# The signed manifest of a release keys on the file
+		# name, and this file keys on the URL. The candidate
+		# carries both, so it joins the two. The candidate must
+		# also sit under the base that answered, because
+		# another base holds another release. The probe stops
+		# at the first base that gives a candidate. A verified
+		# manifest that names none must not hide a later base
+		# that holds the release.
+		#
+		# --force overrides the skip, because an upstream that
+		# publishes a manifest the operator cannot verify would
+		# otherwise leave the entry unpinnable.
+		my ( $signed, $verified, $taken, %seen_base );
+		for my $candidate (@candidate) {
+			my $base = _base( $candidate->[0] );
+			next unless defined $base;
+			next if $seen_base{$base}++;
+			my $answer = _signed( $tmp, $base, $keys );
+			next unless $answer;
+			$signed //= $answer;
+			next unless $answer->{verified};
+			$verified = 1;
+
+			my $signed_digests = _read_digests( $answer->{path} );
+			my ($hit) = grep {
+				my ($name) = $_->[0] =~ m{([^/]+)\z};
+				_base( $_->[0] ) eq $base
+				    && exists $signed_digests->{ $name // q{} };
+			} grep { defined _base( $_->[0] ) } @candidate;
+			next unless defined $hit;
+
+			my ($name) = $hit->[0] =~ m{([^/]+)\z};
+			$taken = [ $hit->[0], $signed_digests->{$name} ];
+			last;
+		}
+		if ( $signed && $url !~ /\{(?:os|arch)\}/ ) {
+			if ( !$force ) {
+				push @report, "skipped the signed entry: $url";
+				next;
+			}
+			warn "deps: --force pins a URL that a signed "
+			    . "manifest covers, and the recorded digest "
+			    . "then outranks the signature: $url\n";
+		}
+		elsif ($signed) {
+			if ( defined $taken ) {
+
+				# --force replaces the line of this
+				# entry, so every other recorded
+				# candidate of it goes (SYNC-SUMS-8).
+				_drop_siblings(
+					$digests, \@report,
+					\@known,  $taken->[0] ) if $force;
+				_drop_legacy(
+					$digests, \@report,
+					$legacy,  $taken->[0] );
+				$digests->{ $taken->[0] } = $taken->[1];
+				$recorded++;
+				push @report, "recorded $taken->[0] from the "
+				    . "signed manifest";
+				next;
+			}
+
+			# A placeholder entry needs a recorded digest
+			# (SYNC-ALIAS-5), and the signature is where it
+			# comes from. Without one the entry can never
+			# install, so the run must not report success
+			# (SYNC-SUMS-16). --force overrides the test and
+			# pins the bytes that the server serves
+			# (SYNC-SUMS-9).
+			if ( !$force ) {
+				warn $verified
+				    ? "deps: the signed manifest beside $url "
+				    . "names no candidate\n"
+				    : "deps: nothing verifies the signed "
+				    . "manifest beside $url\n";
+				warn "  '--update-sums --force' pins the "
+				    . "bytes that the server serves\n";
+				$missed++;
+				next;
+			}
+			warn "deps: --force pins a URL that a signed "
+			    . "manifest covers, and the recorded "
+			    . "digest then outranks the signature: "
+			    . "$url\n";
+		}
+
+		# Each candidate downloads to its own directory. Two
+		# candidates can share a file name, and one shared path
+		# would hold the bytes of the last download.
+		my @found;
+		for my $candidate (@candidate) {
+			my ($name) = $candidate->[0] =~ m{([^/]+)\z};
+			next unless defined $name && $name ne '';
+			my $dir = File::Spec->catdir( $tmp, 'c' . $n++ );
+			mkdir $dir or die "deps: mkdir $dir: $!\n";
+			my $path = File::Spec->catfile( $dir, $name );
+			next
+			    if _quiet( $tmp, _ftp_path(), $path,
+				$candidate->[0] );
+			push @found, [ $candidate->[0], $path ];
+		}
+
+		if ( !@found ) {
+			warn "deps: no candidate answers for $url\n";
+			$missed++;
+			next;
+		}
+
+		# --force replaces the line of this entry, so every
+		# other candidate URL of the same entry goes. Two
+		# recorded candidates would make the install ambiguous.
+		my ( $taken_url, $file_path ) = @{ $found[0] };
+		_drop_siblings( $digests, \@report, \@known, $taken_url )
+		    if $force;
+		_drop_legacy( $digests, \@report, $legacy, $taken_url );
+		$digests->{$taken_url} = _sha256_file($file_path);
+		$recorded++;
+		push @report, "recorded $taken_url";
+
+		next if @found == 1;
+		warn "deps: more than one candidate answers for $url. "
+		    . "This command records the first one, and the others "
+		    . "must stay out of the file:\n"
+		    . join( q{}, map { "  $_->[0]\n" } @found );
+	}
+
+	# An operator must not read a success line for a state that
+	# makes the next install fail. A half state must not reach the
+	# pinned file.
+	if ($missed) {
+		die "deps: $missed entry(s) reached no candidate, and "
+		    . "$file stays as it was\n"
+		    . "  check the URL of each entry, and check that "
+		    . "--os and --arch name a platform of the release\n"
+		    . "  a signed manifest that names no candidate needs "
+		    . "a release with a per-platform file name\n";
+	}
+	if ( !$recorded ) {
+		say for @report;
+		say "recorded nothing, and $file stays as it was";
+
+		return;
+	}
+
+	_write_digests( $file, $digests );
+	say for @report;
+	say "wrote $file";
+
+	return;
+}
+
+$os   //= ( uname() )[0];
+$arch //= ( uname() )[4];
+
+my $manifest    = File::Spec->catfile( 'deps', "$os.txt" );
+my $digest_file = File::Spec->catfile( 'deps', 'SHA256.txt' );
+
+if ($update) {
+	@ARGV and die $USAGE;
+	$dry_run
+	    and die "deps: --update-sums writes the digest file, so it takes "
+	    . "no --dry-run\n";
+	-f $manifest
+	    or die "deps: no manifest at $manifest\n";
+	_update_sums( $os, $arch, _read_keys('deps'), $manifest, $digest_file );
+	exit 0;
+}
+
+$force
+    and die "deps: --force belongs to --update-sums\n";
+
+my $env = shift @ARGV;
+defined $env
+    or die $USAGE;
+
+# An unrecognized environment selects nothing. The shell version then
+# reported success for having installed it. Say so instead.
+grep { $_ eq $env } ENVIRONMENTS
+    or die "deps: unknown environment '$env' (expected "
+    . join( ', ', ENVIRONMENTS ) . ")\n";
 
 if ( !-f $manifest ) {
 	warn "No dependencies for $os\n";
@@ -405,9 +1413,23 @@ if ( !-f $manifest ) {
 # nothing here, and nothing here depends on it.
 my ( $pkgs, $dists, $cpan, $bins ) = _read_manifest( $manifest, $env );
 
-_install_packages( $os, @$pkgs )    if @$pkgs;
-_install_dists(@$dists)             if @$dists;
-_install_cpan(@$cpan)               if @$cpan;
-_install_bins( $os, $arch, @$bins ) if @$bins;
+my ( $digests, $legacy ) = _read_digests( $digest_file, 1 );
+if (@$legacy) {
+	die "deps: $digest_file keys on the file name, and this script "
+	    . "keys on the whole download URL\n"
+	    . join( q{}, map { "  $_\n" } @$legacy )
+	    . "  run 'deps --update-sums' for each operating system "
+	    . "that deps/ holds a manifest for\n"
+	    . "  each run drops the lines that its own manifest "
+	    . "replaces, and records the URL of each download\n"
+	    . "  '--update-sums --force' pins a stable URL, and a line "
+	    . "that no manifest names needs a hand edit\n";
+}
+my $keys = _read_keys('deps');
+
+_install_packages( $os, @$pkgs )                             if @$pkgs;
+_install_dists( $env, $os, $arch, $digests, $keys, @$dists ) if @$dists;
+_install_cpan(@$cpan)                                        if @$cpan;
+_install_bins( $env, $os, $arch, $digests, $keys, @$bins )   if @$bins;
 
 say "Dependencies for $env installed successfully";

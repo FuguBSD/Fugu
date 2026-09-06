@@ -131,9 +131,25 @@ subtest '_parse_manifest reads the sha256(1) line form' => sub {
 		$sig->_parse_manifest( "SHA256 (one.img) = $hex_a\n"
 			    . "SHA256 (one.img) = $hex_b\n" ),
 		undef,
-		'a duplicate name fails'
+		'a duplicate key fails'
 	);
 	like( $sig->error, qr/duplicate/, 'the reason names the duplicate' );
+
+	# A key is opaque text. A file path and a download URL each
+	# hold a solidus, and a URL holds a colon and a dot as well.
+	my $mixed = $sig->_parse_manifest(
+		    "SHA256 (dist/one.img) = $hex_a\n"
+		    . "SHA256 (https://example.org/dl/two.img) = $hex_b\n"
+		    . "SHA256 (three.img) = $hex_c\n" );
+	is_deeply(
+		$mixed,
+		{
+			'dist/one.img'                    => $hex_a,
+			'https://example.org/dl/two.img'  => $hex_b,
+			'three.img'                       => $hex_c,
+		},
+		'a path key and a URL key parse whole'
+	);
 
 	my $upper = $sig->_parse_manifest(
 		'SHA256 (one.img) = ' . ( 'A' x 64 ) . "\n" );
@@ -184,17 +200,22 @@ sub sign ( $seckey, $file, $sigfile = undef )
 	return $sigfile;
 }
 
-# manifest_line($name, $path):
-#	One sha256(1) line for a local file.
-sub manifest_line ( $name, $path )
+# manifest_line($key, $path):
+#	One sha256(1) line. The key is the text between the
+#	parentheses, and it needs no relation to $path.
+sub manifest_line ( $key, $path )
 {
 	my $hex = Fugu::Signify::_digest($path)
 	    or die "Cannot digest $path";
-	return "SHA256 ($name) = $hex\n";
+	return "SHA256 ($key) = $hex\n";
 }
 
 my ( $pub_a, $sec_a, $pub_b, $sec_b );
 my ( $message, $sigfile, $manifest );
+
+# A download URL as a manifest key. It holds a colon, a solidus and a
+# dot, and the parser must take it whole.
+my $URL_KEY = 'https://example.org/dl/two.img';
 
 if ( defined $signify ) {
 
@@ -217,9 +238,14 @@ if ( defined $signify ) {
 
 	write_file( "$dir/one.img", 'payload one' );
 	write_file( "$dir/two.img", 'payload two' );
+
+	# A key is opaque, so the fixture holds a bare name, a path
+	# and a URL. Each one must reach the same comparison.
 	$manifest = write_file( "$dir/SHA256",
 		    manifest_line( 'one.img', "$dir/one.img" )
-		    . manifest_line( 'two.img', "$dir/two.img" ) );
+		    . manifest_line( 'two.img', "$dir/two.img" )
+		    . manifest_line( 'dist/two.img', "$dir/two.img" )
+		    . manifest_line( $URL_KEY, "$dir/two.img" ) );
 	sign( $sec_a, $manifest );
 }
 
@@ -395,7 +421,7 @@ subtest 'verify_manifest digests no file behind a broken signature' => sub {
 		'the reason is the signature, not a digest' );
 };
 
-subtest 'verify_manifest accepts a name that differs from the path' => sub {
+subtest 'verify_manifest accepts a key that differs from the path' => sub {
 	plan skip_all => 'signify(1) not available' unless defined $signify;
 
 	my $moved = write_file( "$dir/moved.tmp",
@@ -407,8 +433,49 @@ subtest 'verify_manifest accepts a name that differs from the path' => sub {
 			files    => { 'two.img' => $moved },
 		),
 		$pub_a,
-		'the manifest name maps to the local path'
+		'the manifest key maps to the local path'
 	);
+};
+
+subtest 'verify_manifest takes a path key and a URL key' => sub {
+	plan skip_all => 'signify(1) not available' unless defined $signify;
+
+	# The caller decides where the bytes sit, so neither key needs
+	# to name a path that exists.
+	my $sig = Fugu::Signify->new( keys => [$pub_a] );
+	is(
+		$sig->verify_manifest(
+			manifest => $manifest,
+			files    => {
+				'dist/two.img' => "$dir/two.img",
+				$URL_KEY       => "$dir/two.img",
+			},
+		),
+		$pub_a,
+		'both keys verify against one local file'
+	);
+
+	my $tampered = write_file( "$dir/tampered.img", 'payload three' );
+	is(
+		$sig->verify_manifest(
+			manifest => $manifest,
+			files    => { $URL_KEY => $tampered },
+		),
+		undef,
+		'and a URL key still catches a digest mismatch'
+	);
+	like( $sig->error, qr/\Q$URL_KEY\E: digest mismatch/,
+		'the reason names the URL key' );
+
+	is(
+		$sig->verify_manifest(
+			manifest => $manifest,
+			files => { 'https://other.example/x' => "$dir/two.img" },
+		),
+		undef,
+		'a key that the manifest does not hold fails'
+	);
+	like( $sig->error, qr/does not hold/, 'and the reason says so' );
 };
 
 done_testing();

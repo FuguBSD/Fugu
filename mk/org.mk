@@ -38,7 +38,11 @@ test-prove:
 
 # The deps targets install the dependencies that deps/<OS>.txt names.
 # Without a manifest, scripts/deps reports and exits zero.
+# The tool environment installs before every other one, so a
+# gate tool such as gitleaks is present for each chain. No
+# deps-tool target exists, because MK-VERBS-4 fixes the names.
 deps:
+	$(DEPS) tool
 	$(DEPS) runtime
 
 deps-test: deps

@@ -52,11 +52,24 @@ for my $file (@files) {
 	my $text  = _slurp("$workflow/$file") // next;
 	my @lines = split /\n/, $text;
 
-	# No workflow installs dependencies itself. The shared action
-	# owns the whole install, so one step per job is the rule.
-	my @own = grep { m{^\s+run:.*\bmake\s+deps\b} } @lines;
-	is( scalar @own, 0, "$file runs no deps target of its own" )
-	    or diag( join "\n", @own );
+	# A job that uses the shared action must not install
+	# dependencies itself, because the action owns the whole
+	# install. A job without the action installs its own, for
+	# example the gitleaks of the secret gate, which the manifest
+	# provides in the tool environment. The test therefore reads
+	# each job block, not the whole file.
+	for my $block ( split /^(?=  [A-Za-z0-9_-]+:[ \t]*$)/m, $text ) {
+
+		# A run step holds its command on the same line, or in
+		# a block scalar over the lines that follow it.
+		my @own = grep { m{^\s+(?:run:\s*)?.*\bmake\s+deps\b} }
+		    split /\n/, $block;
+		next unless @own;
+		unlike( $block, qr{uses:\s*\S*setup-perl\S*},
+			      "$file: a job that runs make deps uses no"
+			    . ' setup-perl action' )
+		    or diag( join "\n", @own );
+	}
 
 	for my $i ( 0 .. $#lines ) {
 		next unless $lines[$i] =~ m{uses:\s*(\S*setup-perl\S*)\s*$};

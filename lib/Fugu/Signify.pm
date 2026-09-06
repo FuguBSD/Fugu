@@ -28,8 +28,14 @@ use Fugu::Process;
 # The module runs signify(1) through Fugu::Process->run, with an
 # argument list and never a shell. It holds a small key set, so a
 # caller can accept the current key and the next key. It also verifies
-# each named file of a signed SHA256 manifest against its digest, with
-# core Digest::SHA.
+# each file that a signed SHA256 manifest names, against the digest of
+# that manifest, with core Digest::SHA.
+#
+# A manifest holds one key in each line, between the parentheses. The
+# key is opaque to this module: a release manifest writes a file name,
+# and another producer writes a file path or a download URL. The
+# caller maps each key to a local path, and the module reads no key as
+# a path of its own.
 #
 # The module holds no private key, and it must not sign. A signature
 # is a human act. Every recoverable failure returns undef, and error
@@ -155,9 +161,9 @@ sub verify ( $self, $file, $sigfile = undef )
 	}
 
 	my @reasons;
-	for my $key ( @{ $self->{keys} } ) {
-		my $result = $self->_run_signify( $key, $sigfile, $file );
-		return $key if $result->{success};
+	for my $keyfile ( @{ $self->{keys} } ) {
+		my $result = $self->_run_signify( $keyfile, $sigfile, $file );
+		return $keyfile if $result->{success};
 
 		# A run that never reached the child means that
 		# signify(1) never ran. That is an install problem, so
@@ -183,7 +189,7 @@ sub verify ( $self, $file, $sigfile = undef )
 			$reason = "exit code $result->{exit_code}"
 			    unless length $reason;
 		}
-		push @reasons, "$key: $reason";
+		push @reasons, "$keyfile: $reason";
 	}
 
 	$self->{error} = "$file: no key verified the signature:\n    "
@@ -194,12 +200,18 @@ sub verify ( $self, $file, $sigfile = undef )
 
 # $self->verify_manifest(%args):
 #	Verify a signed SHA256 manifest, and then verify the digest of
-#	each named file.
+#	each file that the caller names.
 #
 #	%args:
 #		manifest  => $path  # Required: the signed SHA256 file
 #		signature => $path  # Optional: default "$manifest.sig"
-#		files     => \%map  # Required: manifest name => local path
+#		files     => \%map  # Required: manifest key => local path
+#
+#	A key of files is a key of the manifest, and the module
+#	compares it as text. It can be a file name, a file path, or a
+#	download URL, whichever the producer of the manifest wrote.
+#	The value is the local path that the module digests, so the
+#	caller decides where the bytes sit.
 #
 #	The module must never choose which file to check, so an empty
 #	files is a programming error, and the method dies. The method
@@ -218,8 +230,8 @@ sub verify_manifest ( $self, %args )
 
 	my $signature = $args{signature} // "$manifest.sig";
 
-	my $key = $self->verify( $manifest, $signature );
-	return unless defined $key;
+	my $keyfile = $self->verify( $manifest, $signature );
+	return unless defined $keyfile;
 
 	# The bound reads the size on disk, before the content.
 	my $size = -s $manifest;
@@ -238,14 +250,14 @@ sub verify_manifest ( $self, %args )
 	my $digests = $self->_parse_manifest($bytes);
 	return unless defined $digests;
 
-	for my $name ( sort keys %$files ) {
-		my $expected = $digests->{$name};
+	for my $key ( sort keys %$files ) {
+		my $expected = $digests->{$key};
 		unless ( defined $expected ) {
-			$self->{error} = "$manifest does not hold $name";
+			$self->{error} = "$manifest does not hold $key";
 			return;
 		}
 
-		my $path     = $files->{$name};
+		my $path     = $files->{$key};
 		my $computed = _digest($path);
 		unless ( defined $computed ) {
 			$self->{error} = "cannot digest $path: $!";
@@ -253,13 +265,13 @@ sub verify_manifest ( $self, %args )
 		}
 
 		if ( $computed ne $expected ) {
-			$self->{error} = "$name: digest mismatch:"
+			$self->{error} = "$key: digest mismatch:"
 			    . " expected $expected, computed $computed";
 			return;
 		}
 	}
 
-	return $key;
+	return $keyfile;
 }
 
 # _find_command($name):
@@ -289,17 +301,17 @@ sub _find_command ( $name = undef )
 	return;
 }
 
-# $self->_run_signify($key, $sigfile, $file):
+# $self->_run_signify($keyfile, $sigfile, $file):
 #	Run one signify(1) verification through Fugu::Process->run.
 #	The command is a list, so no argument needs quoting and no
 #	argument can become a shell operator. -q suppresses the
 #	success line: the caller reads the exit code and the standard
 #	error only.
-sub _run_signify ( $self, $key, $sigfile, $file )
+sub _run_signify ( $self, $keyfile, $sigfile, $file )
 {
 	my @cmd = (
 		$self->{command}, '-V', '-q',     '-p',
-		$key,             '-x', $sigfile, '-m',
+		$keyfile,         '-x', $sigfile, '-m',
 		$file,
 	);
 
@@ -313,32 +325,40 @@ sub _run_signify ( $self, $key, $sigfile, $file )
 #	Parse the OpenBSD sha256(1) line form:
 #
 #		SHA256 (miniroot78.img) = 4f2b...
+#		SHA256 (dist/miniroot78.img) = 4f2b...
+#		SHA256 (https://example.org/dl/miniroot78.img) = 4f2b...
 #
-#	The method returns a hash reference of name to lowercase hex
+#	The key sits between the parentheses, and this method holds it
+#	as text. A release manifest writes a file name, and another
+#	producer writes a file path or a download URL. The pattern
+#	takes the whole text up to the last parenthesis, so a key with
+#	a solidus, a colon or a dot reads like any other.
+#
+#	The method returns a hash reference of key to lowercase hex
 #	digest, or undef with the reason in error. Like Fugu::Config,
 #	the parser never skips a line: an empty manifest, a line it
 #	cannot parse, a digest that is not 64 hexadecimal characters,
-#	and a duplicate name are each a failure.
+#	and a duplicate key are each a failure.
 sub _parse_manifest ( $self, $bytes )
 {
 	my %digest;
 	for my $line ( split /\n/, $bytes ) {
-		my ( $name, $hex ) =
+		my ( $key, $hex ) =
 		    $line =~ /^SHA256 \((.+)\) = ([0-9A-Fa-f]+)$/;
-		unless ( defined $name ) {
+		unless ( defined $key ) {
 			$self->{error} = "cannot parse manifest line: $line";
 			return;
 		}
 		if ( length($hex) != 64 ) {
 			$self->{error} =
-			    "digest of $name is not 64 hexadecimal characters";
+			    "digest of $key is not 64 hexadecimal characters";
 			return;
 		}
-		if ( exists $digest{$name} ) {
-			$self->{error} = "duplicate manifest name: $name";
+		if ( exists $digest{$key} ) {
+			$self->{error} = "duplicate manifest key: $key";
 			return;
 		}
-		$digest{$name} = lc $hex;
+		$digest{$key} = lc $hex;
 	}
 
 	unless ( keys %digest ) {
