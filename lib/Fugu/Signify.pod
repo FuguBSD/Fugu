@@ -1,6 +1,6 @@
 =head1 NAME
 
-Fugu::Signify - verify a signify(1) signature and a SHA256 manifest
+Fugu::Signify - verify a signify(1) signature, and read and write a SHA256 manifest
 
 =head1 SYNOPSIS
 
@@ -27,7 +27,8 @@ Fugu::Signify - verify a signify(1) signature and a SHA256 manifest
 
 Fugu::Signify verifies a file against a signify(1) public key and a
 signature file. It also verifies each named file of a signed SHA256
-manifest against its digest. The module runs signify(1) through
+manifest against its digest. It reads and writes the manifest form
+itself, so a producer and a checker share one implementation. The module runs signify(1) through
 L<Fugu::Process>, with an argument list and never a shell. It computes
 each manifest digest with core L<Digest::SHA>, and the digest streams
 from a file handle, so a large file never enters memory whole.
@@ -164,8 +165,8 @@ C<write_manifest(\%digests)> returns the text of a C<SHA256> manifest.
 Each line holds C<SHA256 (key) = digest>.
 
 The keys sort in ascending order, so two runs of a rotation write one
-byte sequence, and a diff of two manifests then shows the change only.
-The method lowercases each digest.
+byte sequence. A diff of two manifests then shows the change only. The
+method lowercases each digest.
 
 The key of a line is a file name, a file path, or a download URL,
 whichever the producer writes. The method therefore rejects only a key
@@ -180,10 +181,11 @@ Whitespace breaks a reader that splits a line on space. A manifest
 travels to sha256(1) and to the C<scripts/deps> of FuguBSD/Tooling.
 The writer therefore holds a key to the strict form.
 
-An empty hash, an empty key, a key with a parenthesis, a key with
-whitespace, and a digest that is not 64 hexadecimal characters are
-each a failure. The method dies when the argument is not a hash
-reference.
+Each of these is a failure: an empty hash, an empty key, a key with a
+parenthesis, a key with whitespace, and a digest that is not 64
+hexadecimal characters.
+
+The method dies when the argument is not a hash reference.
 
 Neither method needs signify(1). An object whose command did not
 resolve still parses and still writes.

@@ -23,7 +23,8 @@ use Digest::SHA ();
 use Fugu::File;
 use Fugu::Process;
 
-# Fugu::Signify - verify a signify(1) signature and a SHA256 manifest.
+# Fugu::Signify - verify a signify(1) signature and a SHA256 manifest,
+# and read and write the manifest form.
 #
 # The module runs signify(1) through Fugu::Process->run, with an
 # argument list and never a shell. It holds a small key set, so a

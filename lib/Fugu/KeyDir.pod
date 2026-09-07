@@ -33,10 +33,10 @@ Fugu::KeyDir - the names, the order and the generated text of a published key di
 =head1 DESCRIPTION
 
 An organization publishes its public keys under one prefix.
-Fugu::KeyDir holds the generic parts of that key directory: the file
-name pattern, the type of a key, the status vocabulary, the order of a
-key set, and the text of the Apache C<KEYS> file, of the human index,
-and of C<security.txt>.
+Fugu::KeyDir holds the generic parts of that key directory. It holds
+the file name pattern, the type of a key, and the status vocabulary.
+It also holds the order of a key set, and the text of the Apache
+C<KEYS> file, of the human index, and of C<security.txt>.
 
 The module holds no policy. The organization word, each purpose, the
 contact and each date are arguments, so one tested implementation
@@ -62,10 +62,17 @@ The serial starts at 1 for each purpose, and each rotation of that
 purpose adds one. A new purpose therefore starts at 1, and a
 compromise of one purpose leaves the others in force.
 
-A serial holds at most C<MAX_SERIAL_DIGITS> digits. A longer run of
-digits leaves the integer range and becomes a float, and a float
-breaks C<name_for> and stalls a rotation. C<parse_name> and
-C<name_for> hold the same bound, so the two stay inverses.
+A serial holds at most C<MAX_SERIAL_DIGITS> digits. A serial counts
+the rotations of one purpose, so the bound is far above any real key
+set.
+
+The bound also stops a run of digits that Perl cannot hold exactly.
+Perl holds 19 digits, and it turns 20 into a float. A 20-digit name
+would parse to C<1e+20>, C<next_serial> would hand C<name_for> that
+float, and the rotation would stall.
+
+C<parse_name> and C<name_for> hold the same bound, so the two stay
+inverses.
 
 The stem, such as C<fugubsd-1-release>, is the key name in a
 description block and in a trust file. The name of a key never
@@ -134,11 +141,13 @@ The organization word must equal the word of the object. A name that
 names another organization is a failure, and the reason names both
 words.
 
-An empty name, a name with a solidus, a name with no extension, an
-unknown extension, a serial of zero, a padded serial, and a name that
-does not match the pattern are each a failure. A name with a solidus
-is a path, and a caller that passes a path would publish a key outside
-the directory.
+Each of these is a failure: an empty name, a name with a solidus, a
+name with no extension, an upper-case extension, an unknown
+extension, a serial of zero, a padded serial, a serial above the digit
+bound, and a name that does not match the pattern.
+
+A name with a solidus is a path. A caller that passes a path would
+publish a key outside the directory.
 
 =head2 name_for
 
@@ -199,6 +208,17 @@ the file, and it skips a comment block.
 The method skips a signify key: gpg(1) cannot read one, and a signify
 key file already publishes at its own URL. A set with no OpenPGP key
 therefore gives the empty string, and not a failure.
+
+The empty string is false, so a caller must test C<defined> and never
+truth. C<keys_file(...) or die $dir-E<gt>error> dies on a
+signify-only set, and C<error> is C<undef> there:
+
+    my $text = $dir->keys_file(\@keys);
+    die $dir->error unless defined $text;
+
+The method writes one blank line after each armored body, whatever
+trailing newline the C<armor> field held. Two runs therefore write one
+byte sequence, and a site build makes no diff of its own.
 
 An OpenPGP key with no C<armor> field is a failure. A C<fingerprint>,
 C<since> or C<until> value that holds a newline is also a failure. One

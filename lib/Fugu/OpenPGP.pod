@@ -17,8 +17,8 @@ Fugu::OpenPGP - read an armored OpenPGP public key as bytes
 
 =head1 DESCRIPTION
 
-Fugu::OpenPGP decodes the armor of RFC 4880, it computes the version 4
-fingerprint of a public key packet, and it computes the Web Key
+Fugu::OpenPGP decodes the armor of RFC 4880. It computes the version 4
+fingerprint of a public key packet. It also computes the Web Key
 Directory hash of an email local part.
 
 The module runs no command, so a caller needs no gpg(1). It holds
@@ -68,9 +68,10 @@ producer that omits it still holds a valid body.
 
 The method never changes the string of the caller.
 
-A missing delimiter line, two delimiter lines that name two block
-types, a body line that is not base64, an absent checksum line, and a
-checksum mismatch are each a failure. A block above
+Each of these is a failure: a missing delimiter line, two delimiter
+lines that name two block types, a body line that is not base64, an
+absent checksum line, more than one checksum line, a body line after
+the checksum line, and a checksum mismatch. A block above
 C<MAX_ARMOR_SIZE>, which is 1 MiB, is also a failure.
 
 =head2 fingerprint
@@ -85,9 +86,11 @@ the length again, so the same key gives the same answer in the old
 packet format and in the new one.
 
 The method reads both header formats. It reads every length form that
-carries a whole packet: the one-byte, two-byte and four-byte forms of
-the old format, and the one-byte, two-byte and five-byte forms of the
-new one. It rejects the two forms that carry no whole packet: the
+carries a whole packet. The old format has a one-byte, a two-byte and
+a four-byte form, and the new format has a one-byte, a two-byte and a
+five-byte form.
+
+Two forms carry no whole packet, and the method rejects each one: the
 indeterminate length of the old format, and a partial body length of
 the new one. A public key packet never uses either.
 
@@ -107,8 +110,10 @@ local part.
 The hash is the z-base-32 form of the SHA-1 of the local part in lower
 case. C<gpg --locate-keys> asks for
 C<.well-known/openpgpkey/hu/E<lt>hashE<gt>>, so the answer decides the
-publication path. The method lowercases the part itself, so the case
-of the input never changes the path.
+publication path.
+
+The method lowercases the part itself, so the case of the input never
+changes the path.
 
 An undef local part and an empty one are each a failure.
 

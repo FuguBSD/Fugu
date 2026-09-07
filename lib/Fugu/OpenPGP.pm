@@ -24,11 +24,10 @@ use MIME::Base64 qw(decode_base64);
 
 # Fugu::OpenPGP - read an armored OpenPGP public key as bytes.
 #
-# The module decodes the armor of RFC 4880, it computes the v4
-# fingerprint of a public key packet, and it computes the Web Key
-# Directory hash of an email local part. It runs no command, so a
-# caller needs no gpg(1). It holds class methods only, because it
-# holds no state.
+# The module decodes the armor of RFC 4880. It computes the v4
+# fingerprint of a public key packet, and the Web Key Directory hash
+# of an email local part. It runs no command, so a caller needs no
+# gpg(1). It holds class methods only, because it holds no state.
 #
 # Every recoverable failure returns undef, and the reason goes to the
 # second return value in list context. The module never logs, and it
@@ -124,11 +123,12 @@ sub decode_armor ( $class, $text )
 	#
 	# RFC 4880 writes the blank line even with no header, and
 	# gpg(1) does the same. A producer that omits it holds a body
-	# on the first line, and the body must still decode.
+	# on the first line, and the body must still decode. No
+	# statement drops the blank line itself: the trim above makes
+	# it empty, and the body loop below skips every empty line.
 	while ( @lines && $lines[0] =~ /\A[A-Za-z][A-Za-z0-9-]*: / ) {
 		shift @lines;
 	}
-	shift @lines if @lines && $lines[0] !~ /\S/;
 
 	# The checksum line starts with one '=' and holds four base64
 	# characters. It is the last non-blank line of the body.

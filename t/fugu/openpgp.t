@@ -138,6 +138,27 @@ subtest 'decode_armor needs a checksum line' => sub {
 	like( $reason, qr/no checksum line/, 'and the reason says so' );
 };
 
+subtest 'decode_armor holds the checksum line to one place' => sub {
+	my $text = slurp('openpgp-ed25519.asc');
+
+	# Two checksum lines: a reader that took the first would
+	# compare against the wrong three bytes.
+	my $twice = $text;
+	$twice =~ s/^(=\S{4})$/$1\n$1/m;
+	my ( $binary, $reason ) = Fugu::OpenPGP->decode_armor($twice);
+	is( $binary, undef, 'two checksum lines fail' );
+	like( $reason, qr/more than one checksum line/,
+		'and the reason says so' );
+
+	# A body line after the checksum line: the checksum covers
+	# the body before it, so the later line would go unchecked.
+	my $after = $text;
+	$after =~ s/^(=\S{4})$/$1\nbWRNRQ==/m;
+	( $binary, $reason ) = Fugu::OpenPGP->decode_armor($after);
+	is( $binary, undef, 'a body line after the checksum fails' );
+	like( $reason, qr/follows the checksum line/, 'and the reason says so' );
+};
+
 subtest 'decode_armor reads an armor header' => sub {
 	my $text = slurp('openpgp-ed25519.asc');
 

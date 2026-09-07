@@ -92,6 +92,14 @@ subtest 'parse_name rejects a bad name' => sub {
 		like( $kd->error, $bad{$name}, "and the reason names the fault" );
 	}
 
+	# An upper-case extension needs its own reason. "holds no
+	# extension" sends a reader to look for a missing dot.
+	for my $name (qw(fugubsd-1-release.PUB fugubsd-1-release.Asc)) {
+		is( $kd->parse_name($name), undef, "'$name' fails" );
+		like( $kd->error, qr/extension must be lower case/,
+			'and the reason names the case, not a missing dot' );
+	}
+
 	is( $kd->parse_name(undef), undef, 'undef fails' );
 };
 
@@ -412,6 +420,38 @@ subtest 'keys_file holds each OpenPGP key in order' => sub {
 	    $kd->keys_file(
 		[ { name => 'fugubsd-1-release.pub', status => 'current' } ] );
 	is( $only_signify, '', 'a signify-only set gives empty text' );
+
+	# The empty string is false, so a caller must test defined and
+	# never truth. This pins the trap that the sidecar names: a
+	# caller that writes 'or die $dir->error' dies with an undef
+	# reason on a signify-only set.
+	ok( defined $only_signify, 'and the answer is defined' );
+	is( $kd->error, undef, 'and no reason is set' );
+
+	# The armored body takes one blank line after it, whatever
+	# trailing newline the field held. Two runs then write one
+	# byte sequence.
+	for my $trailing ( '', "\n", "\n\n\n" ) {
+		my $text = $kd->keys_file(
+			[
+				{
+					name   => 'fugubsd-1-mail.asc',
+					status => 'current',
+					armor  => ARMOR . $trailing,
+				}
+			]
+		);
+		is( $text, $kd->keys_file(
+				[
+					{
+						name   => 'fugubsd-1-mail.asc',
+						status => 'current',
+						armor  => ARMOR,
+					}
+				]
+			),
+			'a trailing newline in the armor changes no byte' );
+	}
 
 	is(
 		$kd->keys_file(

@@ -49,9 +49,14 @@ my %STATUS_RANK = do {
 };
 
 # The digit bound of a serial. A serial counts the rotations of one
-# purpose, so nine digits hold every real key set. The bound keeps the
-# value inside the integer range: a longer run of digits becomes a
-# float, and a float breaks name_for and stalls a rotation.
+# purpose, so nine digits hold every key set that can ever exist.
+#
+# The bound also keeps the value far inside the exact integer range.
+# Perl holds 19 digits exactly, and it turns 20 into a float: the
+# name of a 20-digit serial parses to 1e+20, next_serial then hands
+# name_for that float, and name_for rejects it. The rotation stalls
+# with a reason that names neither the file nor the fault. The bound
+# stops such a name at the parser instead.
 use constant MAX_SERIAL_DIGITS => 9;
 
 # The extension of a key file selects its type. OpenBSD names a
@@ -157,12 +162,10 @@ sub parse_name ( $self, $filename )
 		);
 	}
 
-	# A serial above the digit bound would leave the integer range
-	# and become a float, and next_serial would then hand
-	# name_for a value such as 1e+20, which name_for rejects. The
-	# rotation would stall with a reason that names neither the
-	# file nor the true fault. Nine digits hold every rotation
-	# that a purpose can ever see.
+	# A serial counts the rotations of one purpose, so the bound is
+	# far above any real key set. It also stops a run of digits
+	# that Perl cannot hold exactly: 20 digits parse to 1e+20, and
+	# name_for then rejects that float and stalls the rotation.
 	if ( length($serial) > MAX_SERIAL_DIGITS ) {
 		return $self->_fail( "the serial of $filename holds "
 			    . length($serial)

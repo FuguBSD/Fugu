@@ -70,8 +70,9 @@ Newline-delimited JSON over a UNIX socket.
 
 The names, the order and the generated text of a published key directory. It
 holds the key name pattern `<org>-<serial>-<purpose>.<ext>`, the type from the
-extension, and the status vocabulary. It also holds the order of a key set, and
-the text of the Apache `KEYS` file, of the human index, and of `security.txt`.
+extension, and the status vocabulary. It also holds the order of a key set. It
+holds the text of the Apache `KEYS` file, of the human index, and of
+`security.txt`.
 
 - **LIB-KEYDIR-1** — The publication order must be total: `current`, then
   `next`, then `retired`, and inside one status the serial must descend. A site
@@ -225,8 +226,9 @@ The caller maps each key to a local path. The module holds no private key and
 cannot sign.
 
 - **LIB-SIGNIFY-1** — The manifest writer must sort its keys, so two runs write
-  one byte sequence. It must reject a key that the line form cannot carry
-  through a reader that splits a line on space.
+  one byte sequence, and must reject a key that a stricter reader cannot carry.
+  A parenthesis ends the key in a reader that stops at the first one, and
+  whitespace breaks a reader that splits a line on space.
 
 <a id="lib-statefile"></a>
 
