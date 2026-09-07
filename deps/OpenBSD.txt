@@ -1,3 +1,8 @@
+# External dependencies of Fugu. scripts/deps installs each line.
+# gitleaks publishes no OpenBSD build, and the ports tree holds no
+# port for it. An operator on OpenBSD installs it by hand, and the
+# secret gate of CI runs on Linux.
+
 test pkg p5-Perl-Critic
 test pkg p5-Perl-Tidy
 test pkg p5-Net-SSH2
