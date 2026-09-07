@@ -98,8 +98,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup gitleaks
-        uses: FuguBSD/Tooling/actions/setup-gitleaks@main
+      - name: Install dependencies
+        run: |
+          make deps
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Scan for secrets
         run: make gitleaks
