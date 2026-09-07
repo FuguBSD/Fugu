@@ -1,25 +1,96 @@
 name: Release
 
-# A release is deliberate: a maintainer pushes a semantic version tag
-# v<MAJOR>.<MINOR>.<PATCH>, and the shared perl-release workflow of
-# FuguBSD/Tooling answers it. The job binds this repository's release
-# environment through the called workflow; permissions and secrets
-# stay here in the caller. PAUSE is on: pause is true.
+# A release is deliberate, and it starts from a semantic version tag
+# v<MAJOR>.<MINOR>.<PATCH>. Two routes reach one release:
 #
-#   git tag v0.1.0
-#   git push origin v0.1.0
+#   git tag v0.3.0 && git push origin v0.3.0    # a maintainer
+#   dispatch Release with version v0.3.0        # an agent
+#
+# A maintainer with a shell pushes the tag, and the push starts the
+# release job. An agent environment cannot push a tag, because the
+# push returns HTTP 403, so it dispatches this workflow and the tag
+# job makes the tag first.
+#
+# The tag job runs on a dispatch only. On a push the tag exists
+# already, so the job skips and the release job reads the ref of the
+# push.
+#
+# A dispatched run calls the shared workflow itself, and it does not
+# wait for a push event of its own. GitHub raises no push event for a
+# tag that GITHUB_TOKEN pushes, to stop a workflow from starting
+# itself, so the tag below starts no second run of this workflow.
+#
+# The shared perl-release workflow of FuguBSD/Tooling does the release
+# work. It binds this repository's release environment, so permissions
+# and secrets stay here in the caller. PAUSE is on: pause is true.
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The semantic version tag, for example v0.3.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
+  tag:
+    name: Tag
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The shape check reads the tags that the repository holds,
+          # so it needs the history.
+          fetch-depth: 0
+
+      # A version of the wrong shape would name a tag that the release
+      # rejects, after the tag reached the remote. Both checks
+      # therefore run before the push.
+      - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "release: '$VERSION' is not v<MAJOR>.<MINOR>.<PATCH>" >&2
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "release: $VERSION exists already" >&2
+            exit 1
+          fi
+
+      - name: Create and push the tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$VERSION" -m "Fugu $VERSION"
+          git push origin "$VERSION"
+
   release:
+    name: Release
+    needs: tag
+    # The tag job skips on a push, and a skipped need would skip this
+    # job with it. A failed or a cancelled tag job must still stop it.
+    if: |
+      always()
+      && needs.tag.result != 'failure'
+      && needs.tag.result != 'cancelled'
     uses: FuguBSD/Tooling/.github/workflows/perl-release.yml@main
     with:
       dist: Fugu
       name: Fugu
       pause: true
+      # A dispatch names the tag, because the ref of the run is the
+      # branch. An empty value on a push keeps the ref of the push.
+      tag:
+        ${{ github.event_name == 'workflow_dispatch' && inputs.version || '' }}
     secrets: inherit
