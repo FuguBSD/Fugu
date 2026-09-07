@@ -274,6 +274,92 @@ sub verify_manifest ( $self, %args )
 	return $keyfile;
 }
 
+# $self->parse_manifest($bytes):
+#	The public form of the parser that verify_manifest uses. The
+#	method returns a hash reference of manifest key to lowercase
+#	hex digest, or undef with the reason in error.
+#
+#	Two callers read a manifest without a signature at that
+#	moment. A rotation writes a manifest, and it must read the
+#	file that it wrote. A site check compares a manifest against
+#	the files beside it, and a site build cannot sign. A private
+#	parser would make each one write the line form again.
+#
+#	The method verifies nothing. A caller that needs the signature
+#	calls verify_manifest, which verifies the signature before it
+#	digests one file.
+sub parse_manifest ( $self, $bytes )
+{
+	$self->{error} = undef;
+
+	unless ( defined $bytes ) {
+		$self->{error} = 'the manifest bytes are undef';
+		return;
+	}
+
+	return $self->_parse_manifest($bytes);
+}
+
+# $self->write_manifest($digests):
+#	The text of a SHA256 manifest, or undef with the reason in
+#	error.
+#
+#	Each line holds 'SHA256 (key) = digest'. The keys sort in
+#	ascending order, so two runs of a rotation write one byte
+#	sequence, and a diff of two manifests then shows the change
+#	only.
+#
+#	The key is a file name, a file path, or a download URL,
+#	whichever the producer writes. The method therefore rejects
+#	only a key that the line form cannot hold: the line ends the
+#	key at the last parenthesis, so a key with a parenthesis
+#	parses back as another key. Whitespace in a key would break
+#	the field split of a reader that splits on space.
+sub write_manifest ( $self, $digests )
+{
+	$self->{error} = undef;
+
+	unless ( ref $digests eq 'HASH' ) {
+		die "digests must be a hash reference\n";
+	}
+
+	unless (%$digests) {
+		$self->{error} = 'the digest set is empty';
+		return;
+	}
+
+	my $text = '';
+	for my $key ( sort keys %$digests ) {
+		unless ( length $key ) {
+			$self->{error} = 'a manifest key is empty';
+			return;
+		}
+
+		if ( $key =~ /[()]/ ) {
+			$self->{error} =
+			    "a manifest key holds a parenthesis: $key";
+			return;
+		}
+
+		if ( $key =~ /\s/ ) {
+			$self->{error} =
+			    "a manifest key holds whitespace: $key";
+			return;
+		}
+
+		my $digest = $digests->{$key};
+		unless ( defined $digest && $digest =~ /\A[0-9A-Fa-f]{64}\z/ ) {
+			$self->{error} = "the digest of $key is not 64 "
+			    . 'hexadecimal characters';
+			return;
+		}
+
+		$text .= "SHA256 ($key) = " . lc($digest) . "\n";
+	}
+
+	return $text;
+}
+
 # _find_command($name):
 #	Resolve an executable path, or return undef. With a name that
 #	holds a solidus the sub tests that path only. With a plain

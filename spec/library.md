@@ -64,6 +64,26 @@ imsg messages over a connected stream socket. The frame bytes come from
 
 Newline-delimited JSON over a UNIX socket.
 
+<a id="lib-keydir"></a>
+
+## Fugu::KeyDir
+
+The names, the order and the generated text of a published key directory. It
+holds the key name pattern `<org>-<serial>-<purpose>.<ext>`, the type from the
+extension, the status vocabulary, the order of a key set, and the text of the
+Apache `KEYS` file, of the human index, and of `security.txt`.
+
+- **LIB-KEYDIR-1** — The publication order must be total: `current`, then
+  `next`, then `retired`, and inside one status the serial must descend. A site
+  build writes the index page on every build, so an unstable order would make a
+  diff on each run.
+- **LIB-KEYDIR-2** — Each purpose must hold exactly one `current` key, and at
+  most one `next` key. A purpose with two `current` keys names no key in force,
+  so a reader cannot tell which key signs a release.
+- **LIB-KEYDIR-3** — The module must hold no organization word, no purpose list,
+  and no contact as a constant, and must not render markup. Each one is an
+  argument, and the site owns the template.
+
 <a id="lib-log"></a>
 
 ## Fugu::Log
@@ -94,6 +114,25 @@ module requires `Net::MQTT::Simple` lazily.
 
 Control mdnsd(8) over its control socket. The client implements publish only.
 The wire protocol is in [protocol/MDNS-Control.md](protocol/MDNS-Control.md).
+
+<a id="lib-openpgp"></a>
+
+## Fugu::OpenPGP
+
+An armored OpenPGP public key as bytes: the armor decoder, the version 4
+fingerprint of a public key packet, and the Web Key Directory hash of an email
+local part. The module runs no command, so a caller needs no gpg(1). It reads a
+public key only, and it verifies no signature.
+
+- **LIB-OPENPGP-1** — The armor decoder must compare the CRC-24 checksum line
+  against the decoded bytes. A decoder that skips the comparison accepts a
+  truncated key, and a truncated key gives a fingerprint of its own.
+- **LIB-OPENPGP-2** — The fingerprint must read the packet length from the
+  header and write the length again, so one key gives one answer in the old
+  packet format and in the new one.
+- **LIB-OPENPGP-3** — The Web Key Directory hash must use the z-base-32 alphabet
+  `ybndrfg8ejkmcpqxot1uwisza345h769`, and must lowercase the local part. The RFC
+  4648 alphabet gives a URL that gpg(1) never asks for.
 
 <a id="lib-pidfile"></a>
 

@@ -1,0 +1,156 @@
+=head1 NAME
+
+Fugu::OpenPGP - read an armored OpenPGP public key as bytes
+
+=head1 SYNOPSIS
+
+    use Fugu::OpenPGP;
+
+    my ($binary, $reason) = Fugu::OpenPGP->decode_armor($armored_text);
+    die $reason unless defined $binary;
+
+    my $fingerprint = Fugu::OpenPGP->fingerprint($binary)
+        or die 'not a version 4 public key packet';
+
+    my $hash = Fugu::OpenPGP->wkd_hash('security');
+    # .well-known/openpgpkey/hu/$hash
+
+=head1 DESCRIPTION
+
+Fugu::OpenPGP decodes the armor of RFC 4880, it computes the version 4
+fingerprint of a public key packet, and it computes the Web Key
+Directory hash of an email local part.
+
+The module runs no command, so a caller needs no gpg(1). It holds
+class methods only, because it holds no state. It uses core
+L<Digest::SHA> and core L<MIME::Base64>, so it adds no dependency.
+
+The module reads a public key only. It holds no private key, it
+decrypts nothing, and it verifies no signature. gpg(1) owns those
+acts.
+
+Every recoverable failure returns C<undef>. In list context the second
+value holds the reason. The module never dies for bad input: a key
+file comes from outside, so bad bytes are data and not a programming
+error. The module never logs. The caller decides what to report.
+
+=head2 decode_armor
+
+C<decode_armor($text)> returns the binary form of an armored block.
+
+The method reads the two delimiter lines, it skips the armor headers,
+it decodes the base64 body, and it compares the CRC-24 checksum line
+against the decoded bytes.
+
+The checksum comparison is not decoration. A decoder that skips it
+accepts a truncated key, and a truncated key gives a fingerprint of
+its own. A caller would then publish a fingerprint that no key
+matches.
+
+Armor is text, so the method reads either line ending. A block that
+travelled through email holds CRLF, and it decodes to the same bytes.
+The method reads a block with no blank line after the delimiter as
+well: RFC 4880 writes the line even with no header, and gpg(1) does
+the same, but a producer that omits it still holds a valid body. The
+method never changes the string of the caller.
+
+A missing delimiter line, two delimiter lines that name two block
+types, a body line that is not base64, an absent checksum line, and a
+checksum mismatch are each a failure. A block above
+C<MAX_ARMOR_SIZE>, which is 1 MiB, is also a failure.
+
+=head2 fingerprint
+
+C<fingerprint($binary)> returns the version 4 fingerprint of the first
+packet, in upper-case hexadecimal with no separator.
+
+The fingerprint is the SHA-1 of the byte C<0x99>, the two-byte length
+of the public key packet body, and that body, per RFC 4880 section
+12.2. The method reads the length from the packet header and writes
+the length again, so the same key gives the same answer in the old
+packet format and in the new one.
+
+The method reads both header formats and every length form of each.
+A first packet that is not a public key packet, a packet version other
+than 4, and a truncated packet body are each a failure.
+
+=head2 wkd_hash
+
+C<wkd_hash($local)> returns the Web Key Directory hash of an email
+local part.
+
+The hash is the z-base-32 form of the SHA-1 of the local part in lower
+case. C<gpg --locate-keys> asks for
+C<.well-known/openpgpkey/hu/E<lt>hashE<gt>>, so the answer decides the
+publication path. The method lowercases the part itself, so the case
+of the input never changes the path.
+
+An undef local part and an empty one are each a failure.
+
+=head2 zbase32
+
+C<zbase32($bytes)> encodes bytes in z-base-32. C<wkd_hash> calls it,
+and a caller can call it for another purpose.
+
+The alphabet is C<ybndrfg8ejkmcpqxot1uwisza345h769>, and it is not the
+RFC 4648 alphabet. The order differs, so the same digest gives a
+different string. A caller that swaps the alphabet publishes a key at
+a URL that gpg(1) never asks for.
+
+The encoding writes no padding, and it emits one character for each
+five bits. A byte count that is not a multiple of five therefore ends
+on a partial group, and the low bits of that group are zero. An undef
+input and an empty one each give the empty string.
+
+=head1 CONSTANTS
+
+=over 4
+
+=item C<MAX_ARMOR_SIZE>
+
+The size bound of an armored block, 1 MiB. A public key of a person
+holds a few kilobytes. A caller that names a disk image by mistake
+gets a clean failure, not a decode of 500 MB.
+
+=item C<PACKET_PUBLIC_KEY>
+
+The tag of a public key packet, 6, per RFC 4880 section 4.3.
+
+=item C<ZBASE32_ALPHABET>
+
+The z-base-32 alphabet of the Web Key Directory.
+
+=item C<CRC24_INIT>, C<CRC24_POLY>
+
+The initial value and the generator polynomial of the armor checksum,
+per RFC 4880 section 6.1.
+
+=back
+
+=head1 RETURN VALUES
+
+Each public method returns its answer in scalar context, or C<undef>
+on a failure. In list context each one returns the answer and
+C<undef>, or C<undef> and the reason.
+
+=head1 CAVEATS
+
+The module reads the first packet of a block only. An armored key
+holds a public key packet first, then the user id packets, the
+signature packets and the subkey packets. A caller that needs a
+subkey fingerprint needs a full packet walk, which this module does
+not hold.
+
+The module verifies no signature and no key expiry. A fingerprint
+proves which bytes the block holds. It proves nothing about who made
+them, or whether the key is still valid.
+
+=head1 SEE ALSO
+
+gpg(1), L<Digest::SHA>, L<MIME::Base64>, L<Fugu::KeyDir>
+
+=head1 AUTHORS
+
+Dick Olsson E<lt>hi@senzilla.ioE<gt>
+
+=cut

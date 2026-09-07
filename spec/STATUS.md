@@ -35,9 +35,11 @@ phase applies.
 | [LIB-FILE](library.md#lib-file)                  | done  | —       | [File.pm](../lib/Fugu/File.pm), [file.t](../t/fugu/file.t)                                                        |
 | [LIB-IMSG](library.md#lib-imsg)                  | done  | —       | [Imsg.pm](../lib/Fugu/Imsg.pm), [imsg.t](../t/fugu/imsg.t)                                                        |
 | [LIB-JSONSOCKET](library.md#lib-jsonsocket)      | done  | —       | [JSONSocket.pm](../lib/Fugu/JSONSocket.pm), [jsonsocket.t](../t/fugu/jsonsocket.t)                                |
+| [LIB-KEYDIR](library.md#lib-keydir)              | done  | —       | [KeyDir.pm](../lib/Fugu/KeyDir.pm), [keydir.t](../t/fugu/keydir.t)                                                |
 | [LIB-LOG](library.md#lib-log)                    | done  | —       | [Log.pm](../lib/Fugu/Log.pm), [log.t](../t/fugu/log.t)                                                            |
 | [LIB-MQTT](library.md#lib-mqtt)                  | done  | —       | [MQTT.pm](../lib/Fugu/MQTT.pm), [mqtt.t](../t/fugu/mqtt.t)                                                        |
 | [LIB-MDNSD](library.md#lib-mdnsd)                | done  | —       | [Mdnsd.pm](../lib/Fugu/Mdnsd.pm), [mdnsd.t](../t/fugu/mdnsd.t), [mdns-control.t](../t/conformance/mdns-control.t) |
+| [LIB-OPENPGP](library.md#lib-openpgp)            | done  | —       | [OpenPGP.pm](../lib/Fugu/OpenPGP.pm), [openpgp.t](../t/fugu/openpgp.t)                                            |
 | [LIB-PIDFILE](library.md#lib-pidfile)            | done  | —       | [Pidfile.pm](../lib/Fugu/Pidfile.pm), [pidfile.t](../t/fugu/pidfile.t)                                            |
 | [LIB-PRIVDROP](library.md#lib-privdrop)          | done  | —       | [Privdrop.pm](../lib/Fugu/Privdrop.pm), [privdrop.t](../t/fugu/privdrop.t)                                        |
 | [LIB-PROCESS](library.md#lib-process)            | done  | —       | [Process.pm](../lib/Fugu/Process.pm), [process.t](../t/fugu/process.t)                                            |

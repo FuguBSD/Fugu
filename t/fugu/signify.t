@@ -478,4 +478,114 @@ subtest 'verify_manifest takes a path key and a URL key' => sub {
 	like( $sig->error, qr/does not hold/, 'and the reason says so' );
 };
 
+subtest 'parse_manifest is the public form of the parser' => sub {
+	my $sig = Fugu::Signify->new( keys => ["$dir/absent.pub"] );
+
+	my $text = "SHA256 (a.img) = " . ( 'a' x 64 ) . "\n"
+	    . 'SHA256 (dist/b.img) = ' . ( 'B' x 64 ) . "\n"
+	    . 'SHA256 (https://example.org/c.img) = ' . ( 'c' x 64 ) . "\n";
+
+	my $digests = $sig->parse_manifest($text);
+	is_deeply(
+		$digests,
+		{
+			'a.img'                       => 'a' x 64,
+			'dist/b.img'                  => 'b' x 64,
+			'https://example.org/c.img'   => 'c' x 64,
+		},
+		'a name, a path and a URL each read as one key'
+	);
+	is( $sig->error, undef, 'and the parser reports no reason' );
+
+	# The parser needs no signify(1): a rotation reads the file it
+	# wrote, and a site build cannot sign. An object with a
+	# command that does not exist must still parse.
+	my $no_command = Fugu::Signify->new(
+		keys    => ["$dir/absent.pub"],
+		command => "$dir/no-such-signify",
+	);
+	ok( !$no_command->is_available, 'the object resolved no command' );
+	is_deeply( $no_command->parse_manifest($text), $digests,
+		'and the parser still answered' );
+
+	is( $sig->parse_manifest(''), undef, 'an empty manifest fails' );
+	like( $sig->error, qr/empty/, 'and the reason says so' );
+
+	is( $sig->parse_manifest(undef), undef, 'undef fails' );
+	like( $sig->error, qr/undef/, 'and the reason says so' );
+
+	is( $sig->parse_manifest("nonsense\n"), undef, 'a bad line fails' );
+	like( $sig->error, qr/cannot parse manifest line/,
+		'and the reason quotes the line' );
+
+	is( $sig->parse_manifest("SHA256 (a.img) = abc\n"),
+		undef, 'a short digest fails' );
+	like( $sig->error, qr/not 64 hexadecimal/, 'and the reason says so' );
+
+	my $twice = "SHA256 (a.img) = " . ( 'a' x 64 ) . "\n"
+	    . 'SHA256 (a.img) = ' . ( 'b' x 64 ) . "\n";
+	is( $sig->parse_manifest($twice), undef, 'a duplicate key fails' );
+	like( $sig->error, qr/duplicate manifest key/, 'and the reason says so' );
+};
+
+subtest 'write_manifest writes the line form' => sub {
+	my $sig = Fugu::Signify->new( keys => ["$dir/absent.pub"] );
+
+	# The keys sort in ascending order, so two runs of a rotation
+	# write one byte sequence.
+	my $text = $sig->write_manifest(
+		{
+			'c.img' => 'C' x 64,
+			'a.img' => 'a' x 64,
+			'b.img' => 'b' x 64,
+		}
+	);
+	is(
+		$text,
+		"SHA256 (a.img) = " . ( 'a' x 64 ) . "\n"
+		    . 'SHA256 (b.img) = ' . ( 'b' x 64 ) . "\n"
+		    . 'SHA256 (c.img) = ' . ( 'c' x 64 ) . "\n",
+		'the output sorts by key, and it lowercases each digest'
+	);
+
+	# The round trip is the contract that the rotation needs: the
+	# writer and the parser must agree on the line form.
+	my %digests = (
+		'a.img'                     => 'a' x 64,
+		'dist/b.img'                => 'b' x 64,
+		'https://example.org/c.img' => 'c' x 64,
+	);
+	is_deeply( $sig->parse_manifest( $sig->write_manifest( \%digests ) ),
+		\%digests, 'write_manifest then parse_manifest round trips' );
+
+	is( $sig->write_manifest( {} ), undef, 'an empty digest set fails' );
+	like( $sig->error, qr/empty/, 'and the reason says so' );
+
+	# The line ends the key at the last parenthesis, so a key with
+	# a parenthesis would parse back as another key.
+	is( $sig->write_manifest( { 'a(1).img' => 'a' x 64 } ),
+		undef, 'a key with a parenthesis fails' );
+	like( $sig->error, qr/parenthesis/, 'and the reason says so' );
+
+	is( $sig->write_manifest( { 'a b.img' => 'a' x 64 } ),
+		undef, 'a key with a space fails' );
+	like( $sig->error, qr/whitespace/, 'and the reason says so' );
+
+	is( $sig->write_manifest( { '' => 'a' x 64 } ),
+		undef, 'an empty key fails' );
+
+	is( $sig->write_manifest( { 'a.img' => 'abc' } ),
+		undef, 'a short digest fails' );
+	like( $sig->error, qr/not 64 hexadecimal/, 'and the reason says so' );
+
+	is( $sig->write_manifest( { 'a.img' => 'z' x 64 } ),
+		undef, 'a non-hexadecimal digest fails' );
+
+	is( $sig->write_manifest( { 'a.img' => undef } ),
+		undef, 'an undef digest fails' );
+
+	ok( !eval { $sig->write_manifest('not a reference'); 1 },
+		'a non-reference dies' );
+};
+
 done_testing();

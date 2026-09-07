@@ -138,11 +138,57 @@ verifies a file before it moves the file into place:
         files    => { 'miniroot78.img' => $tmp_path },
     );
 
+=head2 parse_manifest
+
+C<parse_manifest($bytes)> is the public form of the parser that
+C<verify_manifest> uses. It returns a hash reference of manifest key to
+lower-case digest.
+
+Two callers read a manifest without a signature at that moment. A
+rotation writes a manifest, and it must read the file that it wrote. A
+site check compares a manifest against the files beside it, and a site
+build cannot sign. A private parser would make each one write the line
+form again.
+
+The method verifies nothing. A caller that needs the signature calls
+C<verify_manifest>, which verifies the signature before it digests one
+file.
+
+An undef input, an empty manifest, a line that the method cannot
+parse, a digest that is not 64 hexadecimal characters, and a duplicate
+key are each a failure.
+
+=head2 write_manifest
+
+C<write_manifest(\%digests)> returns the text of a C<SHA256> manifest.
+Each line holds C<SHA256 (key) = digest>.
+
+The keys sort in ascending order, so two runs of a rotation write one
+byte sequence, and a diff of two manifests then shows the change only.
+The method lowercases each digest.
+
+The key of a line is a file name, a file path, or a download URL,
+whichever the producer writes. The method therefore rejects only a key
+that the line form cannot hold: the line ends the key at the last
+parenthesis, so a key with a parenthesis parses back as another key,
+and whitespace in a key would break the field split of a reader that
+splits on space.
+
+An empty hash, an empty key, a key with a parenthesis, a key with
+whitespace, and a digest that is not 64 hexadecimal characters are
+each a failure. The method dies when the argument is not a hash
+reference.
+
+Neither method needs signify(1). An object whose command did not
+resolve still parses and still writes.
+
 =head1 RETURN VALUES
 
 C<verify()> and C<verify_manifest()> return the public key file that
-verified the signature, or C<undef>. C<error()> returns the reason of
-the most recent failure, or C<undef>.
+verified the signature, or C<undef>. C<parse_manifest()> returns a
+hash reference, and C<write_manifest()> returns text; each one returns
+C<undef> on a failure. C<error()> returns the reason of the most
+recent failure, or C<undef>.
 
 =head1 CAVEATS
 
@@ -164,7 +210,8 @@ command. The pledge belongs to the program, not to a library method.
 
 =head1 SEE ALSO
 
-signify(1), sha256(1), L<Digest::SHA>, L<Fugu::File>, L<Fugu::Process>
+signify(1), sha256(1), L<Digest::SHA>, L<Fugu::File>,
+L<Fugu::KeyDir>, L<Fugu::Process>
 
 =head1 AUTHORS
 
