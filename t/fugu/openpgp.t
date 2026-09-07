@@ -14,6 +14,7 @@
 use v5.36;
 use Test::More;
 use MIME::Base64 qw(encode_base64);
+use Digest::SHA  ();
 use FindBin      qw($RealBin);
 use lib "$RealBin/../../lib";
 
@@ -182,17 +183,17 @@ subtest 'decode_armor reads each line-ending and header shape' => sub {
 	my $text = slurp('openpgp-ed25519.asc');
 	my $want = $FIXTURE{'openpgp-ed25519.asc'}{fingerprint};
 
-	# RFC 4880 writes a blank line after the delimiter even with
-	# no header, and gpg(1) does the same. A producer that omits
-	# it holds a body on the first line, and the body must still
-	# decode. A header test that asks whether the block holds a
-	# blank line anywhere gets this wrong: the split of the body
-	# always leaves a trailing empty element.
+	# RFC 4880 makes the blank line after the armor headers
+	# necessary, and gpg --show-keys rejects a block without it
+	# with "invalid armor header". This method must not accept
+	# what gpg(1) rejects: a site publishes the key that this
+	# decoder validated, so a consumer must be able to import it.
 	my $no_blank = $text;
 	$no_blank =~ s/(-----BEGIN PGP PUBLIC KEY BLOCK-----\n)\n/$1/;
-	is( scalar Fugu::OpenPGP->fingerprint(
-			scalar Fugu::OpenPGP->decode_armor($no_blank) ),
-		$want, 'a block with no blank line decodes' );
+	my ( $none, $why ) = Fugu::OpenPGP->decode_armor($no_blank);
+	is( $none, undef, 'a block with no blank line fails' );
+	like( $why, qr/no blank line ends the armor header section/,
+		'and the reason names the blank line' );
 
 	# Two headers, then the blank line.
 	my $two = $text;
@@ -212,9 +213,18 @@ subtest 'decode_armor reads each line-ending and header shape' => sub {
 
 	my $crlf_no_blank = $no_blank;
 	$crlf_no_blank =~ s/\n/\r\n/g;
+	is( scalar Fugu::OpenPGP->decode_armor($crlf_no_blank),
+		undef, 'CRLF with no blank line fails the same way' );
+
+	# An armor header can hold an empty value, and gpg(1) reads
+	# such a header. The pattern must therefore not need the
+	# space after the colon.
+	my $empty_header = $text;
+	$empty_header =~
+	    s/(-----BEGIN PGP PUBLIC KEY BLOCK-----\n)/$1Comment:\n/;
 	is( scalar Fugu::OpenPGP->fingerprint(
-			scalar Fugu::OpenPGP->decode_armor($crlf_no_blank) ),
-		$want, 'CRLF with no blank line decodes' );
+			scalar Fugu::OpenPGP->decode_armor($empty_header) ),
+		$want, 'a header with an empty value decodes' );
 
 	# The method must not change the string of the caller.
 	my $copy = $text;
@@ -222,12 +232,15 @@ subtest 'decode_armor reads each line-ending and header shape' => sub {
 	is( $copy, $text, 'the method leaves the input string alone' );
 
 	# A first line that is neither a header nor base64 must fail.
+	# It sits before the blank line, so the header section never
+	# ends, and the reason names that.
 	my $garbage = $text;
 	$garbage =~
 	    s/(-----BEGIN PGP PUBLIC KEY BLOCK-----\n)\n/$1garbage here\n\n/;
 	my ( $binary, $reason ) = Fugu::OpenPGP->decode_armor($garbage);
 	is( $binary, undef, 'a garbage first line fails' );
-	like( $reason, qr/not a base64 body line/, 'and the reason says so' );
+	like( $reason, qr/no blank line ends the armor header section/,
+		'and the reason says so' );
 };
 
 subtest 'fingerprint holds the first packet to a public key' => sub {
@@ -397,6 +410,64 @@ subtest 'fingerprint reads every length form that holds a packet' => sub {
 	like( $reason, qr/truncated/, 'and the reason says so' );
 };
 
+subtest 'decode_armor holds the body to whole base64 groups' => sub {
+	# base64 carries four characters for each three bytes, and
+	# decode_base64 drops a trailing partial group without a
+	# word. One extra character therefore gives the same bytes and
+	# the same checksum, and gpg --dearmor rejects such a block.
+	my $text  = slurp('openpgp-ed25519.asc');
+	my @lines = split /\n/, $text;
+	for my $i ( 0 .. $#lines ) {
+		next unless $lines[$i] =~ /\A=/;
+		$lines[ $i - 1 ] .= 'A';
+		last;
+	}
+
+	my ( $binary, $reason ) =
+	    Fugu::OpenPGP->decode_armor( join "\n", @lines );
+	is( $binary, undef, 'one extra base64 character fails' );
+	like( $reason, qr/not a whole number of groups/,
+		'and the reason names the group count' );
+};
+
+subtest 'the methods need bytes, and say so' => sub {
+	# Digest::SHA dies with "Wide character in subroutine entry"
+	# for a string that holds a code point above 255. The
+	# contract of this module is a clean failure, so each entry
+	# point must test for such a string first.
+	my ( $hash, $reason ) = Fugu::OpenPGP->wkd_hash("caf\x{263A}");
+	is( $hash, undef, 'a wide local part fails' );
+	like( $reason, qr/above 255/, 'and the reason says so' );
+
+	my ( $got, $why ) =
+	    Fugu::OpenPGP->fingerprint( "\x98\x03\x{263A}ab" );
+	is( $got, undef, 'a wide binary form fails' );
+	like( $why, qr/above 255/, 'and the reason says so' );
+};
+
+subtest 'wkd_hash lowercases the ASCII letters alone' => sub {
+	# lc reads a byte above 127 as Latin-1 under the feature set
+	# of the module, so it rewrites the bytes of a UTF-8 local
+	# part: c3 becomes e3. gpg(1) lowercases the ASCII letters
+	# only, so lc would publish a non-ASCII address at a path
+	# that gpg never asks for.
+	my $utf8 = "w\xc3\x84\xc2\x85z";
+	my $ascii_lowered = $utf8 =~ tr/A-Z/a-z/r;
+
+	is(
+		scalar Fugu::OpenPGP->wkd_hash($utf8),
+		Fugu::OpenPGP->zbase32( Digest::SHA::sha1($ascii_lowered) ),
+		'a UTF-8 local part keeps its bytes above 127'
+	);
+
+	# The ASCII case still folds.
+	is(
+		scalar Fugu::OpenPGP->wkd_hash("W\xc3\x84\xc2\x85Z"),
+		scalar Fugu::OpenPGP->wkd_hash($utf8),
+		'and the ASCII letters still fold'
+	);
+};
+
 subtest 'fingerprint bounds the packet body' => sub {
 	# The digest writes the body length in two octets, so a longer
 	# body has no version 4 fingerprint. pack wraps the value with
@@ -469,8 +540,10 @@ subtest 'decode_armor holds the base64 padding to the end' => sub {
 	like( $reason, qr/before the last one holds padding/,
 		'and the reason names the fault, not the checksum' );
 
-	# The real keys carry padding on their last body line, so the
-	# rule must not reject them.
+	# Both real keys must still decode. The RSA fixture carries
+	# padding on its last body line, so it drives the accept side
+	# of the rule. The Ed25519 fixture ends on a whole group, so
+	# it drives the case with no padding at all.
 	for my $name ( sort keys %FIXTURE ) {
 		is(
 			scalar Fugu::OpenPGP->fingerprint(

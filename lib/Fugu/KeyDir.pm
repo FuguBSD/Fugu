@@ -272,7 +272,20 @@ sub next_serial ( $self, $names, $purpose )
 		$highest = $parts->{serial} if $parts->{serial} > $highest;
 	}
 
-	return $highest + 1;
+	my $next = $highest + 1;
+
+	# The answer must pass name_for, or the caller stalls one step
+	# later with a reason that names neither the purpose nor the
+	# bound. The parser holds a name to the same bound, so this
+	# method must not hand out a serial past it.
+	if ( length($next) > MAX_SERIAL_DIGITS ) {
+		return $self->_fail( "the purpose $purpose is at the "
+			    . 'highest serial that the digit bound allows, '
+			    . 'which is '
+			    . ( '9' x MAX_SERIAL_DIGITS ) );
+	}
+
+	return $next;
 }
 
 # $self->order($keys):
@@ -386,6 +399,28 @@ sub keys_file ( $self, $keys )
 				    . 'holds a newline' );
 		}
 
+		# The armor field carries the whole payload, so a
+		# newline in it is normal. One key holds one block,
+		# though: a field with two blocks would publish a
+		# second key under one name, and gpg --import would
+		# read both. Fugu::OpenPGP reads the first block of a
+		# text, so the index row would name the first key only.
+		my $begins = () = $armor =~ /^-----BEGIN PGP /mg;
+		my $ends   = () = $armor =~ /^-----END PGP /mg;
+		unless ( $begins == 1 && $ends == 1 ) {
+			return $self->_fail( "the armor of $key->{name} "
+				    . "holds $begins BEGIN and $ends END "
+				    . 'lines, and one key holds one block' );
+		}
+
+		# Nothing may follow the end line. Such text would sit
+		# in front of the next comment block of the file, and a
+		# reader would take it for that block.
+		unless ( $armor =~ /-----END PGP [A-Z0-9 ]+-----[ \t]*\n*\z/ ) {
+			return $self->_fail( "the armor of $key->{name} "
+				    . 'holds text after its end line' );
+		}
+
 		$text .= "$key->{stem}\n";
 		$text .= "purpose: $key->{purpose}\n";
 		$text .= "serial: $key->{serial}\n";
@@ -479,6 +514,14 @@ sub security_txt ( $self, %args )
 	for my $value ( @contact, $expires, @encryption, @languages ) {
 		next unless $value =~ /[\r\n]/;
 		return $self->_fail("a field value holds a newline: $value");
+	}
+
+	# The Preferred-Languages field joins its values on a comma,
+	# so a value that holds one would forge a second language tag.
+	# A tag of RFC 9116 never holds a comma.
+	for my $value (@languages) {
+		next unless $value =~ /,/;
+		return $self->_fail("a language value holds a comma: $value");
 	}
 
 	my $text = '';

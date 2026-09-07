@@ -132,8 +132,19 @@ public key only, and it verifies no signature.
   header and must write the length again. One key then gives one answer in the
   old packet format and in the new one.
 - **LIB-OPENPGP-3** — The Web Key Directory hash must use the z-base-32 alphabet
-  `ybndrfg8ejkmcpqxot1uwisza345h769`, and must lowercase the local part. The RFC
-  4648 alphabet gives a URL that gpg(1) never asks for.
+  `ybndrfg8ejkmcpqxot1uwisza345h769`, and must lowercase the ASCII letters of
+  the local part alone. The RFC 4648 alphabet gives a URL that gpg(1) never asks
+  for, and a lowercase step that reads a byte above 127 rewrites a UTF-8 local
+  part.
+- **LIB-OPENPGP-4** — The armor decoder must hold the base64 body to a whole
+  number of groups, and must accept the padding at the end of the last body line
+  only. A base64 reader drops a trailing partial group and every byte after the
+  padding, so either shape decodes to a truncated key that a crafted checksum
+  line still matches.
+- **LIB-OPENPGP-5** — The armor decoder must not accept a block that gpg(1)
+  rejects. A site publishes the key that this decoder validated, so a consumer
+  must be able to import it. The decoder can be stricter: it rejects a body line
+  with interior whitespace and a second checksum line, and gpg(1) reads both.
 
 <a id="lib-pidfile"></a>
 

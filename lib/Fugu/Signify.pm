@@ -345,7 +345,13 @@ sub write_manifest ( $self, $digests )
 			return;
 		}
 
-		if ( $key =~ /\s/ ) {
+		# The class names the ASCII whitespace only. \s reads a
+		# byte above 127 as Latin-1 under the feature set of
+		# this file, so it matches U+0085 and U+00A0 and would
+		# reject a UTF-8 file name that holds a letter such as
+		# a-ogonek. A rotation would then stall on a release
+		# asset whose name is valid.
+		if ( $key =~ /[ \t\n\r\f\x0B]/ ) {
 			$self->{error} =
 			    "a manifest key holds whitespace: $key";
 			return;

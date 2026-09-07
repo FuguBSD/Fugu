@@ -205,6 +205,19 @@ subtest 'next_serial adds one to the highest of the purpose' => sub {
 
 	is( $kd->next_serial( [], '' ), undef, 'an empty purpose fails' );
 
+	# The answer must pass name_for. At the top of the range the
+	# sum leaves the bound, and a caller that took the answer
+	# would stall one step later with a reason that names neither
+	# the purpose nor the bound.
+	is( $kd->next_serial( ['fugubsd-999999999-release.pub'], 'release' ),
+		undef, 'a purpose at the highest allowed serial fails' );
+	like( $kd->error, qr/highest serial that the digit bound allows/,
+		'and the reason names the bound' );
+
+	# A purpose below the top still answers.
+	is( $kd->next_serial( ['fugubsd-999999998-release.pub'], 'release' ),
+		999_999_999, 'one below the top still answers' );
+
 	ok( !eval { $kd->next_serial( 'not a reference', 'release' ); 1 },
 		'a non-reference dies' );
 };
@@ -261,6 +274,23 @@ subtest 'order writes one byte sequence' => sub {
 		[ map { $_->{name} } @$mixed ],
 		[ 'fugubsd-1-code.pub', 'fugubsd-1-code-signing.pub' ],
 		'the purpose breaks a tie, and it beats the name'
+	);
+
+	# The name tie-break is reachable in a set that
+	# check_statuses accepts: two retired keys of one purpose at
+	# one serial, with two types. The rule allows many retired
+	# keys, so this set is legitimate and the comparator matters.
+	my @valid_tie = (
+		{ name => 'fugubsd-1-mail.asc', status => 'retired' },
+		{ name => 'fugubsd-1-mail.pub', status => 'retired' },
+		{ name => 'fugubsd-2-mail.asc', status => 'current' },
+	);
+	is( $kd->check_statuses( \@valid_tie ), 1, 'the tied set is valid' );
+	is_deeply(
+		[ map { $_->{name} } @{ $kd->order( \@valid_tie ) } ],
+		[ map { $_->{name} }
+			@{ $kd->order( [ reverse @valid_tie ] ) } ],
+		'and its order does not follow the input'
 	);
 
 	# One purpose at one serial with two types: only the name
@@ -523,6 +553,62 @@ subtest 'keys_file lets no field forge a second block' => sub {
 	);
 };
 
+subtest 'keys_file holds one block in each armor field' => sub {
+	# One key holds one block. A field with two blocks would
+	# publish a second key under one name, and gpg --import would
+	# read both, while Fugu::OpenPGP reads the first block only.
+	# The index row would then name the first key alone.
+	my $two = ARMOR . "\n\n" . ARMOR;
+	is(
+		$kd->keys_file(
+			[
+				{
+					name   => 'fugubsd-1-mail.asc',
+					status => 'current',
+					armor  => $two,
+				}
+			]
+		),
+		undef,
+		'an armor field with two blocks fails'
+	);
+	like( $kd->error, qr/holds 2 BEGIN and 2 END lines/,
+		'and the reason names the count' );
+
+	# Text after the end line would sit in front of the next
+	# comment block, and a reader would take it for that block.
+	is(
+		$kd->keys_file(
+			[
+				{
+					name   => 'fugubsd-1-mail.asc',
+					status => 'current',
+					armor  => ARMOR
+					    . "\nfugubsd-9-evil\nstatus: current\n",
+				}
+			]
+		),
+		undef,
+		'text after the end line fails'
+	);
+	like( $kd->error, qr/holds text after its end line/,
+		'and the reason says so' );
+
+	# A trailing newline is not trailing text.
+	ok(
+		$kd->keys_file(
+			[
+				{
+					name   => 'fugubsd-1-mail.asc',
+					status => 'current',
+					armor  => ARMOR . "\n\n",
+				}
+			]
+		),
+		'a trailing newline still passes'
+	);
+};
+
 subtest 'index_data holds one row for each key, in order' => sub {
 	my @keys = (
 		{ name => 'fugubsd-1-release.pub', status => 'retired' },
@@ -620,6 +706,20 @@ subtest 'security_txt writes the fields of RFC 9116' => sub {
 		'a value with a newline fails'
 	);
 	like( $kd->error, qr/holds a newline/, 'and the reason says so' );
+
+	# The languages field joins on a comma, so a value that holds
+	# one would forge a second language tag. A tag of RFC 9116
+	# never holds a comma.
+	is(
+		$kd->security_txt(
+			contact   => 'mailto:a@example.org',
+			expires   => '2027-01-01T00:00:00Z',
+			languages => ['en, xx'],
+		),
+		undef,
+		'a language value with a comma fails'
+	);
+	like( $kd->error, qr/holds a comma/, 'and the reason says so' );
 };
 
 subtest 'STATUSES names the vocabulary' => sub {

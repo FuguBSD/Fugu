@@ -110,25 +110,34 @@ sub decode_armor ( $class, $text )
 
 	# The normalization above removed every CRLF, so no line holds
 	# a trailing carriage return. A mailer that pads a line leaves
-	# trailing space instead, and base64 ignores whitespace
-	# between the groups. The delimiter patterns tolerate the same
-	# padding, so the body must not be stricter than they are.
+	# trailing space instead, and the delimiter patterns tolerate
+	# the same padding, so the body must not be stricter at the
+	# ends than they are.
+	#
+	# The trim touches the two ends of a line only. A line with
+	# interior whitespace stays a failure, although gpg(1) reads
+	# one. This method is stricter there on purpose: it validates
+	# a key that a site publishes, and a published key must hold
+	# the shape that RFC 4880 states.
 	my @lines = map { s/\A\s+|\s+\z//gr } split /\n/, $block, -1;
 
-	# An armor header is "Key: value", and a blank line ends the
-	# header section. The first line decides whether a header
-	# section exists at all: the test must not ask whether the
-	# block holds a blank line anywhere, because the split above
-	# always leaves a trailing empty element.
+	# An armor header is "Key: value" or a bare "Key:", and a
+	# blank line ends the header section. RFC 4880 makes that
+	# blank line necessary, and gpg(1) enforces it: a block
+	# without it fails with "invalid armor header". This method
+	# must not accept what gpg(1) rejects, because a site would
+	# then publish a key that no consumer can import.
 	#
-	# RFC 4880 writes the blank line even with no header, and
-	# gpg(1) does the same. A producer that omits it holds a body
-	# on the first line, and the body must still decode. No
-	# statement drops the blank line itself: the trim above makes
-	# it empty, and the body loop below skips every empty line.
-	while ( @lines && $lines[0] =~ /\A[A-Za-z][A-Za-z0-9-]*: / ) {
+	# The value can be empty, and gpg(1) reads such a header, so
+	# the pattern must not need the space after the colon.
+	while ( @lines && $lines[0] =~ /\A[A-Za-z][A-Za-z0-9-]*:/ ) {
 		shift @lines;
 	}
+
+	unless ( @lines && $lines[0] !~ /\S/ ) {
+		return _fail('no blank line ends the armor header section');
+	}
+	shift @lines;
 
 	# The checksum line starts with one '=' and holds four base64
 	# characters. It is the last non-blank line of the body.
@@ -169,13 +178,28 @@ sub decode_armor ( $class, $text )
 			    . "padding: $body[$i]" );
 	}
 
-	my $binary = decode_base64( join '', @body );
+	# base64 carries four characters for each three bytes, so the
+	# joined body must hold a whole number of groups.
+	# decode_base64 drops a trailing partial group without a word,
+	# so one extra character would give the same bytes and the
+	# same checksum, and gpg(1) rejects such a block.
+	my $joined = join '', @body;
+	if ( length($joined) % 4 != 0 ) {
+		return _fail(
+			sprintf 'the base64 body holds %d characters, '
+			    . 'which is not a whole number of groups',
+			length $joined
+		);
+	}
+
+	my $binary = decode_base64($joined);
 	return _fail('the base64 body decodes to no bytes')
 	    unless length $binary;
 
+	# The pattern above fixes the checksum line at four base64
+	# characters, and four characters always decode to three
+	# bytes, so no length test is needed here.
 	my $want = decode_base64($checksum);
-	return _fail('the checksum line does not decode to three bytes')
-	    unless length($want) == 3;
 
 	my $got = pack 'N', _crc24($binary);
 	$got = substr $got, 1, 3;    # the low three bytes, big endian
@@ -205,6 +229,9 @@ sub decode_armor ( $class, $text )
 sub fingerprint ( $class, $binary )
 {
 	return _fail('the binary form is undef') unless defined $binary;
+	return _fail( 'the binary form holds a character above 255, '
+		    . 'and this method needs bytes' )
+	    if _wide($binary);
 
 	my ( $tag, $body, $reason ) = _first_packet($binary);
 	return _fail($reason) unless defined $tag;
@@ -248,8 +275,19 @@ sub wkd_hash ( $class, $local )
 {
 	return _fail('the local part is undef') unless defined $local;
 	return _fail('the local part is empty') unless length $local;
+	return _fail( 'the local part holds a character above 255, '
+		    . 'and this method needs bytes' )
+	    if _wide($local);
 
-	my $hash = $class->zbase32( Digest::SHA::sha1( lc $local ) );
+	# The lowercase step must touch the ASCII letters only. lc
+	# reads a byte above 127 as Latin-1 under the feature set of
+	# this file, so it rewrites the bytes of a UTF-8 local part:
+	# c3 becomes e3. gpg(1) lowercases the ASCII letters only, so
+	# lc would publish a non-ASCII address at a path that gpg
+	# never asks for.
+	my $lower = $local =~ tr/A-Z/a-z/r;
+
+	my $hash = $class->zbase32( Digest::SHA::sha1($lower) );
 
 	return wantarray ? ( $hash, undef ) : $hash;
 }
@@ -384,6 +422,17 @@ sub _crc24 ($bytes)
 	}
 
 	return $crc & 0x00FF_FFFF;
+}
+
+# _wide($text):
+#	True when the string holds a code point above 255. Such a
+#	string is character data and not bytes, and Digest::SHA dies
+#	on it with "Wide character in subroutine entry". The contract
+#	of this module is a clean failure, so each entry point tests
+#	this first. A caller that holds text must encode it.
+sub _wide ($text)
+{
+	return $text =~ /[^\x00-\xFF]/ ? 1 : 0;
 }
 
 # _fail($reason):

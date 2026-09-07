@@ -573,6 +573,28 @@ subtest 'write_manifest writes the line form' => sub {
 		undef, 'a key with a space fails' );
 	like( $sig->error, qr/whitespace/, 'and the reason says so' );
 
+	# The whitespace class must name the ASCII whitespace only.
+	# \s reads a byte above 127 as Latin-1 under the feature set
+	# of the module, so it matches U+0085 and U+00A0. A release
+	# asset whose name holds a letter such as a-ogonek is valid,
+	# and a rotation must not stall on it.
+	my $utf8 = "w\xc4\x85z.tar.gz";
+	my $text = $sig->write_manifest( { $utf8 => 'a' x 64 } );
+	ok( defined $text, 'a UTF-8 key with no ASCII space passes' )
+	    or diag( $sig->error );
+	is_deeply( $sig->parse_manifest($text), { $utf8 => 'a' x 64 },
+		'and it round trips' );
+
+	# The bytes that only Latin-1 reads as whitespace must pass.
+	for my $byte ( "\x85", "\xA0" ) {
+		ok(
+			defined $sig->write_manifest(
+				{ "a${byte}b.img" => 'a' x 64 }
+			),
+			sprintf 'a key with the byte %02x passes', ord $byte
+		);
+	}
+
 	is( $sig->write_manifest( { '' => 'a' x 64 } ),
 		undef, 'an empty key fails' );
 

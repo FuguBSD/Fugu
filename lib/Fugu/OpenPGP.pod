@@ -69,10 +69,27 @@ producer that omits it still holds a valid body.
 The method never changes the string of the caller.
 
 Each of these is a failure: a missing delimiter line, two delimiter
-lines that name two block types, a body line that is not base64, an
-absent checksum line, more than one checksum line, a body line after
-the checksum line, and a checksum mismatch. A block above
-C<MAX_ARMOR_SIZE>, which is 1 MiB, is also a failure.
+lines that name two block types, an absent blank line after the armor
+headers, a body line that is not base64, a base64 body that is not a
+whole number of groups, an absent checksum line, more than one
+checksum line, a body line after the checksum line, and a checksum
+mismatch.
+
+The blank line after the armor headers is necessary. RFC 4880 states
+it, and gpg(1) rejects a block without it. This method must not
+accept a block that gpg(1) rejects, because a site would then publish
+a key that no consumer can import.
+
+The method trims the two ends of each body line, so a mailer that
+padded a line changes nothing.
+
+This method is stricter than gpg(1) in two places, on purpose. It
+rejects a body line with interior whitespace, and it rejects a second
+checksum line. gpg(1) reads both. The strictness runs one way only:
+the method never accepts a block that gpg(1) rejects, so a key that
+this method validated always imports. The bound C<MAX_ARMOR_SIZE> applies to the whole text, and not to one
+block. A text above 1 MiB is a failure, whatever the size of its
+first block.
 
 =head2 fingerprint
 
@@ -143,7 +160,7 @@ hold, 65535 bytes, per RFC 4880 section 12.2.
 
 =item C<MAX_ARMOR_SIZE>
 
-The size bound of an armored block, 1 MiB. A public key of a person
+The size bound of the whole text, 1 MiB. A public key of a person
 holds a few kilobytes. A caller that names a disk image by mistake
 gets a clean failure, not a decode of 500 MB.
 
