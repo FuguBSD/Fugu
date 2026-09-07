@@ -98,10 +98,22 @@ padded a line changes nothing.
 
 The rule runs one way only. The method never accepts a block that
 gpg(1) rejects, so a key that this method validated always imports.
-The method can reject a block that gpg(1) reads, and it does so for a
-body line with interior whitespace, for a second checksum line, for a
-body line after the checksum line, and for a text above
-C<MAX_ARMOR_SIZE>. The bound C<MAX_ARMOR_SIZE> applies to the whole text, and not to one
+The method can reject a block that gpg(1) reads, and it does so for
+each of these:
+
+=over 4
+
+=item * a body line with interior whitespace
+
+=item * a second checksum line
+
+=item * a body line after the checksum line
+
+=item * two delimiter lines that name two block types
+
+=item * a text above C<MAX_ARMOR_SIZE>
+
+=back The bound C<MAX_ARMOR_SIZE> applies to the whole text, and not to one
 block. A text above 1 MiB is a failure, whatever the size of its
 first block.
 

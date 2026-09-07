@@ -152,7 +152,12 @@ sub decode_armor ( $class, $text )
 		shift @lines;
 	}
 
-	unless ( @lines && $lines[0] !~ /\S/ ) {
+	# The trim above removed the space and the tab, so a blank
+	# line is an empty line here. The test must not read \S: that
+	# class treats 0x85 and 0xA0 as content on one build and not
+	# on another, and a length test says the same thing on every
+	# build.
+	unless ( @lines && !length $lines[0] ) {
 		return _fail('no blank line ends the armor header section');
 	}
 	shift @lines;

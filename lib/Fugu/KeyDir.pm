@@ -436,12 +436,20 @@ sub keys_file ( $self, $keys )
 		# would stand in front of this key's own body, where a
 		# reader takes it for part of the comment block. A guard
 		# on the tail alone leaves the second forgery open.
-		unless ( $armor =~ /\A\s*-----BEGIN PGP [A-Z0-9 ]+-----/ ) {
+		# Each class names the ASCII whitespace, and never \s.
+		# Under the feature set of this file \s also matches
+		# 0x85 and 0xA0, so a field that starts or ends with
+		# one of those bytes would pass and write the byte into
+		# the published file.
+		unless (
+			$armor =~ /\A[ \t\r\n]*-----BEGIN PGP [A-Z0-9 ]+-----/ )
+		{
 			return $self->_fail( "the armor of $key->{name} "
 				    . 'holds text before its begin line' );
 		}
 
-		unless ( $armor =~ /-----END PGP [A-Z0-9 ]+-----[ \t]*\s*\z/ ) {
+		unless ( $armor =~ /-----END PGP [A-Z0-9 ]+-----[ \t\r\n]*\z/ )
+		{
 			return $self->_fail( "the armor of $key->{name} "
 				    . 'holds text after its end line' );
 		}
