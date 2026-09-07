@@ -578,11 +578,11 @@ subtest 'write_manifest writes the line form' => sub {
 	# of the module, so it matches U+0085 and U+00A0. A release
 	# asset whose name holds a letter such as a-ogonek is valid,
 	# and a rotation must not stall on it.
-	my $utf8 = "w\xc4\x85z.tar.gz";
-	my $text = $sig->write_manifest( { $utf8 => 'a' x 64 } );
-	ok( defined $text, 'a UTF-8 key with no ASCII space passes' )
+	my $utf8      = "w\xc4\x85z.tar.gz";
+	my $utf8_text = $sig->write_manifest( { $utf8 => 'a' x 64 } );
+	ok( defined $utf8_text, 'a UTF-8 key with no ASCII space passes' )
 	    or diag( $sig->error );
-	is_deeply( $sig->parse_manifest($text), { $utf8 => 'a' x 64 },
+	is_deeply( $sig->parse_manifest($utf8_text), { $utf8 => 'a' x 64 },
 		'and it round trips' );
 
 	# The bytes that only Latin-1 reads as whitespace must pass.
@@ -610,6 +610,27 @@ subtest 'write_manifest writes the line form' => sub {
 
 	ok( !eval { $sig->write_manifest('not a reference'); 1 },
 		'a non-reference dies' );
+
+	# A manifest is bytes. A key in character form would reach the
+	# file as its UTF-8 form, so the bytes on disk would differ
+	# from the key that the caller passed, and the manifest would
+	# name a file that no reader finds. Perl also warns on the
+	# print.
+	is( $sig->write_manifest( { "w\x{105}.tar.gz" => 'a' x 64 } ),
+		undef, 'a key with a character above 255 fails' );
+	like( $sig->error, qr/above 255/, 'and the reason says so' );
+
+	is( $sig->parse_manifest("SHA256 (w\x{105}) = " . ( 'a' x 64 )),
+		undef, 'a manifest in character form fails' );
+	like( $sig->error, qr/above 255/, 'and the reason says so' );
+
+	# The byte form of the same name still passes.
+	ok(
+		defined $sig->write_manifest(
+			{ "w\xc4\x85z.tar.gz" => 'a' x 64 }
+		),
+		'the byte form of the same name passes'
+	);
 };
 
 done_testing();

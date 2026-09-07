@@ -24,9 +24,9 @@ package Fugu::KeyDir;
 #
 # An organization publishes its public keys under one prefix. This
 # module holds the generic parts of that directory: the file name
-# pattern, the type of a key, the status vocabulary, the order of a
-# key set, and the text of the Apache KEYS file, of the human index,
-# and of security.txt.
+# pattern, the type of a key, and the status vocabulary. It also
+# holds the order of a key set, and the text of the Apache KEYS
+# file, of the human index, and of security.txt.
 #
 # The module holds no policy. The organization word, each purpose,
 # the contact and each date are arguments. A site build supplies
@@ -51,12 +51,14 @@ my %STATUS_RANK = do {
 # The digit bound of a serial. A serial counts the rotations of one
 # purpose, so nine digits hold every key set that can ever exist.
 #
-# The bound also keeps the value far inside the exact integer range.
-# Perl holds 19 digits exactly, and it turns 20 into a float: the
-# name of a 20-digit serial parses to 1e+20, next_serial then hands
-# name_for that float, and name_for rejects it. The rotation stalls
-# with a reason that names neither the file nor the fault. The bound
-# stops such a name at the parser instead.
+# The bound also keeps every serial inside the exact integer range of
+# each Perl build. A long run of digits becomes a float, and the
+# threshold is the value and not the digit count: this build holds
+# 18446744073709551615 exactly and turns the next integer into a
+# float. parse_name stores the serial as a number, so a float would
+# reach next_serial and then name_for, which rejects it. The
+# rotation would stall with a reason that names neither the file nor
+# the fault. Nine digits sit far below the threshold of every build.
 use constant MAX_SERIAL_DIGITS => 9;
 
 # The extension of a key file selects its type. OpenBSD names a
@@ -164,8 +166,9 @@ sub parse_name ( $self, $filename )
 
 	# A serial counts the rotations of one purpose, so the bound is
 	# far above any real key set. It also stops a run of digits
-	# that Perl cannot hold exactly: 20 digits parse to 1e+20, and
-	# name_for then rejects that float and stalls the rotation.
+	# that Perl cannot hold exactly. Such a serial becomes a
+	# float, and name_for then rejects the float and stalls the
+	# rotation.
 	if ( length($serial) > MAX_SERIAL_DIGITS ) {
 		return $self->_fail( "the serial of $filename holds "
 			    . length($serial)
@@ -386,11 +389,11 @@ sub keys_file ( $self, $keys )
 
 		# One line holds one field, so a value with a newline
 		# would forge a second field. The comment block sits in
-		# front of an armored body, so such a value can also
-		# forge a whole second block, and gpg --import reads
-		# it. The stem, the purpose, the serial and the status
-		# each come from parse_name or the vocabulary, so only
-		# the free fields need the guard.
+		# front of an armored body. Such a value can therefore
+		# forge a whole second block, and gpg --import reads it.
+		# The stem, the purpose, the serial and the status each
+		# come from parse_name or the vocabulary, so only the
+		# free fields need the guard.
 		for my $field (qw(fingerprint since until)) {
 			my $value = $key->{$field};
 			next unless defined $value;
@@ -413,10 +416,32 @@ sub keys_file ( $self, $keys )
 				    . 'lines, and one key holds one block' );
 		}
 
-		# Nothing may follow the end line. Such text would sit
-		# in front of the next comment block of the file, and a
-		# reader would take it for that block.
-		unless ( $armor =~ /-----END PGP [A-Z0-9 ]+-----[ \t]*\n*\z/ ) {
+		# The block must be a public key. Nothing else in this
+		# module reads the armored bytes, and the fingerprint
+		# field is optional, so a private key block would reach
+		# the published file with no other guard in its way.
+		unless ( $armor =~ /^-----BEGIN PGP PUBLIC KEY BLOCK-----/m ) {
+			my ($type) =
+			    $armor =~ /^-----BEGIN PGP ([A-Z0-9 ]+)-----/m;
+			return $self->_fail( "the armor of $key->{name} "
+				    . 'holds a '
+				    . ( $type // 'nameless' )
+				    . ' block, and a key directory publishes '
+				    . 'a PUBLIC KEY BLOCK' );
+		}
+
+		# Nothing may sit outside the block, at either end. Text
+		# after the end line would stand in front of the next
+		# comment block of the file. Text before the begin line
+		# would stand in front of this key's own body, where a
+		# reader takes it for part of the comment block. A guard
+		# on the tail alone leaves the second forgery open.
+		unless ( $armor =~ /\A\s*-----BEGIN PGP [A-Z0-9 ]+-----/ ) {
+			return $self->_fail( "the armor of $key->{name} "
+				    . 'holds text before its begin line' );
+		}
+
+		unless ( $armor =~ /-----END PGP [A-Z0-9 ]+-----[ \t]*\s*\z/ ) {
 			return $self->_fail( "the armor of $key->{name} "
 				    . 'holds text after its end line' );
 		}
@@ -487,15 +512,31 @@ sub index_data ( $self, $keys )
 #
 #	RFC 9116 makes Contact and Expires necessary, so the method
 #	fails without either one. The RFC gives no order to the field
-#	types, and it states only that the order of two Contact values
-#	carries the preference of the operator. This method therefore
-#	fixes one order of its own: Contact, Expires, each Encryption
-#	field, then Preferred-Languages. A fixed order makes two runs
-#	write one byte sequence, and it keeps the contact first for a
-#	human reader. Each list keeps the order that the caller named.
+#	types. It states only that the order of two Contact values
+#	carries the preference of the operator.
+#
+#	This method therefore fixes one order of its own: Contact,
+#	Expires, each Encryption field, then Preferred-Languages. A
+#	fixed order makes two runs write one byte sequence, and it
+#	keeps the contact first. Each list keeps the order that the
+#	caller named.
 sub security_txt ( $self, %args )
 {
 	$self->{error} = undef;
+
+	# The sidecar states that a method dies for an argument of the
+	# wrong reference type. Without this test a reference
+	# stringifies into the file, and a field then reads
+	# "Contact: HASH(0x55...)".
+	for my $name (qw(contact expires encryption languages)) {
+		my $value = $args{$name};
+		next unless defined $value;
+		next unless ref $value;
+		next if ref $value eq 'ARRAY' && $name ne 'expires';
+		die "$name must be a plain value"
+		    . ( $name eq 'expires' ? '' : ' or an array reference' )
+		    . "\n";
+	}
 
 	my @contact = _as_list( $args{contact} );
 	unless (@contact) {
@@ -595,8 +636,13 @@ sub _fail ( $self, $reason )
 sub _as_list ($value)
 {
 	return () unless defined $value;
-	return grep { defined $_ && length $_ } @$value
-	    if ref $value eq 'ARRAY';
+	if ( ref $value eq 'ARRAY' ) {
+		for my $element (@$value) {
+			next unless defined $element && ref $element;
+			die "a list element must be a plain value\n";
+		}
+		return grep { defined $_ && length $_ } @$value;
+	}
 	return length $value ? ($value) : ();
 }
 

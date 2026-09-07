@@ -295,9 +295,10 @@ subtest 'order writes one byte sequence' => sub {
 
 	# One purpose at one serial with two types: only the name
 	# breaks this tie, and without it the order follows the input.
+	# Both keys are retired, so check_statuses accepts the set.
 	my @two_types = (
-		{ name => 'fugubsd-1-mail.pub', status => 'current' },
-		{ name => 'fugubsd-1-mail.asc', status => 'current' },
+		{ name => 'fugubsd-1-mail.pub', status => 'retired' },
+		{ name => 'fugubsd-1-mail.asc', status => 'retired' },
 	);
 	is_deeply(
 		[ map { $_->{name} } @{ $kd->order( \@two_types ) } ],
@@ -594,6 +595,48 @@ subtest 'keys_file holds one block in each armor field' => sub {
 	like( $kd->error, qr/holds text after its end line/,
 		'and the reason says so' );
 
+	# The block must be a public key. Nothing else in this module
+	# reads the armored bytes, and the fingerprint field is
+	# optional, so no other guard stands in the way of a private
+	# key block.
+	my $private = ARMOR;
+	$private =~ s/PUBLIC KEY/PRIVATE KEY/g;
+	is(
+		$kd->keys_file(
+			[
+				{
+					name   => 'fugubsd-1-mail.asc',
+					status => 'current',
+					armor  => $private,
+				}
+			]
+		),
+		undef,
+		'a PRIVATE KEY BLOCK fails'
+	);
+	like( $kd->error, qr/publishes a PUBLIC KEY BLOCK/,
+		'and the reason names the type' );
+
+	# Text before the begin line lands in front of this key's own
+	# body, where a reader takes it for the comment block. A guard
+	# on the tail alone leaves this open.
+	is(
+		$kd->keys_file(
+			[
+				{
+					name   => 'fugubsd-1-mail.asc',
+					status => 'current',
+					armor  => "fugubsd-9-evil\nstatus: current\n\n"
+					    . ARMOR,
+				}
+			]
+		),
+		undef,
+		'text before the begin line fails'
+	);
+	like( $kd->error, qr/holds text before its begin line/,
+		'and the reason says so' );
+
 	# A trailing newline is not trailing text.
 	ok(
 		$kd->keys_file(
@@ -720,6 +763,41 @@ subtest 'security_txt writes the fields of RFC 9116' => sub {
 		'a language value with a comma fails'
 	);
 	like( $kd->error, qr/holds a comma/, 'and the reason says so' );
+
+	# The sidecar states that a method dies for an argument of the
+	# wrong reference type. Without that test a reference
+	# stringifies into the file: a field then reads
+	# "Contact: HASH(0x55...)".
+	ok(
+		!eval {
+			$kd->security_txt(
+				contact => {},
+				expires => '2027-01-01T00:00:00Z'
+			);
+			1;
+		},
+		'a reference contact dies'
+	);
+	ok(
+		!eval {
+			$kd->security_txt(
+				contact => 'mailto:a@example.org',
+				expires => ['2027-01-01T00:00:00Z']
+			);
+			1;
+		},
+		'an array reference expires dies'
+	);
+	ok(
+		!eval {
+			$kd->security_txt(
+				contact => [ {} ],
+				expires => '2027-01-01T00:00:00Z'
+			);
+			1;
+		},
+		'a reference inside a list dies'
+	);
 };
 
 subtest 'STATUSES names the vocabulary' => sub {

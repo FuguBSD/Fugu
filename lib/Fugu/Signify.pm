@@ -298,6 +298,12 @@ sub parse_manifest ( $self, $bytes )
 		return;
 	}
 
+	if ( $bytes =~ /[^\x00-\xFF]/ ) {
+		$self->{error} = 'the manifest holds a character above 255, '
+		    . 'and a manifest holds bytes';
+		return;
+	}
+
 	return $self->_parse_manifest($bytes);
 }
 
@@ -329,6 +335,19 @@ sub write_manifest ( $self, $digests )
 
 	unless (%$digests) {
 		$self->{error} = 'the digest set is empty';
+		return;
+	}
+
+	# A manifest is bytes. A key that holds a code point above 255
+	# is character data, and print then writes its UTF-8 form: the
+	# bytes on disk differ from the key that the caller passed, so
+	# the manifest names a file that no reader finds. Perl also
+	# warns "Wide character in print". Fugu::OpenPGP fails such a
+	# string, and this method must agree.
+	for my $key ( sort keys %$digests ) {
+		next unless $key =~ /[^\x00-\xFF]/;
+		$self->{error} = 'a manifest key holds a character above '
+		    . '255, and a manifest holds bytes';
 		return;
 	}
 

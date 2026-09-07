@@ -66,10 +66,13 @@ A serial holds at most C<MAX_SERIAL_DIGITS> digits. A serial counts
 the rotations of one purpose, so the bound is far above any real key
 set.
 
-The bound also stops a run of digits that Perl cannot hold exactly.
-Perl holds 19 digits, and it turns 20 into a float. A 20-digit name
-would parse to C<1e+20>, C<next_serial> would hand C<name_for> that
-float, and the rotation would stall.
+The bound also keeps every serial inside the exact integer range of
+each Perl build. A long run of digits becomes a float, and the
+threshold is the value and not the digit count.
+
+C<parse_name> stores the serial as a number, so a float would reach
+C<next_serial> and then C<name_for>, which rejects it. The rotation
+would stall. Nine digits sit far below the threshold of every build.
 
 C<parse_name> and C<name_for> hold the same bound, so the two stay
 inverses.
@@ -141,10 +144,23 @@ The organization word must equal the word of the object. A name that
 names another organization is a failure, and the reason names both
 words.
 
-Each of these is a failure: an empty name, a name with a solidus, a
-name with no extension, an upper-case extension, an unknown
-extension, a serial of zero, a padded serial, a serial above the digit
-bound, and a name that does not match the pattern.
+Each of these is a failure:
+
+=over 4
+
+=item * an empty name, or a name with a solidus
+
+=item * a name with no extension
+
+=item * an upper-case extension, or an unknown one
+
+=item * a serial of zero, or a padded serial
+
+=item * a serial above the digit bound
+
+=item * a name that does not match the pattern
+
+=back
 
 A name with a solidus is a path. A caller that passes a path would
 publish a key outside the directory.
@@ -218,13 +234,25 @@ signify-only set, and C<error> is C<undef> there:
 
 The method writes one blank line after each armored body, whatever
 trailing newline the C<armor> field held. Two runs therefore write one
-byte sequence, and a site build makes no diff of its own.
+byte sequence.
 
-An OpenPGP key with no C<armor> field is a failure. A C<fingerprint>,
-C<since> or C<until> value that holds a newline is also a failure. One
-line holds one field, and the comment block sits in front of an
-armored body, so such a value could forge a second field and a whole
-second block that C<gpg --import> reads.
+C<gpg --import> reads this file, so no caller field may forge a field
+or a block. Each of these is a failure:
+
+=over 4
+
+=item * an OpenPGP key with no C<armor> field
+
+=item * a C<fingerprint>, C<since> or C<until> value that holds a
+newline, because one line holds one field
+
+=item * an C<armor> field that holds more than one block, which would
+publish a second key under one name
+
+=item * an C<armor> field with text before its begin line or after its
+end line, which a reader takes for a comment block
+
+=back
 
 =head2 index_data
 
@@ -257,7 +285,13 @@ contact first for a human reader. Each list keeps the order that the
 caller named.
 
 A field value that holds a newline is a failure. One line holds one
-field, so an embedded newline would forge a second field.
+field, so an embedded newline would forge a second field. A
+C<languages> value that holds a comma is a failure for the same
+reason: the field joins its values on a comma.
+
+An argument of the wrong reference type is a programming error, and
+the method dies. Without that test a reference would stringify into
+the file.
 
 =head1 CONSTANTS
 

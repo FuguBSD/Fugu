@@ -84,6 +84,11 @@ holds the text of the Apache `KEYS` file, of the human index, and of
 - **LIB-KEYDIR-3** — The module must hold no organization word, no purpose list,
   and no contact as a constant, and must not render markup. Each one is an
   argument, and the site owns the template.
+- **LIB-KEYDIR-4** — The generated text must let no caller field forge a field
+  or a block. A value that reaches a one-field line must hold no newline, a
+  value that a list joins must hold no separator, and an armored body must hold
+  one block with no text outside it. `gpg --import` reads the `KEYS` file, so a
+  forged block would publish a second key under one name.
 
 <a id="lib-log"></a>
 
@@ -132,19 +137,21 @@ public key only, and it verifies no signature.
   header and must write the length again. One key then gives one answer in the
   old packet format and in the new one.
 - **LIB-OPENPGP-3** — The Web Key Directory hash must use the z-base-32 alphabet
-  `ybndrfg8ejkmcpqxot1uwisza345h769`, and must lowercase the ASCII letters of
-  the local part alone. The RFC 4648 alphabet gives a URL that gpg(1) never asks
-  for, and a lowercase step that reads a byte above 127 rewrites a UTF-8 local
-  part.
+  `ybndrfg8ejkmcpqxot1uwisza345h769`, and must fold the ASCII letters of the
+  local part alone. The RFC 4648 alphabet gives a URL that gpg(1) never asks
+  for. A fold that reads a byte above 127 rewrites a UTF-8 local part.
 - **LIB-OPENPGP-4** — The armor decoder must hold the base64 body to a whole
-  number of groups, and must accept the padding at the end of the last body line
-  only. A base64 reader drops a trailing partial group and every byte after the
-  padding, so either shape decodes to a truncated key that a crafted checksum
-  line still matches.
+  number of groups, and must take the padding at the end of the last body line
+  only. A reader drops a partial group, and every byte after the padding. Either
+  shape gives a truncated key that a crafted checksum line matches.
 - **LIB-OPENPGP-5** — The armor decoder must not accept a block that gpg(1)
   rejects. A site publishes the key that this decoder validated, so a consumer
-  must be able to import it. The decoder can be stricter: it rejects a body line
-  with interior whitespace and a second checksum line, and gpg(1) reads both.
+  must be able to import it. The rule runs one way only: the decoder can reject
+  a block that gpg(1) reads, and it does so in several places.
+- **LIB-OPENPGP-6** — Each method of the decoder must take bytes, and must
+  reject a string that holds a code point above 255. `Digest::SHA` dies on such
+  a string, and a byte unpack takes the low byte of each character, which gives
+  a wrong answer in place of a failure.
 
 <a id="lib-pidfile"></a>
 

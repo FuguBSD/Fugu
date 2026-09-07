@@ -178,8 +178,11 @@ stricter reader does not.
 
 A parenthesis ends the key in a reader that stops at the first one.
 Whitespace breaks a reader that splits a line on space. A manifest
-travels to sha256(1) and to the C<scripts/deps> of FuguBSD/Tooling.
-The writer therefore holds a key to the strict form.
+travels to sha256(1) and to C<scripts/deps>, so the writer holds a
+key to the strict form.
+
+The whitespace test names the ASCII whitespace alone. A file name that
+holds a byte above 127 therefore passes.
 
 Each of these is a failure: an empty hash, an empty key, a key with a
 parenthesis, a key with whitespace, and a digest that is not 64
@@ -191,8 +194,8 @@ Neither method needs signify(1). An object whose command did not
 resolve still parses and still writes.
 
 C<new> still needs a non-empty C<keys>, because the verification
-methods need a key set. A caller that only parses or writes therefore
-names any path, and it never reads C<error> from the construction:
+methods need a key set. A caller that only parses or writes names any
+path, and it never reads C<error> from the construction:
 
     my $manifest = Fugu::Signify->new(keys => ['/nonexistent']);
     my $text     = $manifest->write_manifest(\%digests);

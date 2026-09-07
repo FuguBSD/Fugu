@@ -34,6 +34,10 @@ use MIME::Base64 qw(decode_base64);
 # never dies for bad input: a key file comes from outside, so bad
 # bytes are data and not a programming error.
 #
+# Every public method needs bytes. Each one rejects a string that
+# holds a code point above 255, because Digest::SHA dies on such a
+# string and unpack 'C*' would take the low byte of each character.
+#
 # The module reads a public key only. It holds no private key, it
 # decrypts nothing, and it verifies no signature. gpg(1) owns those
 # acts.
@@ -66,11 +70,13 @@ use constant MAX_ARMOR_SIZE => 1_048_576;
 # Fugu::OpenPGP->decode_armor($text):
 #	The binary form of an armored block, or undef with the reason.
 #
-#	The method reads the two delimiter lines, it skips the armor
-#	headers, it decodes the base64 body, and it compares the
-#	CRC-24 checksum line against the decoded bytes. The checksum
-#	is not decoration: a decoder that skips it accepts a truncated
-#	key, and a truncated key gives a fingerprint of its own.
+#	The method reads the two delimiter lines and skips the armor
+#	headers. It decodes the base64 body, and it compares the
+#	CRC-24 checksum line against the decoded bytes.
+#
+#	The checksum is not decoration. A decoder that skips it
+#	accepts a truncated key, and a truncated key gives a
+#	fingerprint of its own.
 #
 #	The method returns the bytes in scalar context. In list
 #	context it returns the bytes and undef on a success, and undef
@@ -78,6 +84,9 @@ use constant MAX_ARMOR_SIZE => 1_048_576;
 sub decode_armor ( $class, $text )
 {
 	return _fail('the armored text is undef') unless defined $text;
+	return _fail( 'the armored text holds a character above 255, '
+		    . 'and this method needs bytes' )
+	    if _wide($text);
 
 	if ( length($text) > MAX_ARMOR_SIZE ) {
 		return _fail(
@@ -110,16 +119,21 @@ sub decode_armor ( $class, $text )
 
 	# The normalization above removed every CRLF, so no line holds
 	# a trailing carriage return. A mailer that pads a line leaves
-	# trailing space instead, and the delimiter patterns tolerate
-	# the same padding, so the body must not be stricter at the
-	# ends than they are.
+	# a space or a tab instead, and the delimiter patterns
+	# tolerate the same two. The trim therefore names those two
+	# and nothing else.
+	#
+	# \s must not stand here. Under the feature set of this file
+	# it also matches 0x0B, 0x0C, 0x85 and 0xA0, and gpg(1)
+	# rejects a body line that holds any of them with "invalid
+	# radix64 character". A trim on \s would strip the byte and
+	# accept a block that gpg(1) rejects.
 	#
 	# The trim touches the two ends of a line only. A line with
 	# interior whitespace stays a failure, although gpg(1) reads
 	# one. This method is stricter there on purpose: it validates
-	# a key that a site publishes, and a published key must hold
-	# the shape that RFC 4880 states.
-	my @lines = map { s/\A\s+|\s+\z//gr } split /\n/, $block, -1;
+	# a key that a site publishes.
+	my @lines = map { s/\A[ \t]+|[ \t]+\z//gr } split /\n/, $block, -1;
 
 	# An armor header is "Key: value" or a bare "Key:", and a
 	# blank line ends the header section. RFC 4880 makes that
@@ -128,9 +142,13 @@ sub decode_armor ( $class, $text )
 	# must not accept what gpg(1) rejects, because a site would
 	# then publish a key that no consumer can import.
 	#
-	# The value can be empty, and gpg(1) reads such a header, so
-	# the pattern must not need the space after the colon.
-	while ( @lines && $lines[0] =~ /\A[A-Za-z][A-Za-z0-9-]*:/ ) {
+	# A header holds "Key: value" or a bare "Key:". gpg(1) reads
+	# an empty value, and it rejects a value with no space after
+	# the colon: "Comment:nospace" fails with "invalid armor
+	# header". The pattern therefore needs the space whenever a
+	# value follows. The trim above already removed a trailing
+	# space, so "Key: " arrives here as "Key:".
+	while ( @lines && $lines[0] =~ /\A[A-Za-z][A-Za-z0-9-]*:(?: .*)?\z/ ) {
 		shift @lines;
 	}
 
@@ -180,9 +198,9 @@ sub decode_armor ( $class, $text )
 
 	# base64 carries four characters for each three bytes, so the
 	# joined body must hold a whole number of groups.
-	# decode_base64 drops a trailing partial group without a word,
-	# so one extra character would give the same bytes and the
-	# same checksum, and gpg(1) rejects such a block.
+	# decode_base64 drops a trailing partial group without a word.
+	# One extra character would therefore give the same bytes and
+	# the same checksum, and gpg(1) rejects such a block.
 	my $joined = join '', @body;
 	if ( length($joined) % 4 != 0 ) {
 		return _fail(
@@ -197,8 +215,8 @@ sub decode_armor ( $class, $text )
 	    unless length $binary;
 
 	# The pattern above fixes the checksum line at four base64
-	# characters, and four characters always decode to three
-	# bytes, so no length test is needed here.
+	# characters. Four characters always decode to three bytes, so
+	# no length test is needed here.
 	my $want = decode_base64($checksum);
 
 	my $got = pack 'N', _crc24($binary);
@@ -301,6 +319,14 @@ sub zbase32 ( $class, $bytes )
 {
 	return '' unless defined $bytes && length $bytes;
 
+	# unpack 'C*' takes the low byte of each code point, so
+	# character data would give a confident wrong answer: the
+	# smiling face U+263A would encode as the colon. The method
+	# needs bytes, and it says so.
+	return _fail( 'the input holds a character above 255, '
+		    . 'and this method needs bytes' )
+	    if _wide($bytes);
+
 	my @alphabet = split //, ZBASE32_ALPHABET;
 	my ( $accumulator, $bits, $out ) = ( 0, 0, '' );
 
@@ -326,10 +352,12 @@ sub zbase32 ( $class, $bytes )
 #	RFC 4880 holds two packet header formats. The old format
 #	writes the tag in bits 5 to 2 and the length type in bits 1
 #	and 0. The new format writes the tag in bits 5 to 0, and the
-#	length in one, two or five bytes. An armored public key of
-#	gpg(1) uses the old format, and the length type is 0 for a
-#	small key and 1 for a large one. The method reads both
-#	formats, because a producer chooses either.
+#	length in one, two or five bytes.
+#
+#	An armored public key of gpg(1) uses the old format. Its
+#	length type is 0 for a small key and 1 for a large one. The
+#	method reads both formats, because a producer chooses
+#	either.
 sub _first_packet ($binary)
 {
 	return ( undef, undef, 'the binary form holds no packet header' )
@@ -426,10 +454,11 @@ sub _crc24 ($bytes)
 
 # _wide($text):
 #	True when the string holds a code point above 255. Such a
-#	string is character data and not bytes, and Digest::SHA dies
-#	on it with "Wide character in subroutine entry". The contract
-#	of this module is a clean failure, so each entry point tests
-#	this first. A caller that holds text must encode it.
+#	string is character data and not bytes. Digest::SHA dies on
+#	it with "Wide character in subroutine entry", and unpack 'C*'
+#	takes the low byte of each character. The contract of this
+#	module is a clean failure, so every public method tests this.
+#	A caller that holds text must encode it.
 sub _wide ($text)
 {
 	return $text =~ /[^\x00-\xFF]/ ? 1 : 0;

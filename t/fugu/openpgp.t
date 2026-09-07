@@ -273,23 +273,6 @@ subtest 'fingerprint holds the first packet to a public key' => sub {
 	like( $reason, qr/truncated/, 'and the reason says so' );
 };
 
-subtest 'fingerprint reads the new packet format' => sub {
-	# The same key body in the new format must give the same
-	# fingerprint: the hash writes 0x99 and the length again, so
-	# the header of the file never reaches the digest.
-	my $binary = Fugu::OpenPGP->decode_armor( slurp('openpgp-ed25519.asc') );
-	my $length = ord substr $binary, 1, 1;
-	my $body   = substr $binary, 2, $length;
-
-	my $new_format = chr( 0xC0 | 6 ) . chr($length) . $body;
-
-	is(
-		scalar Fugu::OpenPGP->fingerprint($new_format),
-		$FIXTURE{'openpgp-ed25519.asc'}{fingerprint},
-		'the new packet format gives the same fingerprint'
-	);
-};
-
 subtest 'wkd_hash matches the published vectors' => sub {
 	# The two vectors of the Web Key Directory draft.
 	is(
@@ -375,8 +358,30 @@ subtest 'fingerprint reads every length form that holds a packet' => sub {
 			$want, "the $name length form gives the fingerprint" );
 	}
 
-	# The new two-byte form encodes the length with an offset of
-	# 192, so a plain pack would give the wrong body.
+	# The new two-byte form must decode a real body. Its length
+	# field carries an offset of 192, so a body of 200 bytes needs
+	# the field 200: the arithmetic is
+	# ((first - 192) << 8) + second + 192. A test that asserts a
+	# failure only would pass for any arithmetic here.
+	{
+		my $long = "\x04" . ( 'B' x 199 );    # 200 bytes
+		my $encoded = length($long) - 192;
+		my $first   = ( $encoded >> 8 ) + 192;
+		my $second  = $encoded & 0xFF;
+		my $packet =
+		    chr(0xC6) . chr($first) . chr($second) . $long;
+
+		is(
+			scalar Fugu::OpenPGP->fingerprint($packet),
+			uc Digest::SHA::sha1_hex(
+				"\x99" . pack( 'n', length $long ) . $long
+			),
+			'the new two-byte length form decodes a real body'
+		);
+	}
+
+	# A short length must not take the two-byte form: the offset
+	# would name a body that the bytes do not hold.
 	my $offset = $length + 192;
 	if ( $offset >= 192 && $offset < 8384 ) {
 		my $first  = ( ( $offset - 192 ) >> 8 ) + 192;
@@ -408,6 +413,55 @@ subtest 'fingerprint reads every length form that holds a packet' => sub {
 	    Fugu::OpenPGP->fingerprint( chr(0x99) . pack( 'n', 65535 ) . $body );
 	is( $got, undef, 'an oversized declared length fails' );
 	like( $reason, qr/truncated/, 'and the reason says so' );
+};
+
+subtest 'decode_armor rejects interior whitespace in a body line' => sub {
+	# The trim touches the two ends of a line only. gpg(1) reads a
+	# line with interior whitespace, and this method rejects one on
+	# purpose: LIB-OPENPGP-5 lets the decoder be stricter, and a
+	# published key must hold the shape that RFC 4880 states.
+	my $text = slurp('openpgp-ed25519.asc');
+	my @lines = split /\n/, $text;
+	for my $i ( 0 .. $#lines ) {
+		next unless $lines[$i] =~ /\Am[A-Za-z0-9+\/]/;
+		substr $lines[$i], 4, 0, ' ';
+		last;
+	}
+
+	my ( $binary, $reason ) =
+	    Fugu::OpenPGP->decode_armor( join "\n", @lines );
+	is( $binary, undef, 'a body line with an interior space fails' );
+	like( $reason, qr/not a base64 body line/, 'and the reason says so' );
+
+	# A tab inside a line is the same fault.
+	my @tabbed = split /\n/, $text;
+	for my $i ( 0 .. $#tabbed ) {
+		next unless $tabbed[$i] =~ /\Am[A-Za-z0-9+\/]/;
+		substr $tabbed[$i], 4, 0, "\t";
+		last;
+	}
+	is( scalar Fugu::OpenPGP->decode_armor( join "\n", @tabbed ),
+		undef, 'a body line with an interior tab fails' );
+};
+
+subtest 'decode_armor rejects a header value with no space' => sub {
+	# gpg(1) rejects "Comment:nospace" with "invalid armor
+	# header", so LIB-OPENPGP-5 makes this a rule and not a
+	# choice. An empty value stays valid, and gpg(1) reads it.
+	my $text = slurp('openpgp-ed25519.asc');
+
+	my $nospace = $text;
+	$nospace =~
+	    s/(-----BEGIN PGP PUBLIC KEY BLOCK-----\n)/$1Comment:nospace\n/;
+	my ( $binary, $reason ) = Fugu::OpenPGP->decode_armor($nospace);
+	is( $binary, undef, 'a header value with no space fails' );
+	like( $reason, qr/no blank line ends the armor header section/,
+		'and the reason names the header section' );
+
+	my $empty = $text;
+	$empty =~ s/(-----BEGIN PGP PUBLIC KEY BLOCK-----\n)/$1Comment:\n/;
+	ok( defined scalar Fugu::OpenPGP->decode_armor($empty),
+		'an empty header value still decodes' );
 };
 
 subtest 'decode_armor holds the body to whole base64 groups' => sub {
@@ -443,6 +497,17 @@ subtest 'the methods need bytes, and say so' => sub {
 	    Fugu::OpenPGP->fingerprint( "\x98\x03\x{263A}ab" );
 	is( $got, undef, 'a wide binary form fails' );
 	like( $why, qr/above 255/, 'and the reason says so' );
+
+	# unpack 'C*' takes the low byte of each code point, so
+	# zbase32 would give a confident wrong answer for character
+	# data: U+263A would encode as the colon, 0x3A.
+	my ( $z, $zwhy ) = Fugu::OpenPGP->zbase32("\x{263A}");
+	is( $z, undef, 'a wide zbase32 input fails' );
+	like( $zwhy, qr/above 255/, 'and the reason says so' );
+
+	my ( $a, $awhy ) = Fugu::OpenPGP->decode_armor("\x{263A}");
+	is( $a, undef, 'a wide armored text fails' );
+	like( $awhy, qr/above 255/, 'and the reason says so' );
 };
 
 subtest 'wkd_hash lowercases the ASCII letters alone' => sub {
@@ -515,6 +580,23 @@ subtest 'decode_armor reads a body that a mailer padded' => sub {
 	    map { /\A-----|\A\z/ ? $_ : "$_\t" } split /\n/, $text;
 	ok( defined scalar Fugu::OpenPGP->decode_armor($tabbed),
 		'a tab-padded body decodes' );
+
+	# The trim names the space and the tab, and nothing else. \s
+	# would also strip 0x0B, 0x0C, 0x85 and 0xA0, and gpg(1)
+	# rejects a body line that holds any of them with "invalid
+	# radix64 character". A trim on \s would therefore accept a
+	# block that gpg(1) rejects, against LIB-OPENPGP-5.
+	for my $byte ( "\x0B", "\x0C", "\x85", "\xA0" ) {
+		my $padded = join "\n",
+		    map { /\A-----|\A\z/ ? $_ : "$_$byte" }
+		    split /\n/, $text;
+		is(
+			scalar Fugu::OpenPGP->decode_armor($padded),
+			undef,
+			sprintf 'a body line padded with %02x fails',
+			ord $byte
+		);
+	}
 };
 
 subtest 'decode_armor holds the base64 padding to the end' => sub {
