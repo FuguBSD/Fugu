@@ -62,8 +62,11 @@ tarball to GitHub Releases and to PAUSE. The rules are in
 
 ## Commit scopes
 
-`control`, `file`, `imsg`, `log`, `mdnsd`, `mqtt`, `privdrop`, `process`,
-`proxy`, `repl`, `signify`, `ssh`, `spec`, `deps`, `ci`.
+`control`, `file`, `imsg`, `keydir`, `lib`, `log`, `mdnsd`, `mqtt`, `openpgp`,
+`privdrop`, `process`, `proxy`, `repl`, `signify`, `ssh`, `spec`, `deps`, `ci`.
+
+Use `lib` for a change that adds or reshapes more than one module. Use the
+module scope for a change inside one module.
 
 ## License
 

@@ -64,6 +64,32 @@ imsg messages over a connected stream socket. The frame bytes come from
 
 Newline-delimited JSON over a UNIX socket.
 
+<a id="lib-keydir"></a>
+
+## Fugu::KeyDir
+
+The names, the order and the generated text of a published key directory. It
+holds the key name pattern `<org>-<serial>-<purpose>.<ext>`, the type from the
+extension, and the status vocabulary. It also holds the order of a key set. It
+holds the text of the Apache `KEYS` file, of the human index, and of
+`security.txt`.
+
+- **LIB-KEYDIR-1** — The publication order must be total: `current`, then
+  `next`, then `retired`, and inside one status the serial must descend. A site
+  build writes the index page on every build, so an unstable order would make a
+  diff on each run.
+- **LIB-KEYDIR-2** — Each purpose must hold exactly one `current` key, and at
+  most one `next` key. A purpose with two `current` keys names no key in force,
+  so a reader cannot tell which key signs a release.
+- **LIB-KEYDIR-3** — The module must hold no organization word, no purpose list,
+  and no contact as a constant, and must not render markup. Each one is an
+  argument, and the site owns the template.
+- **LIB-KEYDIR-4** — The generated text must let no caller field forge a field
+  or a block. A value that reaches a one-field line must hold no newline, a
+  value that a list joins must hold no separator, and an armored body must hold
+  one block with no text outside it. `gpg --import` reads the `KEYS` file, so a
+  forged block would publish a second key under one name.
+
 <a id="lib-log"></a>
 
 ## Fugu::Log
@@ -94,6 +120,38 @@ module requires `Net::MQTT::Simple` lazily.
 
 Control mdnsd(8) over its control socket. The client implements publish only.
 The wire protocol is in [protocol/MDNS-Control.md](protocol/MDNS-Control.md).
+
+<a id="lib-openpgp"></a>
+
+## Fugu::OpenPGP
+
+An armored OpenPGP public key as bytes. The module holds the armor decoder, the
+version 4 fingerprint of a public key packet, and the Web Key Directory hash of
+an email local part. It runs no command, so a caller needs no gpg(1). It reads a
+public key only, and it verifies no signature.
+
+- **LIB-OPENPGP-1** — The armor decoder must compare the CRC-24 checksum line
+  against the decoded bytes. A decoder that skips the comparison accepts a
+  truncated key, and a truncated key gives a fingerprint of its own.
+- **LIB-OPENPGP-2** — The fingerprint must read the packet length from the
+  header and must write the length again. One key then gives one answer in the
+  old packet format and in the new one.
+- **LIB-OPENPGP-3** — The Web Key Directory hash must use the z-base-32 alphabet
+  `ybndrfg8ejkmcpqxot1uwisza345h769`, and must fold the ASCII letters of the
+  local part alone. The RFC 4648 alphabet gives a URL that gpg(1) never asks
+  for. A fold that reads a byte above 127 rewrites a UTF-8 local part.
+- **LIB-OPENPGP-4** — The armor decoder must hold the base64 body to a whole
+  number of groups, and must take the padding at the end of the last body line
+  only. A reader drops a partial group, and every byte after the padding. Either
+  shape gives a truncated key that a crafted checksum line matches.
+- **LIB-OPENPGP-5** — The armor decoder must not accept a block that gpg(1)
+  rejects. A site publishes the key that this decoder validated, so a consumer
+  must be able to import it. The rule runs one way only: the decoder can reject
+  a block that gpg(1) reads, and it does so in several places.
+- **LIB-OPENPGP-6** — Each method of the decoder must take bytes, and must
+  reject a string that holds a code point above 255. `Digest::SHA` dies on such
+  a string, and a byte unpack takes the low byte of each character, which gives
+  a wrong answer in place of a failure.
 
 <a id="lib-pidfile"></a>
 
@@ -178,10 +236,17 @@ Signal handlers for graceful shutdown.
 ## Fugu::Signify
 
 Verify a file against a small set of signify(1) public keys, and verify each
-file of a signed SHA256 manifest against its digest. A manifest key is the text
-between the parentheses, and the module holds it as text: it can be a file name,
-a file path, or a download URL. The caller maps each key to a local path. The
-module holds no private key and cannot sign.
+file of a signed SHA256 manifest against its digest. The module also reads and
+writes the SHA256 manifest form, so a producer and a checker share one
+implementation. A manifest key is the text between the parentheses, and the
+module holds it as text: it can be a file name, a file path, or a download URL.
+The caller maps each key to a local path. The module holds no private key and
+cannot sign.
+
+- **LIB-SIGNIFY-1** — The manifest writer must sort its keys, so two runs write
+  one byte sequence, and must reject a key that a stricter reader cannot carry.
+  A parenthesis ends the key in a reader that stops at the first one, and
+  whitespace breaks a reader that splits a line on space.
 
 <a id="lib-statefile"></a>
 
