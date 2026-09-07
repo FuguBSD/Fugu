@@ -69,6 +69,27 @@ for my $file (@files) {
 			      "$file: a job that runs make deps uses no"
 			    . ' setup-perl action' )
 		    or diag( join "\n", @own );
+
+		# make deps takes no argument. A word after it names a
+		# second target, and make stops with "No rule to make
+		# target". The fault reaches the runner alone, because
+		# the workflow is text everywhere else.
+		#
+		# The test reads a command and never a comment or a
+		# body of prose, so the match starts the line.
+		for my $line (@own) {
+			my $command = $line =~ s/\A\s+//r;
+			next if $command =~ /\A#/;
+
+			my ($rest) =
+			    $command =~ m{\A(?:run:\s*)?make\s+deps\b(.*)\z};
+			next unless defined $rest;
+			$rest =~ s/\s+\z//;
+			next if $rest eq '' || $rest =~ m{\A[|&;)]};
+
+			fail(         "$file: make deps takes no argument, and"
+				    . " this line names$rest" );
+		}
 	}
 
 	for my $i ( 0 .. $#lines ) {
