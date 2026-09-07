@@ -169,10 +169,16 @@ The method lowercases each digest.
 
 The key of a line is a file name, a file path, or a download URL,
 whichever the producer writes. The method therefore rejects only a key
-that the line form cannot hold: the line ends the key at the last
-parenthesis, so a key with a parenthesis parses back as another key,
-and whitespace in a key would break the field split of a reader that
-splits on space.
+that another reader cannot carry.
+
+C<parse_manifest> takes the text up to the last parenthesis. It
+therefore reads a key with a parenthesis back without a change. A
+stricter reader does not.
+
+A parenthesis ends the key in a reader that stops at the first one.
+Whitespace breaks a reader that splits a line on space. A manifest
+travels to sha256(1) and to the C<scripts/deps> of FuguBSD/Tooling.
+The writer therefore holds a key to the strict form.
 
 An empty hash, an empty key, a key with a parenthesis, a key with
 whitespace, and a digest that is not 64 hexadecimal characters are
@@ -181,6 +187,13 @@ reference.
 
 Neither method needs signify(1). An object whose command did not
 resolve still parses and still writes.
+
+C<new> still needs a non-empty C<keys>, because the verification
+methods need a key set. A caller that only parses or writes therefore
+names any path, and it never reads C<error> from the construction:
+
+    my $manifest = Fugu::Signify->new(keys => ['/nonexistent']);
+    my $text     = $manifest->write_manifest(\%digests);
 
 =head1 RETURN VALUES
 

@@ -54,6 +54,11 @@ use constant ZBASE32_ALPHABET => 'ybndrfg8ejkmcpqxot1uwisza345h769';
 # The tag of a public key packet, per RFC 4880 section 4.3.
 use constant PACKET_PUBLIC_KEY => 6;
 
+# The largest public key packet body that a version 4 fingerprint can
+# hold. The digest writes the length in two octets, per RFC 4880
+# section 12.2, so a longer body has no fingerprint of this version.
+use constant MAX_PACKET_BODY => 0xFFFF;
+
 # The size bound of an armored block, 1 MiB. A public key of a person
 # holds a few kilobytes. A caller that names a disk image by mistake
 # gets a clean failure, not a decode of 500 MB.
@@ -104,9 +109,12 @@ sub decode_armor ( $class, $text )
 	return _fail('no text between the delimiter lines')
 	    unless defined $block;
 
-	my @lines = split /\n/, $block, -1;
-	chomp @lines;
-	s/\r\z// for @lines;
+	# The normalization above removed every CRLF, so no line holds
+	# a trailing carriage return. A mailer that pads a line leaves
+	# trailing space instead, and base64 ignores whitespace
+	# between the groups. The delimiter patterns tolerate the same
+	# padding, so the body must not be stricter than they are.
+	my @lines = map { s/\A\s+|\s+\z//gr } split /\n/, $block, -1;
 
 	# An armor header is "Key: value", and a blank line ends the
 	# header section. The first line decides whether a header
@@ -135,6 +143,16 @@ sub decode_armor ( $class, $text )
 		}
 		return _fail('a body line follows the checksum line')
 		    if defined $checksum;
+
+		# The padding of base64 ends the data, and
+		# decode_base64 drops every byte after it. A line with
+		# interior padding would therefore decode to a
+		# truncated key, and a crafted checksum line would
+		# still agree with the truncation. gpg(1) rejects such
+		# a block, so this method must reject it too. The
+		# padding may sit at the end of the last body line
+		# only, and the loop tests that after it reads them
+		# all.
 		return _fail("not a base64 body line: $line")
 		    unless $line =~ m{\A[A-Za-z0-9+/]+={0,2}\z};
 		push @body, $line;
@@ -142,6 +160,14 @@ sub decode_armor ( $class, $text )
 
 	return _fail('no base64 body')   unless @body;
 	return _fail('no checksum line') unless defined $checksum;
+
+	# Only the last body line may carry the padding.
+	for my $i ( 0 .. $#body - 1 ) {
+		next unless $body[$i] =~ /=/;
+		return _fail(
+			      'a base64 body line before the last one holds '
+			    . "padding: $body[$i]" );
+	}
 
 	my $binary = decode_base64( join '', @body );
 	return _fail('the base64 body decodes to no bytes')
@@ -190,6 +216,18 @@ sub fingerprint ( $class, $binary )
 	return _fail('the public key packet is empty') unless defined $version;
 	return _fail("the public key packet is version $version, and not 4")
 	    unless $version == 4;
+
+	# The digest writes the body length in two octets, so a longer
+	# body has no version 4 fingerprint. pack would wrap the value
+	# without a warning, and the method would then answer with a
+	# confident wrong fingerprint.
+	if ( length($body) > MAX_PACKET_BODY ) {
+		return _fail(
+			sprintf 'the public key packet body is %d bytes, '
+			    . 'and a version 4 fingerprint holds at most %d',
+			length($body), MAX_PACKET_BODY
+		);
+	}
 
 	my $hex =
 	    Digest::SHA::sha1_hex( "\x99" . pack( 'n', length $body ) . $body );

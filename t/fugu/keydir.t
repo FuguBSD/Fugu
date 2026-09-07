@@ -125,6 +125,48 @@ subtest 'name_for is the inverse of parse_name' => sub {
 	like( $kd->error, qr/unknown key type/, 'and the reason says so' );
 };
 
+subtest 'the serial holds a digit bound' => sub {
+	# A serial above the bound leaves the integer range and
+	# becomes a float. next_serial would then hand name_for a
+	# value such as 1e+20, and the rotation would stall with a
+	# reason that names neither the file nor the true fault.
+	my $huge = 'fugubsd-' . ( '9' x 20 ) . '-release.pub';
+	is( $kd->parse_name($huge), undef, 'a 20-digit serial fails' );
+	like( $kd->error, qr/holds 20 digits, and the bound is 9/,
+		'and the reason names the count and the bound' );
+
+	is( $kd->next_serial( [$huge], 'release' ),
+		undef, 'next_serial fails on it too' );
+
+	# The bound itself must still parse.
+	my $at = 'fugubsd-999999999-release.pub';
+	ok( $kd->parse_name($at), 'a 9-digit serial parses' );
+
+	# name_for holds the same bound, so the two stay inverses. A
+	# name that name_for built and parse_name rejected would break
+	# every caller that writes a file and reads it back.
+	is(
+		$kd->name_for(
+			serial  => 1_000_000_000,
+			purpose => 'release',
+			type    => 'signify'
+		),
+		undef,
+		'name_for rejects a serial above the bound'
+	);
+	like( $kd->error, qr/holds 10 digits/, 'and the reason says so' );
+
+	my $built = $kd->name_for(
+		serial  => 999_999_999,
+		purpose => 'release',
+		type    => 'signify'
+	);
+	ok( $kd->parse_name($built),
+		'a name that name_for built at the bound still parses' );
+
+	is( Fugu::KeyDir::MAX_SERIAL_DIGITS(), 9, 'the bound is 9 digits' );
+};
+
 subtest 'next_serial adds one to the highest of the purpose' => sub {
 	is( $kd->next_serial( [], 'release' ),
 		1, 'an empty directory starts at 1' );
@@ -193,17 +235,41 @@ subtest 'order writes one byte sequence' => sub {
 		[ map { $_->{name} } @$ordered ],
 		'a reversed input gives the same order' );
 
-	# Two purposes at one serial: the purpose breaks the tie.
+	# Two purposes at one serial: the purpose breaks the tie. The
+	# pair must be one where the purpose and the name disagree,
+	# or the name comparator alone would satisfy the assertion.
+	# The name puts the hyphen of code-signing before the dot of
+	# code, and the purpose puts code first.
 	my $mixed = $kd->order(
 		[
-			{ name => 'fugubsd-1-release.pub', status => 'current' },
-			{ name => 'fugubsd-1-mail.asc',    status => 'current' },
+			{
+				name   => 'fugubsd-1-code-signing.pub',
+				status => 'current'
+			},
+			{ name => 'fugubsd-1-code.pub', status => 'current' },
 		]
 	);
 	is_deeply(
 		[ map { $_->{name} } @$mixed ],
-		[ 'fugubsd-1-mail.asc', 'fugubsd-1-release.pub' ],
-		'the purpose breaks a tie at one serial'
+		[ 'fugubsd-1-code.pub', 'fugubsd-1-code-signing.pub' ],
+		'the purpose breaks a tie, and it beats the name'
+	);
+
+	# One purpose at one serial with two types: only the name
+	# breaks this tie, and without it the order follows the input.
+	my @two_types = (
+		{ name => 'fugubsd-1-mail.pub', status => 'current' },
+		{ name => 'fugubsd-1-mail.asc', status => 'current' },
+	);
+	is_deeply(
+		[ map { $_->{name} } @{ $kd->order( \@two_types ) } ],
+		[ 'fugubsd-1-mail.asc', 'fugubsd-1-mail.pub' ],
+		'the name breaks the last tie'
+	);
+	is_deeply(
+		[ map { $_->{name} } @{ $kd->order( [ reverse @two_types ] ) } ],
+		[ 'fugubsd-1-mail.asc', 'fugubsd-1-mail.pub' ],
+		'and a reversed input gives the same order'
 	);
 
 	# The method must not mutate its own input.
@@ -355,6 +421,66 @@ subtest 'keys_file holds each OpenPGP key in order' => sub {
 		'an OpenPGP key with no armor fails'
 	);
 	like( $kd->error, qr/holds no armor/, 'and the reason says so' );
+};
+
+subtest 'keys_file lets no field forge a second block' => sub {
+	# One line holds one field. A value with a newline would forge
+	# a second field, and the comment block sits in front of an
+	# armored body, so it would also forge a whole second block.
+	# gpg --import reads that block, so the guard is the whole
+	# defence of the file.
+	my $forged = "AAAA\nstatus: retired\n\n"
+	    . "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n"
+	    . "mDMEforged\n=zzzz\n-----END PGP PUBLIC KEY BLOCK-----";
+
+	for my $field (qw(fingerprint since until)) {
+		my $text = $kd->keys_file(
+			[
+				{
+					name   => 'fugubsd-1-mail.asc',
+					status => 'current',
+					armor  => ARMOR,
+					$field => $forged,
+				}
+			]
+		);
+		is( $text, undef, "a $field with a newline fails" );
+		like( $kd->error, qr/\Qthe $field of fugubsd-1-mail.asc\E/,
+			'and the reason names the field and the key' );
+	}
+
+	# A bare carriage return is the same fault.
+	is(
+		$kd->keys_file(
+			[
+				{
+					name        => 'fugubsd-1-mail.asc',
+					status      => 'current',
+					armor       => ARMOR,
+					fingerprint => "AAAA\rBBBB",
+				}
+			]
+		),
+		undef,
+		'a carriage return fails too'
+	);
+
+	# A clean field still passes, so the guard is not a blanket
+	# refusal.
+	ok(
+		$kd->keys_file(
+			[
+				{
+					name        => 'fugubsd-1-mail.asc',
+					status      => 'current',
+					armor       => ARMOR,
+					fingerprint => 'AAAA',
+					since       => '2026-09-06',
+				}
+			]
+		),
+		'a clean field set still passes'
+	);
 };
 
 subtest 'index_data holds one row for each key, in order' => sub {

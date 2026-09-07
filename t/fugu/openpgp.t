@@ -296,10 +296,17 @@ subtest 'zbase32 encodes each group' => sub {
 	is( length( Fugu::OpenPGP->zbase32( "\x00" x 20 ) ),
 		32, '20 bytes give 32 characters' );
 
-	# One byte is 8 bits, so it takes two characters and the
-	# second one carries three zero bits.
-	is( length( Fugu::OpenPGP->zbase32("\x00") ),
-		2, 'one byte gives two characters' );
+	# One byte is 8 bits, so it takes two characters, and the
+	# second one carries three zero bits. The assertion names the
+	# characters, not the count: a missing shift of the last group
+	# keeps the count and changes the answer. 0xFF is 11111111, so
+	# the groups are 11111 and 11100, which are 9 and h.
+	is( Fugu::OpenPGP->zbase32("\xFF"),
+		'9h', 'a partial group shifts its low bits to zero' );
+	is( Fugu::OpenPGP->zbase32("\x80"),
+		'oy', 'and the same for a leading one bit' );
+	is( Fugu::OpenPGP->zbase32("\x00"),
+		'yy', 'and the same for a zero byte' );
 
 	# The alphabet starts with y, so an all-zero input gives y
 	# for every character. This catches a swap to the RFC 4648
@@ -307,8 +314,151 @@ subtest 'zbase32 encodes each group' => sub {
 	is( Fugu::OpenPGP->zbase32( "\x00" x 5 ),
 		'y' x 8, 'zero bytes give the first letter of the alphabet' );
 
-	is( length( Fugu::OpenPGP->zbase32("\xFF") ),
-		2, 'a full byte gives two characters' );
+};
+
+subtest 'fingerprint reads every length form that holds a packet' => sub {
+	# The body of the real key, so each form gives a checkable
+	# fingerprint. The header of the file never reaches the
+	# digest, so every form that carries this body must agree.
+	my $binary = Fugu::OpenPGP->decode_armor( slurp('openpgp-ed25519.asc') );
+	my $length = ord substr $binary, 1, 1;
+	my $body   = substr $binary, 2, $length;
+	my $want   = $FIXTURE{'openpgp-ed25519.asc'}{fingerprint};
+
+	my %form = (
+		'old one-byte'  => chr(0x98) . chr($length) . $body,
+		'old two-byte'  => chr(0x99) . pack( 'n', $length ) . $body,
+		'old four-byte' => chr(0x9A) . pack( 'N', $length ) . $body,
+		'new one-byte'  => chr(0xC6) . chr($length) . $body,
+		'new five-byte' => chr(0xC6)
+		    . chr(255)
+		    . pack( 'N', $length )
+		    . $body,
+	);
+
+	for my $name ( sort keys %form ) {
+		is( scalar Fugu::OpenPGP->fingerprint( $form{$name} ),
+			$want, "the $name length form gives the fingerprint" );
+	}
+
+	# The new two-byte form encodes the length with an offset of
+	# 192, so a plain pack would give the wrong body.
+	my $offset = $length + 192;
+	if ( $offset >= 192 && $offset < 8384 ) {
+		my $first  = ( ( $offset - 192 ) >> 8 ) + 192;
+		my $second = ( $offset - 192 ) & 0xFF;
+		is(
+			scalar Fugu::OpenPGP->fingerprint(
+				chr(0xC6) . chr($first) . chr($second) . $body
+			),
+			undef,
+			'the new two-byte form of a short length holds no packet'
+		);
+	}
+
+	# Two forms carry no whole packet, and a public key packet
+	# never uses either.
+	my ( $got, $reason ) =
+	    Fugu::OpenPGP->fingerprint( chr(0x9B) . $body );
+	is( $got, undef, 'the old indeterminate length fails' );
+	like( $reason, qr/indeterminate/, 'and the reason names it' );
+
+	( $got, $reason ) = Fugu::OpenPGP->fingerprint(
+		chr(0xC6) . chr(224) . $body );
+	is( $got, undef, 'a new-format partial body length fails' );
+	like( $reason, qr/partial body length/, 'and the reason names it' );
+
+	# A declared length above the bytes on hand must fail, and
+	# must not read past the end.
+	( $got, $reason ) =
+	    Fugu::OpenPGP->fingerprint( chr(0x99) . pack( 'n', 65535 ) . $body );
+	is( $got, undef, 'an oversized declared length fails' );
+	like( $reason, qr/truncated/, 'and the reason says so' );
+};
+
+subtest 'fingerprint bounds the packet body' => sub {
+	# The digest writes the body length in two octets, so a longer
+	# body has no version 4 fingerprint. pack wraps the value with
+	# no warning, so without the bound the method would answer
+	# with a confident wrong fingerprint over a wrapped length.
+	my $over = "\x04" . ( 'A' x 69999 );
+	my $packet = chr(0x9A) . pack( 'N', length $over ) . $over;
+
+	my ( $got, $reason ) = Fugu::OpenPGP->fingerprint($packet);
+	is( $got, undef, 'a body above 65535 bytes fails' );
+	like( $reason, qr/holds at most 65535/, 'and the reason names the bound' );
+
+	# The bound itself must still answer, so the guard is not off
+	# by one.
+	my $at = "\x04" . ( 'A' x ( 0xFFFF - 1 ) );
+	ok(
+		defined scalar Fugu::OpenPGP->fingerprint(
+			chr(0x9A) . pack( 'N', length $at ) . $at
+		),
+		'a body of exactly 65535 bytes still answers'
+	);
+
+	is( Fugu::OpenPGP::MAX_PACKET_BODY(), 0xFFFF,
+		'MAX_PACKET_BODY is the two-octet ceiling' );
+};
+
+subtest 'decode_armor reads a body that a mailer padded' => sub {
+	# base64 ignores whitespace between the groups, and the
+	# delimiter patterns tolerate trailing padding, so the body
+	# must not be stricter than they are.
+	my $text = slurp('openpgp-ed25519.asc');
+	my $padded = join "\n",
+	    map { /\A-----|\A\z/ ? $_ : "$_   " } split /\n/, $text;
+
+	my ( $binary, $reason ) = Fugu::OpenPGP->decode_armor($padded);
+	ok( defined $binary, 'a padded body decodes' ) or diag($reason);
+	is(
+		scalar Fugu::OpenPGP->fingerprint($binary),
+		$FIXTURE{'openpgp-ed25519.asc'}{fingerprint},
+		'and the padding changes no fingerprint'
+	);
+
+	# A tab is the other padding that a mailer leaves.
+	my $tabbed = join "\n",
+	    map { /\A-----|\A\z/ ? $_ : "$_\t" } split /\n/, $text;
+	ok( defined scalar Fugu::OpenPGP->decode_armor($tabbed),
+		'a tab-padded body decodes' );
+};
+
+subtest 'decode_armor holds the base64 padding to the end' => sub {
+	# The padding of base64 ends the data, and decode_base64
+	# drops every byte after it. A line with interior padding
+	# therefore decodes to a truncated key, and an attacker can
+	# craft a checksum line that agrees with the truncation.
+	# gpg(1) rejects such a block with a CRC error.
+	my $text = slurp('openpgp-ed25519.asc');
+	my ($block) = $text =~ /BLOCK-----\n\n(.*?)\n=/s;
+	my @lines = split /\n/, $block;
+
+	my $first = $lines[0];
+	$first =~ s/.\z/=/;
+
+	my $crafted =
+	      "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n$first\n"
+	    . join( "\n", @lines[ 1 .. $#lines ] )
+	    . "\n=abcd\n-----END PGP PUBLIC KEY BLOCK-----\n";
+
+	my ( $binary, $reason ) = Fugu::OpenPGP->decode_armor($crafted);
+	is( $binary, undef, 'interior padding fails' );
+	like( $reason, qr/before the last one holds padding/,
+		'and the reason names the fault, not the checksum' );
+
+	# The real keys carry padding on their last body line, so the
+	# rule must not reject them.
+	for my $name ( sort keys %FIXTURE ) {
+		is(
+			scalar Fugu::OpenPGP->fingerprint(
+				scalar Fugu::OpenPGP->decode_armor( slurp($name) )
+			),
+			$FIXTURE{$name}{fingerprint},
+			"$name still decodes with padding on its last line"
+		);
+	}
 };
 
 subtest 'decode_armor bounds the input size' => sub {

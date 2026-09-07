@@ -70,8 +70,8 @@ Newline-delimited JSON over a UNIX socket.
 
 The names, the order and the generated text of a published key directory. It
 holds the key name pattern `<org>-<serial>-<purpose>.<ext>`, the type from the
-extension, the status vocabulary, the order of a key set, and the text of the
-Apache `KEYS` file, of the human index, and of `security.txt`.
+extension, and the status vocabulary. It also holds the order of a key set, and
+the text of the Apache `KEYS` file, of the human index, and of `security.txt`.
 
 - **LIB-KEYDIR-1** — The publication order must be total: `current`, then
   `next`, then `retired`, and inside one status the serial must descend. A site
@@ -119,17 +119,17 @@ The wire protocol is in [protocol/MDNS-Control.md](protocol/MDNS-Control.md).
 
 ## Fugu::OpenPGP
 
-An armored OpenPGP public key as bytes: the armor decoder, the version 4
-fingerprint of a public key packet, and the Web Key Directory hash of an email
-local part. The module runs no command, so a caller needs no gpg(1). It reads a
+An armored OpenPGP public key as bytes. The module holds the armor decoder, the
+version 4 fingerprint of a public key packet, and the Web Key Directory hash of
+an email local part. It runs no command, so a caller needs no gpg(1). It reads a
 public key only, and it verifies no signature.
 
 - **LIB-OPENPGP-1** — The armor decoder must compare the CRC-24 checksum line
   against the decoded bytes. A decoder that skips the comparison accepts a
   truncated key, and a truncated key gives a fingerprint of its own.
 - **LIB-OPENPGP-2** — The fingerprint must read the packet length from the
-  header and write the length again, so one key gives one answer in the old
-  packet format and in the new one.
+  header and must write the length again. One key then gives one answer in the
+  old packet format and in the new one.
 - **LIB-OPENPGP-3** — The Web Key Directory hash must use the z-base-32 alphabet
   `ybndrfg8ejkmcpqxot1uwisza345h769`, and must lowercase the local part. The RFC
   4648 alphabet gives a URL that gpg(1) never asks for.
@@ -217,10 +217,16 @@ Signal handlers for graceful shutdown.
 ## Fugu::Signify
 
 Verify a file against a small set of signify(1) public keys, and verify each
-file of a signed SHA256 manifest against its digest. A manifest key is the text
-between the parentheses, and the module holds it as text: it can be a file name,
-a file path, or a download URL. The caller maps each key to a local path. The
-module holds no private key and cannot sign.
+file of a signed SHA256 manifest against its digest. The module also reads and
+writes the SHA256 manifest form, so a producer and a checker share one
+implementation. A manifest key is the text between the parentheses, and the
+module holds it as text: it can be a file name, a file path, or a download URL.
+The caller maps each key to a local path. The module holds no private key and
+cannot sign.
+
+- **LIB-SIGNIFY-1** — The manifest writer must sort its keys, so two runs write
+  one byte sequence. It must reject a key that the line form cannot carry
+  through a reader that splits a line on space.
 
 <a id="lib-statefile"></a>
 

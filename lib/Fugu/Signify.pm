@@ -311,10 +311,13 @@ sub parse_manifest ( $self, $bytes )
 #
 #	The key is a file name, a file path, or a download URL,
 #	whichever the producer writes. The method therefore rejects
-#	only a key that the line form cannot hold: the line ends the
-#	key at the last parenthesis, so a key with a parenthesis
-#	parses back as another key. Whitespace in a key would break
-#	the field split of a reader that splits on space.
+#	only a key that another reader cannot carry. _parse_manifest
+#	takes the text up to the last parenthesis, so it reads such a
+#	key back without a change. A stricter reader does not: a
+#	parenthesis ends the key in a reader that stops at the first
+#	one, and whitespace breaks a reader that splits a line on
+#	space. A manifest travels to sha256(1) and to scripts/deps, so
+#	the writer holds a key to the strict form.
 sub write_manifest ( $self, $digests )
 {
 	$self->{error} = undef;

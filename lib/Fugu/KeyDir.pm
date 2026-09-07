@@ -48,6 +48,12 @@ my %STATUS_RANK = do {
 	map { $_ => $rank++ } STATUSES;
 };
 
+# The digit bound of a serial. A serial counts the rotations of one
+# purpose, so nine digits hold every real key set. The bound keeps the
+# value inside the integer range: a longer run of digits becomes a
+# float, and a float breaks name_for and stalls a rotation.
+use constant MAX_SERIAL_DIGITS => 9;
+
 # The extension of a key file selects its type. OpenBSD names a
 # signify key .pub, and the armored OpenPGP convention is .asc.
 my %TYPE_OF_EXTENSION = (
@@ -118,8 +124,16 @@ sub parse_name ( $self, $filename )
 		return $self->_fail("the key name holds a solidus: $filename");
 	}
 
+	# The extension must be lower case, and the pattern says so.
+	# A separate match on any case tells an upper-case extension
+	# from an absent one, because the two faults need two reasons.
 	my ( $stem, $extension ) = $filename =~ /\A(.+)\.([a-z0-9]+)\z/;
 	unless ( defined $stem ) {
+		my ($upper) = $filename =~ /\A.+\.([A-Za-z0-9]+)\z/;
+		if ( defined $upper ) {
+			return $self->_fail( "the key extension must be "
+				    . "lower case in $filename: $upper" );
+		}
 		return $self->_fail(
 			"the key name holds no extension: " . $filename );
 	}
@@ -141,6 +155,19 @@ sub parse_name ( $self, $filename )
 		return $self->_fail( "the key name names the organization "
 			    . "$org, and this directory is $self->{org}: $filename"
 		);
+	}
+
+	# A serial above the digit bound would leave the integer range
+	# and become a float, and next_serial would then hand
+	# name_for a value such as 1e+20, which name_for rejects. The
+	# rotation would stall with a reason that names neither the
+	# file nor the true fault. Nine digits hold every rotation
+	# that a purpose can ever see.
+	if ( length($serial) > MAX_SERIAL_DIGITS ) {
+		return $self->_fail( "the serial of $filename holds "
+			    . length($serial)
+			    . ' digits, and the bound is '
+			    . MAX_SERIAL_DIGITS );
 	}
 
 	# The serial starts at 1 for each purpose, so zero names no
@@ -187,6 +214,16 @@ sub name_for ( $self, %args )
 		return $self->_fail(
 			'the serial must be an integer above zero: '
 			    . ( $serial // '(undef)' ) );
+	}
+
+	# The same bound as parse_name, so the two stay inverses. A
+	# name that this method built and parse_name rejected would
+	# break every caller that writes a file and reads it back.
+	if ( length($serial) > MAX_SERIAL_DIGITS ) {
+		return $self->_fail( 'the serial holds '
+			    . length($serial)
+			    . ' digits, and the bound is '
+			    . MAX_SERIAL_DIGITS );
 	}
 
 	unless ( defined $purpose && $purpose =~ /\A[a-z0-9-]+\z/ ) {
@@ -331,6 +368,21 @@ sub keys_file ( $self, $keys )
 				    . 'holds no armor field' );
 		}
 
+		# One line holds one field, so a value with a newline
+		# would forge a second field. The comment block sits in
+		# front of an armored body, so such a value can also
+		# forge a whole second block, and gpg --import reads
+		# it. The stem, the purpose, the serial and the status
+		# each come from parse_name or the vocabulary, so only
+		# the free fields need the guard.
+		for my $field (qw(fingerprint since until)) {
+			my $value = $key->{$field};
+			next unless defined $value;
+			next unless $value =~ /[\r\n]/;
+			return $self->_fail( "the $field of $key->{name} "
+				    . 'holds a newline' );
+		}
+
 		$text .= "$key->{stem}\n";
 		$text .= "purpose: $key->{purpose}\n";
 		$text .= "serial: $key->{serial}\n";
@@ -396,10 +448,13 @@ sub index_data ( $self, $keys )
 #		languages  => $list     # Optional: an array reference
 #
 #	RFC 9116 makes Contact and Expires necessary, so the method
-#	fails without either one. It writes Contact first, because the
-#	RFC states that the field order carries the preference of the
-#	operator. Expires follows, then each Encryption field, then
-#	Preferred-Languages.
+#	fails without either one. The RFC gives no order to the field
+#	types, and it states only that the order of two Contact values
+#	carries the preference of the operator. This method therefore
+#	fixes one order of its own: Contact, Expires, each Encryption
+#	field, then Preferred-Languages. A fixed order makes two runs
+#	write one byte sequence, and it keeps the contact first for a
+#	human reader. Each list keeps the order that the caller named.
 sub security_txt ( $self, %args )
 {
 	$self->{error} = undef;

@@ -47,12 +47,26 @@ accepts a truncated key, and a truncated key gives a fingerprint of
 its own. A caller would then publish a fingerprint that no key
 matches.
 
+The padding of base64 ends the data, so it may sit at the end of the
+last body line only. A line with interior padding decodes to a
+truncated key, and a crafted checksum line would still agree with the
+truncation. gpg(1) rejects such a block, and so does this method.
+
+The method reads the first block of the text. A text with several
+blocks therefore gives the first key, and the rest stay unread.
+C<Fugu::KeyDir::keys_file> writes such a text, so a caller that wants
+every key of a C<KEYS> file must split the text itself.
+
 Armor is text, so the method reads either line ending. A block that
 travelled through email holds CRLF, and it decodes to the same bytes.
-The method reads a block with no blank line after the delimiter as
-well: RFC 4880 writes the line even with no header, and gpg(1) does
-the same, but a producer that omits it still holds a valid body. The
-method never changes the string of the caller.
+The method also trims the whitespace of each body line, because a
+mailer can pad one.
+
+The method reads a block with no blank line after the delimiter. RFC
+4880 writes that line even with no header, and gpg(1) does the same. A
+producer that omits it still holds a valid body.
+
+The method never changes the string of the caller.
 
 A missing delimiter line, two delimiter lines that name two block
 types, a body line that is not base64, an absent checksum line, and a
@@ -70,7 +84,18 @@ of the public key packet body, and that body, per RFC 4880 section
 the length again, so the same key gives the same answer in the old
 packet format and in the new one.
 
-The method reads both header formats and every length form of each.
+The method reads both header formats. It reads every length form that
+carries a whole packet: the one-byte, two-byte and four-byte forms of
+the old format, and the one-byte, two-byte and five-byte forms of the
+new one. It rejects the two forms that carry no whole packet: the
+indeterminate length of the old format, and a partial body length of
+the new one. A public key packet never uses either.
+
+The digest writes the body length in two octets, so a body above
+C<MAX_PACKET_BODY> has no version 4 fingerprint. Such a body is a
+failure, because C<pack> would wrap the length with no warning and the
+method would answer with a confident wrong fingerprint.
+
 A first packet that is not a public key packet, a packet version other
 than 4, and a truncated packet body are each a failure.
 
@@ -105,6 +130,11 @@ input and an empty one each give the empty string.
 =head1 CONSTANTS
 
 =over 4
+
+=item C<MAX_PACKET_BODY>
+
+The largest public key packet body that a version 4 fingerprint can
+hold, 65535 bytes, per RFC 4880 section 12.2.
 
 =item C<MAX_ARMOR_SIZE>
 
