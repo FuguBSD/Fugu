@@ -37,13 +37,20 @@ unit, and the unit ID is the anchor in upper case:
 
 - The anchor starts with the document code, in lower case, followed by a hyphen.
   [index.md](index.md) holds the codes.
-- A unit extends from its anchor to the next unit anchor or heading.
+- A unit runs from its anchor to the next unit anchor or heading.
 - A rule ID names one requirement inside a unit, as a bold-lead list item.
 - Rule numbers only append: never renumber, and never reuse a number.
 - An ID must not change. To retire a unit: delete its anchor and its register
   row, and add the ID to the "Retired IDs" table of the register.
-- A plan cites units and rules: `Implements: DOC-EXAMPLE without DOC-EXAMPLE-1`
-  and `Defers: DOC-OTHER`.
+- A plan cites units and rules: `Implements: DOC-EXAMPLE without DOC-EXAMPLE-1`,
+  `Extends: DOC-DONE`, and `Defers: DOC-OTHER`. A citation starts a paragraph or
+  a list item, and a second citation in the same block starts a sentence. A
+  citation ends at its first period, and it must hold text after the verb. Code,
+  bold, and italic marks around a verb do not change it. `Extends:` names a
+  `done` unit whose rules change in the implementation of the plan: a new rule,
+  or a changed rule text. The implementation lands the change with its code, so
+  the unit stays `done`. `Extends:` takes a unit only: no rule ID, and no
+  `without`.
 - A citation of a unit of a sibling repository is a prose token, for example
   `FuguOracle OPS-GET-4`: never a link, and never a plan name.
 

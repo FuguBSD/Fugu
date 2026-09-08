@@ -39,9 +39,17 @@
 #  7. Each rule definition must sit in the document of its unit.
 #  8. Each unit, rule, or decision citation must resolve.
 #  9. A specification document must not state a schedule phase.
-# 10. A plan must not cite a `done` unit under `Implements:`.
+# 10. A plan must not cite a `done` unit under `Implements:`. Rule 12
+#     holds the verb for such a unit.
 # 11. With --drift <base>: a change to a document with a `partial` or
 #     `done` unit must also change the register or a mapped code root.
+# 12. A unit under `Extends:` must exist and must be `done`. A rule ID
+#     and a `without` clause are each an error under `Extends:`.
+#
+# A citation starts a paragraph or a list item, and a second citation
+# in the same block starts a sentence. A citation ends at its first
+# period, and a wrapped citation joins its lines. Code, bold, and
+# italic marks around a verb come off first. A bare verb is an error.
 #
 # Like scripts/deps, this script is bootstrap tooling: core modules
 # only, and v5.34 because macOS still ships perl 5.34.
@@ -474,28 +482,143 @@ for my $source ( grep { m{^spec/[^/]+\.md\z} } @files ) {
 	    if _strip_fences( $text{$source} ) =~ /Phase [0-9]/;
 }
 
-# Rule 10: a plan must not cite a done unit under Implements.
-my %state = map { $_->{id} => $_->{state} } @rows;
-for my $source ( grep { m{^plans/.*/plan\.md\z} } @files ) {
-	my $stripped = _strip_fences( $text{$source} );
-	$stripped =~ s/`//g;
-	for my $line ( grep { /\bImplements:/ } split /\n/, $stripped ) {
-		next unless $code_alt;
-		for my $token (
-			$line =~ /\b((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2})
-			(?![A-Z0-9-])/gx
-		    )
+# _citation_lines($stripped):
+#	The blocks of a plan as logical lines. A blank line, a list
+#	marker, and a heading each start a block, and every other line
+#	continues the block before it. A wrapped citation therefore
+#	stays one line for the scan.
+sub _citation_lines ($stripped)
+{
+	my @lines;
+	for my $line ( split /\n/, $stripped ) {
+		if (       @lines
+			&& $line      =~ /\S/
+			&& $lines[-1] =~ /\S/
+			&& $lines[-1] !~ /^\s*#/
+			&& $line      !~ /^\s*(?:[-*+]|\d+\.)\s/
+			&& $line      !~ /^\s*#/ )
 		{
-			if ( !$anchor_ids{$token} ) {
+			$lines[-1] .= " $line";
+			next;
+		}
+		push @lines, $line;
+	}
+	return @lines;
+}
+
+# _cleaned($line):
+#	A logical line without inline code marks, and without the bold
+#	and italic marks around a verb. A marked verb then reads as a verb.
+sub _cleaned ($line)
+{
+	$line =~ s/`//g;
+	$line =~ s/[*_]*((?:Implements|Extends|Defers))[*_]*:/$1:/g;
+	return $line;
+}
+
+# _is_citation($line):
+#	True when a block starts with a citation verb, after an optional
+#	list marker. A verb elsewhere in a block is prose.
+sub _is_citation ($line)
+{
+	return $line =~
+	    /^\s*(?:(?:[-*+]|\d+\.)\s+)?(?:Implements|Extends|Defers):/;
+}
+
+# _cited($line, $verb):
+#	The text of each "$verb:" citation on a citation line, joined
+#	with a space, or undef when the verb starts no citation there. A
+#	verb starts a citation at the block start or after a period. A
+#	citation ends at its first period.
+sub _cited ( $line, $verb )
+{
+	my @parts = split
+/(?:\A\s*(?:(?:[-*+]|\d+\.)\s+)?|(?<=\.)\s+)(Implements|Extends|Defers):/,
+	    $line;
+	shift @parts;
+	my @cited;
+	while ( my ( $found, $rest ) = splice @parts, 0, 2 ) {
+		next unless $found eq $verb;
+		$rest //= q{};
+		$rest =~ s/\..*//s;
+		push @cited, $rest;
+	}
+	return @cited ? join( ' ', @cited ) : undef;
+}
+
+# _local_tokens($cited, $re):
+#	The tokens of one pattern in a citation, without a token that a
+#	sibling repository name precedes. Rule 8 exempts the same token.
+sub _local_tokens ( $cited, $re )
+{
+	my @tokens;
+	while ( $cited =~ /$re/g ) {
+		my ( $token, $at ) = ( $1, $-[1] );
+		next if _sibling( substr $cited, 0, $at );
+		push @tokens, $token;
+	}
+	return @tokens;
+}
+
+# Rule 10 and rule 12: a plan cites a done unit under Extends, and
+# never under Implements. A unit under Extends must be done, and a
+# rule ID and a without clause are each an error there. A bare verb
+# with no citation text is an error under every verb, and so is a
+# citation that runs into another verb.
+my %state   = map { $_->{id} => $_->{state} } @rows;
+my $unit_re = qr/\b((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2})(?![A-Z0-9-])/;
+my $rule_re = qr/\b((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2}-[1-9][0-9]{0,2})\b/;
+for my $source ( grep { m{^plans/.*/plan\.md\z} } @files ) {
+	next unless $code_alt;
+	my @lines = grep { _is_citation($_) }
+	    map { _cleaned($_) }
+	    _citation_lines( _strip_fences( $text{$source} ) );
+	for my $line (@lines) {
+		for my $verb (qw(Implements Extends Defers)) {
+			my $cited = _cited( $line, $verb );
+			next unless defined $cited;
+			if ( $cited !~ /\S/ ) {
 				push @errors,
-				    "$source: Implements cites an unknown "
-				    . "unit: $token";
+				    "$source: $verb holds no citation text";
 				next;
 			}
-			push @errors,
-			    "$source: Implements cites a done unit, "
-			    . "delete or trim the plan: $token"
-			    if ( $state{$token} // '' ) eq 'done';
+			if ( $cited =~ /\b(?:Implements|Extends|Defers):/ ) {
+				push @errors,
+"$source: $verb citation runs into another verb, "
+				    . "end it with a period: $line";
+				next;
+			}
+			next if $verb eq 'Defers';
+			if ( $verb eq 'Extends' ) {
+				push @errors,
+"$source: Extends takes no without clause: $line"
+				    if $cited =~ /\bwithout\b/;
+				for my $token (
+					_local_tokens( $cited, $rule_re ) )
+				{
+					push @errors,
+"$source: Extends must cite a unit, "
+					    . "not a rule: $token";
+				}
+			}
+			for my $token ( _local_tokens( $cited, $unit_re ) ) {
+				if ( !$anchor_ids{$token} ) {
+					push @errors,
+					    "$source: $verb cites an unknown "
+					    . "unit: $token";
+					next;
+				}
+				my $done = ( $state{$token} // q{} ) eq 'done';
+				push @errors,
+				      "$source: Implements cites a done unit, "
+				    . "delete or trim the plan, or cite it under "
+				    . "Extends: $token"
+				    if $verb eq 'Implements' && $done;
+				push @errors,
+				    "$source: Extends cites a unit that is not "
+				    . "done: $token"
+				    if $verb eq 'Extends' && !$done;
+			}
 		}
 	}
 }

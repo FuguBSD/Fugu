@@ -15,6 +15,10 @@ Applies when working on files under `plans/`.
 - When a part of a plan lands, trim the citations of the plan in the same
   change, or delete the plan. `make spec-check` fails a plan that cites a `done`
   unit under `Implements:`.
+- The `Extends:` citation follows the forms of
+  [spec/CLAUDE.md](../spec/CLAUDE.md), and `make spec-check` enforces them. An
+  `Extends:` citation has no trim gate, so the change that lands its rule trims
+  it.
 
 ## Location
 
@@ -34,6 +38,7 @@ git log --diff-filter=A --name-only --format= -- plans/ | sort -u
 
 ## Shape
 
-- A plan cites each unit that it implements, per the plan contract in
-  [spec/index.md](../spec/index.md). Every cited ID must exist.
+- A plan cites each unit that it implements, extends, or defers, per the plan
+  contract in [spec/index.md](../spec/index.md) and the citation forms of
+  [spec/CLAUDE.md](../spec/CLAUDE.md). Every cited ID must exist.
 - A plan holds a Status section: what can land now, what waits, and on what.
