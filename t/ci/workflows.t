@@ -5,9 +5,10 @@
 #
 # Guards for the workflows of a consumer repository
 #
-# The canonical setup-perl, setup-uv, and setup-gitleaks actions
-# live in FuguBSD/Tooling, and this repository references them across
-# repositories.
+# The canonical setup-perl and setup-uv actions live in
+# FuguBSD/Tooling, and this repository references them across
+# repositories. gitleaks comes from the deps manifest instead
+# (WFL-GITLEAKS-4).
 # Nothing under .github/ runs outside a runner, so the test reads the
 # workflows as text and asserts the invariants that only fail in CI:
 # that every reference points at the shared action, that every value
@@ -20,9 +21,8 @@ use FindBin qw($RealBin);
 
 my $workflow = "$RealBin/../../.github/workflows";
 
-use constant ACTION          => 'FuguBSD/Tooling/perl/actions/setup-perl@main';
-use constant UV_ACTION       => 'FuguBSD/Tooling/python/actions/setup-uv@main';
-use constant GITLEAKS_ACTION => 'FuguBSD/Tooling/actions/setup-gitleaks@main';
+use constant ACTION    => 'FuguBSD/Tooling/perl/actions/setup-perl@main';
+use constant UV_ACTION => 'FuguBSD/Tooling/python/actions/setup-uv@main';
 
 my %ENVIRONMENTS = map { $_ => 1 } qw(runtime test develop);
 
@@ -135,14 +135,13 @@ for my $file (@files) {
 			    . ' the shared uv action' );
 	}
 
-	# The same pin for gitleaks: the gate reads every secret
-	# finding, so only the pinned action installs the binary.
+	# WFL-GITLEAKS-4. The setup-gitleaks action is gone, and the
+	# deps manifest provides gitleaks in the tool environment.
 	for my $i ( 0 .. $#lines ) {
-		next
-		    unless $lines[$i] =~ m{uses:\s*(\S*setup-gitleaks\S*)\s*$};
-		is( $1, GITLEAKS_ACTION,
-			      "$file line @{[$i + 1]} references"
-			    . ' the shared gitleaks action' );
+		next unless $lines[$i] =~ m{uses:\s*\S*setup-gitleaks\S*};
+		fail(         "$file line @{[$i + 1]} uses the setup-gitleaks"
+			    . ' action, which no longer exists. Install'
+			    . ' gitleaks from the deps manifest.' );
 	}
 }
 

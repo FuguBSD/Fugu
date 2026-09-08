@@ -527,22 +527,40 @@ sub _cpanm_opts ()
 	return @opts;
 }
 
-# _install_cpanm():
-#	Bootstrap cpanm when it is not already on PATH.
+# _cpanm_cmd():
+#	The command that runs cpanm, in list form.
+#
+#	A cpanm on PATH is the first choice. Otherwise this downloads
+#	the standalone cpanm and returns this perl and that script. The
+#	standalone script is a whole cpanm, and it needs no install of
+#	its own.
+#
+#	An install of App::cpanminus does not answer here. cpanm with no
+#	root and no local::lib writes to the local library of the user,
+#	and the cpanm it lands there is not on PATH. Every call after it
+#	then died with "Can't exec cpanm".
 #
 #	The download goes through scripts/ftp, the repository's own cross-platform
 #	fetcher, not through curl. curl is not in OpenBSD base.
-sub _install_cpanm ()
+sub _cpanm_cmd ()
 {
+	state @cmd;
+	return @cmd if @cmd;
+
+	# The bare name keeps the printed command readable, and the
+	# shell that reads the log runs the same program.
+	return @cmd = ('cpanm') if defined _which('cpanm');
+
 	say 'Installing cpanminus...';
 
-	my $tmp       = tempdir( CLEANUP => 1 );
-	my $installer = File::Spec->catfile( $tmp, 'cpanm' );
+	# CLEANUP removes the directory when this process ends, so the
+	# script stays readable for every install of the run.
+	my $tmp    = tempdir( CLEANUP => 1 );
+	my $script = File::Spec->catfile( $tmp, 'cpanm' );
 
-	_run( _ftp_path(), $installer, 'https://cpanmin.us' );
-	_run( $^X,         $installer, 'App::cpanminus' );
+	_run( _ftp_path(), $script, 'https://cpanmin.us' );
 
-	return;
+	return @cmd = ( $^X, $script );
 }
 
 # _sha256_file($path):
@@ -812,12 +830,12 @@ sub _install_dists ( $env, $os, $arch, $digests, $keys, @urls )
 		push @resolved, $value;
 	}
 
-	_install_cpanm() unless defined _which('cpanm');
+	my @cpanm = _cpanm_cmd();
 
 	for my $url (@resolved) {
 		my $tmp  = tempdir( CLEANUP => 1 );
 		my $file = _fetch_verified( $env, $tmp, $url, $digests, $keys );
-		_run( 'cpanm', _cpanm_opts(), $file );
+		_run( @cpanm, _cpanm_opts(), $file );
 	}
 
 	return;
@@ -1009,9 +1027,7 @@ sub _install_cpan (@modules)
 {
 	say 'Installing CPAN modules: ', join ' ', @modules;
 
-	_install_cpanm() unless defined _which('cpanm');
-
-	_run( 'cpanm', _cpanm_opts(), @modules );
+	_run( _cpanm_cmd(), _cpanm_opts(), @modules );
 
 	return;
 }
