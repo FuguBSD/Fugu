@@ -15,3 +15,4 @@
 # form gives the published key file and its sha256 digest, and the
 # digest is the trust anchor. The line order is the trust order, so the
 # current key comes first.
+fugubsd-1-release https://www.fugubsd.org/keys/fugubsd-1-release.pub 08ee701466c3a9b698bda9d72f59fbc7d83b549eeb672290a3a41ca7b6bc8c0f

@@ -75,14 +75,18 @@ for my $file (@files) {
 		# target". The fault reaches the runner alone, because
 		# the workflow is text everywhere else.
 		#
+		# deps-test and deps-develop are targets of their own,
+		# so the match ends the target name. A \b would end it
+		# before the dash and read "-test" as an argument.
+		#
 		# The test reads a command and never a comment or a
 		# body of prose, so the match starts the line.
 		for my $line (@own) {
 			my $command = $line =~ s/\A\s+//r;
 			next if $command =~ /\A#/;
 
-			my ($rest) =
-			    $command =~ m{\A(?:run:\s*)?make\s+deps\b(.*)\z};
+			my ($rest) = $command =~
+			    m{\A(?:run:\s*)?make\s+deps(?![-\w])(.*)\z};
 			next unless defined $rest;
 			$rest =~ s/\s+\z//;
 			next if $rest eq '' || $rest =~ m{\A[|&;)]};
