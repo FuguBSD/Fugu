@@ -19,9 +19,3 @@ make format-fix  # fix the Perl, Markdown, JSON and YAML formatting
 make dist        # build the release tarball
 make install     # install the modules under the site_perl tree
 ```
-
-## Commit scopes
-
-`control`, `file`, `imsg`, `keydir`, `lib`, `log`, `mdnsd`, `mqtt`, `openpgp`,
-`privdrop`, `process`, `proxy`, `repl`, `signify`, `ssh`, `spec`, `deps`, `ci`.
-Use `lib` for a change across more than one module.
