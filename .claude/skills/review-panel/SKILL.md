@@ -20,13 +20,13 @@ rounds. You dispatch each agent, and a `fixer` agent makes every fix.
 
 - Dispatch, merge the three reports, and write the ledger.
 - After the first launch of a round, edit no repository file. A file under
-  `explore/` is scratch space, and not a repository file.
+  `scratch/` is scratch space, and not a repository file.
 - Reject a finding in the ledger with a reason that cites the code, the
   specification, or a decision.
 
 ## The ledger
 
-`explore/review/ledger.md` holds one line for each finding:
+`scratch/review/ledger.md` holds one line for each finding:
 
 ```
 | # | Round | File:line | Severity | Members | Disposition |
@@ -44,16 +44,16 @@ rounds. You dispatch each agent, and a `fixer` agent makes every fix.
 
 1. Run `make check </dev/null`. Commit every change.
 2. In round one, write the base diff:
-   `git diff <base>...HEAD > explore/review/base.diff`.
+   `git diff <base>...HEAD > scratch/review/base.diff`.
 3. Launch three `reviewer` agents in parallel with the prompt below. Round one
-   reads `explore/review/base.diff`, and a later round reads
-   `explore/review/fix-<N-1>.diff`.
+   reads `scratch/review/base.diff`, and a later round reads
+   `scratch/review/fix-<N-1>.diff`.
 4. Merge the three reports into the ledger.
 5. In round one and round two, launch one `fixer` agent when the round holds an
    accepted finding. Give it the repository path, the diff path, and the ledger
    path.
 6. After the fixer commits, write the fix diff:
-   `git diff <round commit>...HEAD > explore/review/fix-<N>.diff`. When the
+   `git diff <round commit>...HEAD > scratch/review/fix-<N>.diff`. When the
    fixer commits nothing, write no file.
 7. Stop after a round with no quorum finding, after a round whose fixer commits
    nothing, or after round three. Round three runs no fixer.

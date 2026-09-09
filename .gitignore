@@ -10,7 +10,7 @@
 .claude/settings.local.json*
 
 # Scratch space of the development rules
-explore/
+scratch/
 SCRATCHPAD*.md
 .claude/worktrees/
 
