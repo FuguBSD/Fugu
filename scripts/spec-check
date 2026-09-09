@@ -23,33 +23,20 @@
 #
 # usage: spec-check [--root DIR] [--drift BASE]
 #
-# The check enforces these rules:
+# spec/spec-check.md of FuguBSD/Tooling specifies this script, and it
+# holds the text of each rule. A comment below names the unit that
+# owns the code under it. The script grew those units from thirteen
+# numbered rules:
 #
-#  1. Each relative link must point to a file that exists.
-#  2. Each link anchor must match a heading or an HTML anchor in its
-#     target document.
-#  3. spec/index.md must list each specification document.
-#  4. Each unit anchor must sit in its own document, and must be
-#     unique. The document codes come from the tables of spec/index.md.
-#  5. The register spec/STATUS.md must list each unit, and only each
-#     unit, in one Units table with the columns Unit, State, Done by,
-#     and Note.
-#  6. Each register row must use the fixed state vocabulary, and its
-#     "Done by" value must name a ROADMAP.md phase or an em dash.
-#  7. Each rule definition must sit in the document of its unit.
-#  8. Each unit, rule, or decision citation must resolve.
-#  9. A specification document must not state a schedule phase.
-# 10. A plan must not cite a `done` unit under `Implements:`. Rule 12
-#     holds the verb for such a unit.
-# 11. With --drift <base>: a change to a document with a `partial` or
-#     `done` unit must also change the register or a mapped code root.
-# 12. A unit under `Extends:` must exist and must be `done`. A rule ID
-#     and a `without` clause are each an error under `Extends:`.
+#  1, 2:      SPC-LINKS
+#  3, 9:      SPC-DOCS
+#  4, 7:      SPC-UNITS
+#  5, 6:      SPC-REGISTER
+#  8:         SPC-CITE
+# 10, 12, 13: SPC-PLANS
+# 11:         SPC-DRIFT
 #
-# A citation starts a paragraph or a list item, and a second citation
-# in the same block starts a sentence. A citation ends at its first
-# period, and a wrapped citation joins its lines. Code, bold, and
-# italic marks around a verb come off first. A bare verb is an error.
+# SPC-SCOPE holds the interface and the scan scope, under no number.
 #
 # Like scripts/deps, this script is bootstrap tooling: core modules
 # only, and v5.34 because macOS still ships perl 5.34.
@@ -192,7 +179,7 @@ sub _doc_codes ($index_text)
 my @files = _files();
 my %text  = map { $_ => _slurp("$root/$_") } @files;
 
-# Rule 1 and 2: links and anchors.
+# SPC-LINKS: links and anchors.
 my %slug_cache;
 for my $source (@files) {
 	my $stripped = _strip_fences( $text{$source} );
@@ -221,7 +208,7 @@ for my $source (@files) {
 	}
 }
 
-# Rule 3: index coverage.
+# SPC-DOCS: index coverage.
 my $index_text = $text{'spec/index.md'};
 push @errors, 'spec/index.md does not exist' unless defined $index_text;
 my $codes = defined $index_text ? _doc_codes($index_text) : {};
@@ -245,7 +232,7 @@ if ( defined $index_text ) {
 my $code_alt = join '|', map { quotemeta } sort values %$codes;
 push @errors, 'spec/index.md names no document codes' unless $code_alt;
 
-# Rule 4: unit anchors sit in their own document, once.
+# SPC-UNITS: unit anchors sit in their own document, once.
 my %units;
 for my $source ( grep { m{^spec/[^/]+\.md\z} } @files ) {
 	my $name     = ( split /\//, $source )[1];
@@ -269,7 +256,7 @@ for my $source ( grep { m{^spec/[^/]+\.md\z} } @files ) {
 	}
 }
 
-# Rule 7: rule definitions sit in the document of their unit, once.
+# SPC-UNITS: rule definitions sit in the document of their unit, once.
 my %rules;
 if ($code_alt) {
 	for my $source ( grep { m{^spec/[^/]+\.md\z} } @files ) {
@@ -309,7 +296,7 @@ else {
 push @errors, 'spec/DECISIONS.md does not exist'
     unless -f "$root/spec/DECISIONS.md";
 
-# Rules 5 and 6: the register.
+# SPC-REGISTER: the register.
 my @rows;
 my %retired;
 my %code_roots;
@@ -437,7 +424,7 @@ for my $gone ( sort keys %retired ) {
 	    if $active{$gone};
 }
 
-# Rule 8: citations resolve. Subdirectories of spec/ and docs/ hold
+# SPC-CITE: citations resolve. Subdirectories of spec/ and docs/ hold
 # reference material and are exempt.
 my $decisions = -f "$root/spec/DECISIONS.md" ? $text{'spec/DECISIONS.md'} : '';
 my %known     = ( %anchor_ids, %rules, %retired );
@@ -473,7 +460,7 @@ for my $source (@files) {
 	}
 }
 
-# Rule 9: no schedule statement in a unit document.
+# SPC-DOCS: no schedule statement in a unit document.
 for my $source ( grep { m{^spec/[^/]+\.md\z} } @files ) {
 	my $name = ( split /\//, $source )[1];
 	next if $GOVERNANCE{$name};
@@ -548,7 +535,7 @@ sub _cited ( $line, $verb )
 
 # _local_tokens($cited, $re):
 #	The tokens of one pattern in a citation, without a token that a
-#	sibling repository name precedes. Rule 8 exempts the same token.
+#	sibling repository name precedes. SPC-CITE exempts the same token.
 sub _local_tokens ( $cited, $re )
 {
 	my @tokens;
@@ -560,11 +547,7 @@ sub _local_tokens ( $cited, $re )
 	return @tokens;
 }
 
-# Rule 10 and rule 12: a plan cites a done unit under Extends, and
-# never under Implements. A unit under Extends must be done, and a
-# rule ID and a without clause are each an error there. A bare verb
-# with no citation text is an error under every verb, and so is a
-# citation that runs into another verb.
+# SPC-PLANS: the plan citations.
 my %state   = map { $_->{id} => $_->{state} } @rows;
 my $unit_re = qr/\b((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2})(?![A-Z0-9-])/;
 my $rule_re = qr/\b((?:$code_alt)(?:-[A-Z][A-Z0-9]*){1,2}-[1-9][0-9]{0,2})\b/;
@@ -573,6 +556,8 @@ for my $source ( grep { m{^plans/.*/plan\.md\z} } @files ) {
 	my @lines = grep { _is_citation($_) }
 	    map { _cleaned($_) }
 	    _citation_lines( _strip_fences( $text{$source} ) );
+	my %deferred;
+	my %claimed;
 	for my $line (@lines) {
 		for my $verb (qw(Implements Extends Defers)) {
 			my $cited = _cited( $line, $verb );
@@ -588,7 +573,11 @@ for my $source ( grep { m{^plans/.*/plan\.md\z} } @files ) {
 				    . "end it with a period: $line";
 				next;
 			}
-			next if $verb eq 'Defers';
+			my @tokens = _local_tokens( $cited, $unit_re );
+			if ( $verb eq 'Defers' ) {
+				$deferred{$_} = 1 for @tokens;
+				next;
+			}
 			if ( $verb eq 'Extends' ) {
 				push @errors,
 "$source: Extends takes no without clause: $line"
@@ -601,13 +590,14 @@ for my $source ( grep { m{^plans/.*/plan\.md\z} } @files ) {
 					    . "not a rule: $token";
 				}
 			}
-			for my $token ( _local_tokens( $cited, $unit_re ) ) {
+			for my $token (@tokens) {
 				if ( !$anchor_ids{$token} ) {
 					push @errors,
 					    "$source: $verb cites an unknown "
 					    . "unit: $token";
 					next;
 				}
+				$claimed{$token} //= $verb;
 				my $done = ( $state{$token} // q{} ) eq 'done';
 				push @errors,
 				      "$source: Implements cites a done unit, "
@@ -621,9 +611,14 @@ for my $source ( grep { m{^plans/.*/plan\.md\z} } @files ) {
 			}
 		}
 	}
+	for my $token ( sort grep { $claimed{$_} } keys %deferred ) {
+		push @errors,
+		    "$source: cite the unit under one verb only, not "
+		    . "under $claimed{$token} and Defers: $token";
+	}
 }
 
-# Rule 11: the drift gate.
+# SPC-DRIFT: the drift gate.
 if ($drift) {
 	my @diff = qx(git -C \Q$root\E diff --name-only \Q$drift\E...HEAD);
 	die "spec-check: git diff failed\n" if $?;

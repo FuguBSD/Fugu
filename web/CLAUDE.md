@@ -34,8 +34,8 @@ Pages.
 
 ## The ecosystem
 
-- Name a sibling project only when a dependency or an interface connects the two
-  projects, and link to its website.
+- Name a sibling project only when a dependency or an interface connects the
+  two. Link to its website.
 - The footer connects each site to the organization. Every sibling website shows
   the same footer: the organization link, the copyright, and the license.
 

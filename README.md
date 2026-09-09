@@ -2,9 +2,9 @@
 
 Generic OpenBSD-style daemon utilities for Perl.
 
-Fugu gives a Perl daemon the plumbing that OpenBSD daemons share: daemonize,
-privilege drop, signal handling, logging, process control, PID files, state
-files, and pledge(2)/unveil(2).
+Fugu gives a Perl daemon the plumbing that OpenBSD daemons share. The parts are
+daemonize, privilege drop, signal handling, logging, process control, PID files,
+state files, and pledge(2)/unveil(2).
 
 It adds an event loop, a caching HTTP proxy, SSH and MQTT clients, a native
 mdnsd(8) control client, and signify(1) signature verification. The distribution

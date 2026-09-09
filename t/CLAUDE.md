@@ -14,19 +14,19 @@ Applies when working on files under `t/`.
 Module tests follow the unit-test rules in `lib/CLAUDE.md` (skip gracefully on
 missing dependencies) and need no citations.
 
-Tooling tests are named after what they cover — `t/scripts/deps.t` for
-`scripts/deps` — and drive it as a subprocess rather than loading a module, so
-they assert on exit status and output. `t/scripts/conventions.t` covers the
+Tooling tests are named after what they cover, such as `t/scripts/deps.t` for
+`scripts/deps`. They drive the script as a subprocess, and they load no module.
+They assert on exit status and output. `t/scripts/conventions.t` covers the
 directory as a whole: exec bits, shebangs, and that every Perl script compiles.
-`t/scripts/symbols.t` holds the API surface at its size: every sub in
-`lib/Fugu/` has a caller in lib/ or in a test, every module has its one
+`t/scripts/symbols.t` holds the API surface at its size. Every sub in
+`lib/Fugu/` has a caller in lib/ or in a test. Every module has its one
 documentation home, and every non-core import is in the `cpanfile`.
 
-`t/ci/` is the exception to driving anything: nothing under `.github/` runs
-outside a runner, so these tests read the workflows and the composite actions as
-text and assert the invariants that only fail in CI — that every consumer of an
-action passes it a value the action accepts, and that a cache key hashes every
-input which decides what it caches.
+`t/ci/` is the exception to driving anything, because nothing under `.github/`
+runs outside a runner. These tests read the workflows and the composite actions
+as text, and they assert the invariants that only fail in CI. Every consumer of
+an action must pass it a value that the action accepts. A cache key must hash
+every input which decides what it caches.
 
 ## Conformance tier
 
@@ -42,9 +42,9 @@ One `.t` per normative spec topic file, named after the lowercased stem
 
 ## Spec citations
 
-Any assertion of behavior defined by the protocol references in `spec/` must
-carry a machine-parseable citation as a prefix of its subtest name or assertion
-description:
+Any assertion of behavior from the protocol references in `spec/` must carry a
+machine-parseable citation. The citation is a prefix of the subtest name or the
+assertion description:
 
 ```
 [<spec-stem> §<section>] <free text>

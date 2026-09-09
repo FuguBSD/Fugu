@@ -7,9 +7,10 @@ copy. Edit the canonical copy in FuguBSD/Tooling.
 
 ## Critical: writing standard
 
-Write all output and all artifacts in ASD-STE100 Simplified Technical English:
-documentation, specifications, code comments, commit messages, pull requests,
-and chat replies. `make ste-lint` rejects banned words and patterns.
+Write all output and all artifacts in ASD-STE100 Simplified Technical English.
+The rule holds for documentation, specifications, code comments, commit
+messages, pull requests, and chat replies. `make ste-lint` rejects the banned
+words, the banned phrases, the banned patterns, and a sentence over its limit.
 
 - Use the active voice and the approved words.
 - Write one instruction in each sentence, shorter than 20 words.

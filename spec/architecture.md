@@ -32,8 +32,8 @@ The dependency direction is one way.
 
 - **ARC-COREPERL-1** — Fugu must load with core Perl only.
 - **ARC-COREPERL-2** — Every CPAN use must be a lazy `require` behind an
-  optional feature: `Net::SSH2` in `Fugu::SSH`, `Net::MQTT::Simple` in
-  `Fugu::MQTT`, and the HTTP stack in `Fugu::Proxy`.
+  optional feature. The uses are `Net::SSH2` in `Fugu::SSH`, `Net::MQTT::Simple`
+  in `Fugu::MQTT`, and the HTTP stack in `Fugu::Proxy`.
 
 <a id="arc-callers"></a>
 

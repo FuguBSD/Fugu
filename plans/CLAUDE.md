@@ -13,12 +13,9 @@ Applies when working on files under `plans/`.
 - The pull request that implements a plan deletes the plan directory in the same
   change.
 - When a part of a plan lands, trim the citations of the plan in the same
-  change, or delete the plan. `make spec-check` fails a plan that cites a `done`
-  unit under `Implements:`.
-- The `Extends:` citation follows the forms of
-  [spec/CLAUDE.md](../spec/CLAUDE.md), and `make spec-check` enforces them. An
-  `Extends:` citation has no trim gate, so the change that lands its rule trims
-  it.
+  change, or delete the plan.
+- The change that lands the rule of an `Extends:` citation must trim that
+  citation.
 
 ## Location
 
@@ -42,3 +39,8 @@ git log --diff-filter=A --name-only --format= -- plans/ | sort -u
   contract in [spec/index.md](../spec/index.md) and the citation forms of
   [spec/CLAUDE.md](../spec/CLAUDE.md). Every cited ID must exist.
 - A plan holds a Status section: what can land now, what waits, and on what.
+
+## Checks
+
+`make spec-check` validates every plan. The rules of the check live at
+<https://github.com/FuguBSD/Tooling/blob/main/spec/spec-check.md>.

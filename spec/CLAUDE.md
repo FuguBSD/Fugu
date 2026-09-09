@@ -50,7 +50,7 @@ unit, and the unit ID is the anchor in upper case:
   `done` unit whose rules change in the implementation of the plan: a new rule,
   or a changed rule text. The implementation lands the change with its code, so
   the unit stays `done`. `Extends:` takes a unit only: no rule ID, and no
-  `without`.
+  `without`. A plan cites a unit under one verb only.
 - A citation of a unit of a sibling repository is a prose token, for example
   `FuguOracle OPS-GET-4`: never a link, and never a plan name.
 
@@ -66,7 +66,6 @@ One row per unit: a state, a "Done by" phase, and a note.
 
 ## Checks
 
-`make spec-check` validates the links, the anchors, the register, the rules, the
-citations, the schedule lint, and the plans. On a pull request, CI adds a drift
-gate: a change to a document with a `partial` or `done` unit must also change
-STATUS.md or a mapped code root.
+`make spec-check` validates this specification and the plans, and CI runs the
+drift gate on each pull request. The rules of the check live at
+<https://github.com/FuguBSD/Tooling/blob/main/spec/spec-check.md>.

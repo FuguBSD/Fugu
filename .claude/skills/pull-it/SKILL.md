@@ -14,14 +14,28 @@ copy. Edit the canonical copy in FuguBSD/Tooling.
 
 Merge a minor-level or major-level change to `main` through a pull request.
 
+## The size gate
+
+One change set carries one plan or one feature. Split the branch when it carries
+more. A wide change set gives each review round more text than one round can
+settle.
+
 ## Procedure
 
 1. Squash in-session review fixes into the commits that they correct.
 2. Push the branch: `git push --force-with-lease origin HEAD`. Open a pull
    request when none exists.
-3. Watch the checks: `gh pr checks --watch`.
-4. When a check fails, correct the cause. Push the fix. Repeat until every check
-   passes.
-5. Run the [review panel](../review-panel/SKILL.md). Resolve each quorum
-   finding. When you push a fix, return to step 3.
-6. Squash merge: `gh pr merge --squash --delete-branch`.
+3. Watch the checks: `gh pr checks --watch`. When a check fails, dispatch a
+   `fixer` agent with the failure log. Push the fix commit, and watch the checks
+   again.
+4. Run the [review panel](../review-panel/SKILL.md) one time. It runs at most
+   three rounds.
+5. Push each fix commit of the panel. Watch the checks once more, and repair a
+   failure as step 3 states.
+6. Put the round table and the residue in the pull request body. The operator
+   decides each residue entry.
+7. Squash merge: `gh pr merge --squash --delete-branch`.
+
+## Stop
+
+Stop after the merge. The next change starts in a new session.

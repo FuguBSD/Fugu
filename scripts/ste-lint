@@ -21,7 +21,7 @@
 
 # ste-lint: reject prose that breaks the writing standard.
 #
-# usage: ste-lint [--root DIR]
+# usage: ste-lint [--root DIR] [--file PATH ...]
 #
 # The FuguBSD repositories write ASD-STE100 Simplified Technical
 # English. This lint rejects the words and the patterns that the
@@ -34,10 +34,13 @@
 # .claude/. Reference material under docs/ and under a spec/
 # subdirectory is exempt. Code fences and inline code are exempt.
 # A directory under .claude/worktrees/ is a separate checkout,
-# so it is exempt.
+# so it is exempt. With one --file option or more, the lint reads
+# the named files only, and it skips the scan scope.
 #
-# Three tables below hold the rules. To add a rule, edit one
-# table. The tables hold no word that correct technical prose
+# Four mechanisms hold the rules: a table of banned words, a
+# table of banned phrases, a table of banned patterns, and a
+# sentence-length rule. To add a word, a phrase or a pattern, edit
+# one table. The tables hold no word that correct technical prose
 # needs. Fix the prose, never the tables.
 #
 # Like scripts/deps, this script is bootstrap tooling: core modules
@@ -46,6 +49,7 @@
 use v5.34;
 use warnings;
 use experimental 'signatures';
+use sort 'stable';
 
 use File::Basename qw(dirname);
 use File::Spec     ();
@@ -53,8 +57,9 @@ use Getopt::Long   qw(GetOptions);
 
 binmode $_, ':encoding(UTF-8)' for *STDOUT, *STDERR;
 
-my $root;
-GetOptions( 'root=s' => \$root ) or die "usage: ste-lint [--root DIR]\n";
+my ( $root, @named );
+GetOptions( 'root=s' => \$root, 'file=s' => \@named )
+    or die "usage: ste-lint [--root DIR] [--file PATH ...]\n";
 $root //= dirname( dirname( File::Spec->rel2abs(__FILE__) ) );
 
 # The rule tables.
@@ -280,6 +285,37 @@ qr/oaicite|contentReference|attributableIndex|grok_render|turn\d+(?:search|view|
 	],
 );
 
+# @IMPERATIVES holds the words that lead an instruction: the
+# imperative form of a verb, and a word that leads a negative
+# instruction. A sentence that starts with one of them takes the
+# 20-word limit, and every other sentence takes the 25-word limit.
+# A word that the table misses takes the longer limit, so a miss is
+# safe.
+my @IMPERATIVES = qw(
+    add append call check choose clone commit copy create delete
+    dispatch do edit fix follow give group keep launch leave merge
+    move name never pick prefer push put read remove rename repeat
+    replace report return run scan send set skip split start state
+    stop sync take tell trim update use verify wait watch write
+);
+my %IMPERATIVE = map { $_ => 1 } @IMPERATIVES;
+
+# %SUBJECT holds the words that no imperative verb takes next: the
+# preposition "of", a form of "be" with a subject, and a modal. One
+# of them after a table word marks a noun subject, so the sentence
+# takes the 24-word maximum. The bare "be" stays out, because
+# "Never be ..." is an instruction.
+my %SUBJECT = map { $_ => 1 } qw(
+    of is are am was were
+    can cannot could may might must shall should would
+);
+
+# @ABBREVIATIONS holds the abbreviations that end with a period
+# and that never end a sentence. One of them ends no sentence. An
+# abbreviation that can end a sentence, such as "etc.", stays out.
+my @ABBREVIATIONS = qw(e.g i.e);
+my $ABBREVIATION  = join q{|}, map { quotemeta } @ABBREVIATIONS;
+
 # The compiled rule list. Each rule holds a regexp, a label, and
 # an optional per-match flag. With the flag, the rule reports every
 # match on a line; the word rule uses it, so each banned word gets
@@ -339,20 +375,252 @@ sub _files ()
 	return @files;
 }
 
-my $found = 0;
-for my $file ( _files() ) {
-	open my $fh, '<:encoding(UTF-8)', "$root/$file"
-	    or die "ste-lint: read $file: $!\n";
-	my $fence  = 0;
+# _blocks($lines):
+#	The prose blocks of one file. A block is one paragraph or one
+#	list item. Each block holds one record for each of its lines:
+#	the line number and the prose text. A blank line, a heading, a
+#	table row, or a fence line ends a block. An indented code
+#	block, a new list marker, or the end of the file ends one too.
+#	A fenced code block, an indented code block, YAML front
+#	matter, and an HTML comment hold no prose, so the walk drops
+#	them. A blockquote stays in scope.
+#
+#	Each record drops the leading list marker and each leading
+#	blockquote marker. It replaces every inline code span with one
+#	placeholder word, and it drops every link target. A period
+#	inside a span or a target then ends no sentence.
+sub _blocks ($lines)
+{
+	my ( @blocks, @block );
+	my ( $fence, $matter, $comment, $listing, $item ) = ( 0, 0, 0, 0, 0 );
 	my $number = 0;
-	while ( my $line = <$fh> ) {
+	for my $raw (@$lines) {
 		$number++;
-		if ( $line =~ /^[ \t]*(?:```|~~~)/ ) {
+		my $line = $raw;
+		chomp $line;
+		$line =~ s/\r\z//;
+
+		# YAML front matter opens on the first line only.
+		if ($matter) {
+			$matter = 0 if $line =~ /^-{3,}[ \t]*$/;
+			next;
+		}
+		if ( $number == 1 && $line =~ /^-{3,}[ \t]*$/ ) {
+			$matter = 1;
+			next;
+		}
+
+		# A blockquote holds prose, so the marker goes early.
+		# One space after a marker belongs to it, and every
+		# further space is the indentation of the quoted block.
+		# A marker takes at most three columns of indentation,
+		# and inside a fence the line is content, so no marker
+		# of it carries meaning.
+		$line =~ s/^ {0,3}(?:>[ \t]?)+// unless $fence;
+
+		# A list runs until a line at the left margin. A blank
+		# line and an indented line both hold it open.
+		$listing = 0
+		    if $line !~ /^[ \t]*$/ && $line !~ /^(?: {2,}|\t)/;
+
+		# A fence mark reads before each substitution, because
+		# the span rule eats a bare pair of backticks. An open
+		# comment holds every mark, so a fence line inside one
+		# toggles nothing.
+		my $fenced = $line =~ m{^[ \t]*(?:```|~~~)};
+		if ($comment) {
+			next unless $line =~ s/^.*?-->//;
+			$comment = 0;
+		}
+		elsif ($fenced) {
+			push @blocks, [@block] if @block;
+			@block = ();
 			$fence = !$fence;
 			next;
 		}
 		next if $fence;
-		$line =~ s/`[^`]*`//g;
+
+		# A code span holds no comment mark, so the span goes
+		# first.
+		$line =~ s/`[^`]*`/code/g;
+		$line =~ s/<!--.*?-->//g;
+		$comment = 1 if $line =~ s/<!--.*$//;
+		$line =~ s/!?\[([^\]]*)\]\([^)]*\)/$1/g;
+		$line =~ s/!?\[([^\]]*)\]\[[^\]]*\]/$1/g;
+
+		# A row of "=" under a paragraph is a setext heading,
+		# and the paragraph above it holds its text. A row of
+		# "-" is one too, under a paragraph. Under a list item
+		# it is a thematic break, and the item holds prose.
+		my $under = $line =~ /^[ \t]*={2,}[ \t]*$/
+		    || ( !$item && $line =~ /^[ \t]*-{2,}[ \t]*$/ );
+		if ( @block && $under ) {
+			@block = ();
+			next;
+		}
+
+		# A blank line, a heading and a table row end the block
+		# and hold no prose. The formatter writes a leading
+		# pipe, and a cell separator holds a pipe between
+		# spaces, so either mark names a table row.
+		my $break =
+		       $line =~ /^[ \t]*$/
+		    || $line =~ /^[ \t]*#{1,6}[ \t]/
+		    || $line =~ /^[ \t]*\|/
+		    || $line =~ /[ \t]\|[ \t]/;
+		my $marker = $line =~ /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/;
+
+		# An indented code block starts where a block starts.
+		# A list item indents its own text, so a code block
+		# inside a list takes four more columns.
+		my $deep = $listing ? 6 : 4;
+		$break = 1
+		    if !$break
+		    && !$marker
+		    && !@block
+		    && $line =~ /^(?: {$deep}|\t)/;
+		$listing = 1 if $marker;
+
+		# A list marker starts a new block.
+		if ( $break || $marker ) {
+			push @blocks, [@block] if @block;
+			@block = ();
+			next if $break;
+			$line =~ s/^[ \t]*(?:[-*+]|\d+[.)])[ \t]+//;
+		}
+
+		# The first line of a block records what opened it.
+		$item = $marker ? 1 : 0 unless @block;
+		$line =~ s/^[ \t]+|[ \t]+$//g;
+		push @block, [ $number, $line ] if $line ne '';
+	}
+	push @blocks, [@block] if @block;
+
+	return @blocks;
+}
+
+# _sentences($text):
+#	The sentences of one joined block. Each sentence holds the
+#	offset of its first character and its text. A sentence ends at
+#	a period or a question mark. A run of closing marks can follow
+#	it: a quotation mark, a parenthesis, a bracket, or an emphasis
+#	mark. Whitespace or the block end must follow. A run of two
+#	periods or more ends no sentence, and an abbreviation ends
+#	none either.
+sub _sentences ($text)
+{
+	my ( @sentences, $at );
+	$at = 0;
+	while ( $text =~ /(?<!\.)[.?][*_"')\]]*(?=[ \t]|\z)/g ) {
+		my $end  = pos $text;
+		my $part = substr $text, $at, $end - $at;
+		next if $part =~ /(?:^|[ \t(\[])(?:$ABBREVIATION)\.\z/i;
+		push @sentences, _sentence( $text, $at, $end );
+		$at = $end;
+	}
+	push @sentences, _sentence( $text, $at, length $text );
+
+	return grep { $_->[1] =~ /\S/ } @sentences;
+}
+
+# _sentence($text, $from, $to):
+#	One sentence record of $text, without its leading whitespace.
+sub _sentence ( $text, $from, $to )
+{
+	my $part = substr $text, $from, $to - $from;
+	my $lead = $part =~ /^([ \t]+)/ ? length $1 : 0;
+
+	return [ $from + $lead, substr $part, $lead ];
+}
+
+# _words($sentence):
+#	The words of one sentence. A word is one whitespace-separated
+#	token that holds a letter or a digit, so a lone dash counts as
+#	none.
+sub _words ($sentence)
+{
+	return grep { /[[:alnum:]]/ } split ' ', $sentence;
+}
+
+# _maximum($sentence):
+#	The greatest correct word count of one sentence: 19 words for
+#	an instruction, and 24 words for every other sentence.
+#
+#	A noun can spell an imperative verb, so a descriptive sentence
+#	can head with a word of the table. The second word clears the
+#	common case: no imperative verb takes a word of %SUBJECT next,
+#	and none takes a second finite verb.
+sub _maximum ($sentence)
+{
+	my ( $first, $second ) = split ' ', $sentence;
+	for my $word ( \$first, \$second ) {
+		$$word //= '';
+		$$word =~ s/[^[:alpha:]]//g;
+	}
+	return 24 unless $IMPERATIVE{ lc $first };
+	return 24 if $SUBJECT{ lc $second };
+
+	# A second word with no letter, such as a number, names no
+	# verb, so the sentence takes the longer maximum.
+	return 24 if $second eq '';
+
+	# A table word that ends in "s" is a finite verb, so the first
+	# word is its subject. A table word without one is the object
+	# of the instruction.
+	my $stem = lc $second;
+	return 19 unless $stem =~ s/s\z//;
+
+	return $IMPERATIVE{$stem} ? 24 : 19;
+}
+
+# _line($starts, $offset):
+#	The line number that holds one offset of a joined block.
+#	$starts holds one [ offset, line ] pair for each line.
+sub _line ( $starts, $offset )
+{
+	my $line = $starts->[0][1];
+	for my $start (@$starts) {
+		last if $start->[0] > $offset;
+		$line = $start->[1];
+	}
+
+	return $line;
+}
+
+# _line_findings($lines):
+#	The word, phrase and pattern findings of one file. Each
+#	finding holds the line number, the rule text, and the line.
+sub _line_findings ($lines)
+{
+	my @findings;
+	my ( $fence, $comment ) = ( 0, 0 );
+	my $number = 0;
+	for my $raw (@$lines) {
+		$number++;
+
+		# A fence mark reads before the span rule, because that
+		# rule eats a bare pair of backticks. A blockquote
+		# holds a fence too, so the marker goes first. An open
+		# HTML comment holds every mark, so a fence line inside
+		# one toggles nothing. A banned word inside a comment
+		# still reports, so no rule reads the comment state.
+		my $bare   = $fence ? $raw : $raw =~ s/^ {0,3}(?:>[ \t]?)+//r;
+		my $fenced = $bare                =~ m{^[ \t]*(?:```|~~~)};
+		my $line   = $raw                 =~ s/`[^`]*`//gr;
+		if ($comment) {
+			$comment = 0 if $line =~ /-->/;
+		}
+		elsif ($fenced) {
+			$fence = !$fence;
+			next;
+		}
+
+		# A fenced line opens no comment, so the state never
+		# holds a mark of a code block.
+		next if $fence;
+		$comment = 1
+		    if !$comment
+		    && ( $line =~ s/<!--.*?-->//gr ) =~ /<!--/;
 		for my $rule (@RULES) {
 			my ( $re, $label, $global ) = @$rule;
 
@@ -368,14 +636,88 @@ for my $file ( _files() ) {
 				my $what = $label;
 				$what = sprintf $what, $match
 				    if $what =~ /%s/;
-				say STDERR "$file:$number: $what: "
-				    . ( $line =~ s/^\s+|\s+$//gr );
-				$found++;
+				push @findings,
+				    [ $number, $what,
+					$line =~ s/^\s+|\s+$//gr ];
 			}
 		}
 	}
-	close $fh;
+
+	return @findings;
 }
+
+# _sentence_findings($lines):
+#	The sentence-length findings of one file. Each finding names
+#	the first line of the sentence, the count, the limit, and the
+#	start of the sentence. One block can hold more than one.
+sub _sentence_findings ($lines)
+{
+	my @findings;
+	for my $block ( _blocks($lines) ) {
+		my ( @starts, $at );
+		$at = 0;
+		for my $record (@$block) {
+			push @starts, [ $at, $record->[0] ];
+			$at += length( $record->[1] ) + 1;
+		}
+		my $text = join ' ', map { $_->[1] } @$block;
+		for my $sentence ( _sentences($text) ) {
+			my $count = scalar _words( $sentence->[1] );
+			my $max   = _maximum( $sentence->[1] );
+			next if $count <= $max;
+			push @findings,
+			    [
+				_line( \@starts, $sentence->[0] ),
+				"sentence length: $count words, max $max",
+				substr $sentence->[1],
+				0,
+				60
+			    ];
+		}
+	}
+
+	return @findings;
+}
+
+# _scan($name, $path):
+#	Report each finding of one file, in line order, and return the
+#	count. $name is the reported path, and $path is the read path.
+sub _scan ( $name, $path )
+{
+	open my $fh, '<:encoding(UTF-8)', $path
+	    or die "ste-lint: read $name: $!\n";
+	my @lines = <$fh>;
+	close $fh;
+
+	my @findings =
+	    ( _line_findings( \@lines ), _sentence_findings( \@lines ) );
+	for my $finding ( sort { $a->[0] <=> $b->[0] } @findings ) {
+		my ( $number, $what, $text ) = @$finding;
+		say STDERR "$name:$number: $what: $text";
+	}
+
+	return scalar @findings;
+}
+
+# The scan targets: one [ reported path, read path ] pair for each
+# file. A --file option names its own path, and the scope walk
+# names a path under the root.
+my @targets =
+    @named
+    ? map { [ $_, $_ ] } @named
+    : map { [ $_, "$root/$_" ] } _files();
+
+# A bad path fails before the first finding prints, so the run
+# never reports a partial count.
+for my $target (@targets) {
+	die "ste-lint: not a Markdown file: $target->[0]\n"
+	    unless $target->[0] =~ /\.md\z/;
+	die "ste-lint: not a readable file: $target->[0]\n"
+	    unless -f $target->[1] && -r $target->[1];
+}
+
+my $found = 0;
+$found += _scan(@$_) for @targets;
 
 if ($found) {
 	say STDERR "ste-lint: $found finding(s)";
