@@ -33,6 +33,44 @@ A control socket for a running daemon, with its client.
   HRN-SOCKET names the read, and FuguTTX HRN-CONFIRM-6 names the peer user id
   that gates a confirmation.
 
+<a id="lib-curl"></a>
+
+## Fugu::Curl
+
+Download one URL to one file through the downloader that the host has: `curl`
+first, then `wget`, then the `ftp` of OpenBSD. The module runs the command
+through `Fugu::Process`, with an argument list and never a shell. A consumer
+that ships a shell helper over the same three commands replaces it with this
+module.
+
+- **LIB-CURL-1** — The module must pick the first command of the list `curl`,
+  `wget`, `ftp` that `PATH` holds, unless the caller names one. It must resolve
+  the command once, in `new`, and it must run no process there.
+- **LIB-CURL-2** — A fetch must verify the TLS certificate of the peer. The
+  module must pass no option that turns the check off.
+- **LIB-CURL-3** — A fetch must follow a redirect, and it must fail on an HTTP
+  status of 400 or above. Without its fail flag, `curl` exits zero on such a
+  status and writes the error page as the file.
+- **LIB-CURL-4** — A failed fetch must leave no file at the destination. The
+  module must write to a temporary name in the destination directory, and it
+  must rename the file on success. The rename is atomic, so a reader never sees
+  a partial file.
+- **LIB-CURL-5** — The result must tell an HTTP error from a connection failure,
+  from a timeout, and from an absent command. It must carry the HTTP status when
+  the command reports one. A caller that probes for an optional file reads a 404
+  as the normal answer.
+- **LIB-CURL-6** — A `timeout` option must bound the whole fetch, with a default
+  of 600 seconds. A release asset on a slow link needs minutes, and a stalled
+  connection must not hold a bootstrap forever.
+- **LIB-CURL-7** — The module must pass the proxy variables of the environment
+  to the command: `http_proxy`, `https_proxy`, `ftp_proxy`, and `no_proxy`. A
+  host behind a proxy reaches a release through them.
+- **LIB-CURL-8** — The command must run quietly. It must write no progress
+  meter, and it must write a diagnostic on failure only. The module returns the
+  diagnostic in `error`, with the command name and the URL.
+- **LIB-CURL-9** — Every recoverable failure must return undef, and `error` must
+  hold the reason. The module never logs, and the caller decides what to report.
+
 <a id="lib-daemon"></a>
 
 ## Fugu::Daemon
@@ -58,11 +96,10 @@ signify(1) signature on a host without the command.
   length, and a string that holds a code point above 255. `Digest::SHA` dies on
   such a string, and a byte unpack would give a wrong answer in place of a
   failure.
-- **LIB-ED25519-4** — The check must follow section 5.1.7 of RFC 8032. It must
-  treat a scalar at or above the group order, and a point encoding that decodes
-  to no point, as a signature that does not verify. Such an encoding is not
-  canonical, and two encodings of one signature would let a signature count
-  twice.
+- **LIB-ED25519-4** — The check must follow section 5.1.7 of RFC 8032. A scalar
+  at or above the group order is a signature that does not verify. So is a point
+  encoding that decodes to no point. Such an encoding is not canonical, and two
+  encodings of one signature would let a signature count twice.
 - **LIB-ED25519-5** — `verify` must return 1 for a signature that verifies, and
   0 for one that does not. A shape error is a failure: the method returns undef,
   and `error` holds the reason. A caller then tells bad input from a file that
