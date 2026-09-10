@@ -39,6 +39,42 @@ A control socket for a running daemon, with its client.
 
 Daemonization for Perl programs.
 
+<a id="lib-ed25519"></a>
+
+## Fugu::Ed25519
+
+Verify an Ed25519 signature with core Perl. The module holds the field
+arithmetic over `Math::BigInt`, the point decoder, and the check of RFC 8032. It
+signs nothing, and it makes no key. `Fugu::Signify` uses it to verify a
+signify(1) signature on a host without the command.
+
+- **LIB-ED25519-1** — The module must verify with core modules only:
+  `Math::BigInt` for the field arithmetic, and `Digest::SHA` for SHA-512. It
+  must add no CPAN module, so ARC-COREPERL-1 holds with no lazy `require`.
+- **LIB-ED25519-2** — `verify` must take a 32-byte public key, a 64-byte
+  signature, and the message. The message is a byte string or a file path. A
+  file must stream through the hash, so a large file needs no memory.
+- **LIB-ED25519-3** — The module must reject a key or a signature of another
+  length, and a string that holds a code point above 255. `Digest::SHA` dies on
+  such a string, and a byte unpack would give a wrong answer in place of a
+  failure.
+- **LIB-ED25519-4** — The check must follow section 5.1.7 of RFC 8032. It must
+  treat a scalar at or above the group order, and a point encoding that decodes
+  to no point, as a signature that does not verify. Such an encoding is not
+  canonical, and two encodings of one signature would let a signature count
+  twice.
+- **LIB-ED25519-5** — `verify` must return 1 for a signature that verifies, and
+  0 for one that does not. A shape error is a failure: the method returns undef,
+  and `error` holds the reason. A caller then tells bad input from a file that
+  is not authentic.
+- **LIB-ED25519-6** — The module must hold no private key operation. It must not
+  sign, and it must not derive a key. A signature is a human act, and signify(1)
+  makes it.
+- **LIB-ED25519-7** — The module must let `Math::BigInt` take a faster backend
+  when the host has one, and it must run with the pure-Perl backend alone. One
+  check takes about one second with that backend, so a caller runs a few checks,
+  and never a stream.
+
 <a id="lib-eventloop"></a>
 
 ## Fugu::EventLoop
