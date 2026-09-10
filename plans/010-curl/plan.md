@@ -68,9 +68,10 @@ ftp(1) of OpenBSD follows a redirect, verifies TLS against `/etc/ssl/cert.pem`,
 exits 1 on every failure, and names the status on standard error.
 
 **One classification for three dialects.** The module reads the HTTP status
-where the command reports one, and `code` holds it. The time bound of the module
-gives the status `timeout`. Every failure that the command does not report takes
-the status `network`.
+where the command reports one, and `code` holds it. A status of 400 or above
+gives the status `http`, and an absent command gives `absent`. The time bound
+rule below states when a fetch takes the status `timeout`. A failure with no
+HTTP status and no timeout takes the status `network`.
 
 **TLS verification stays on.** Each command verifies the certificate by default.
 The module passes no flag that turns it off, and a test reads each argument list
@@ -86,9 +87,13 @@ environment of the parent unless the caller sets `env`. The module sets no
 `env`, so `http_proxy`, `https_proxy`, `ftp_proxy`, and `no_proxy` reach the
 command. A host behind a proxy reaches a release through them.
 
-**Two time limits.** The `timeout` of `Fugu::Process->run` bounds the process,
-and the command flag bounds the transfer 30 seconds later. The module therefore
-ends the fetch first, and it reports the status `timeout` for every dialect.
+**Two time limits.** The `timeout` option names the whole fetch bound, in
+seconds. The module passes that value to the command flag, and it gives
+`Fugu::Process->run` the value plus 30 seconds. The command flag therefore fires
+first, and the process bound catches a command that ignores its flag. The module
+reports `timeout` when the process bound fired, or when the command reports a
+timeout of its own. `curl` reports one with exit 28. `wget` and the OpenBSD
+`ftp` report no timeout of their own, so a stall there takes `network`.
 
 **The load contract.** The module uses `Fugu::Process` and `Fugu::File`, and
 core Perl. ARC-COREPERL-1 holds with no lazy `require`.
@@ -100,9 +105,10 @@ caller in `lib/` or in a test. Each sub of this plan gets a test.
 
 `Fugu::Curl->new(%args)` builds a downloader. The option `command` names a
 command or an absolute path. Without it, the method walks `PATH` for `curl`,
-then `wget`, then `ftp`. The option `timeout` sets the transfer bound in
-seconds, with the default 600. The method resolves the command once, and it runs
-no process.
+then `wget`, then `ftp`. The option `timeout` names the whole fetch bound in
+seconds, with the default 600. `arguments` puts that value in the command flag,
+and `fetch` gives the process the value plus 30 seconds. The method resolves the
+command once, and it runs no process.
 
 `is_available` returns 1 when the object resolved a command, and 0 otherwise.
 `command` returns the resolved path, or undef.
@@ -147,9 +153,9 @@ holds curl.
 - A 404 answer returns undef with the status `http` and the code 404, and no
   file appears at the destination.
 - A 302 answer to a 200 answer lands at the destination.
-- A server that never answers returns undef with the status `timeout`, under a
-  `timeout` of one second. The time bound of the module gives that status, and
-  never an exit code of a dialect.
+- A server that never answers returns undef, under a `timeout` of one second.
+  The status is `timeout` for `curl`. For a dialect that reports no timeout of
+  its own, the status is `timeout` or `network`.
 - A closed port returns undef with the status `network`.
 - A destination that exists holds the old bytes after a failure, and the new
   bytes after a success.

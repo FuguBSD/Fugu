@@ -50,7 +50,7 @@ In scope:
 - A convention test that holds every Fugu-owned Perl file to the block.
 - A skip in `t/scripts/dist.t` when the running perl is below 5.36. The test
   runs `scripts/dist` as a subprocess, and that script holds `use v5.36`.
-- A CI leg that runs the test suite on perl 5.34.
+- A CI leg that runs every Fugu-owned test on perl 5.34.
 - The floor statement in `spec/index.md`, `README.md`, and `INSTALL.md`.
 - Decision D-06, which this plan adds to `spec/DECISIONS.md`.
 - The floor rule of ARC-COREPERL, which the implementation adds.
@@ -94,12 +94,21 @@ they do under `use v5.36`.
 `use warnings` line satisfies it.
 
 **The proof runs on the real floor.** A GitHub `macos-latest` runner ships
-`/usr/bin/perl` 5.34, the perl that this plan targets. The leg runs `make test`
-with that perl and with no CPAN module. The leg must not run `make check`,
-because the lint gate and the format gate need `Perl::Critic` and `Perl::Tidy`
-from CPAN. A test that needs a CPAN module skips, as the test rules of
-`lib/CLAUDE.md` demand. An `ubuntu-22.04` runner ships perl 5.34.0, and it is
-the fallback when the macOS image moves on.
+`/usr/bin/perl` 5.34, the perl that this plan targets. The leg runs the
+Fugu-owned test tiers with that perl, and with no CPAN module:
+
+```sh
+make test TEST_GLOBS="t/fugu/*.t t/protocol/*.t t/conformance/*.t t/scripts/*.t"
+```
+
+A variable on the command line beats the assignment in `mk/local.mk`, so the leg
+edits no file. The list holds no `t/ci/*.t`, because the two org pack tests hold
+`use v5.36`. Perl 5.34 stops at that line before a skip can run, and the floor
+covers the Fugu-owned files only. The leg must not run `make check`, because the
+lint gate and the format gate need `Perl::Critic` and `Perl::Tidy` from CPAN. A
+test that needs a CPAN module skips, as the test rules of `lib/CLAUDE.md`
+demand. An `ubuntu-22.04` runner ships perl 5.34.0, and it is the fallback when
+the macOS image moves on.
 
 **The load contract stays.** ARC-COREPERL-1 holds: the change adds no module.
 `t/fugu/coreperl.t` runs on the new leg, so the core-only proof runs on the
@@ -111,20 +120,20 @@ Every Fugu-owned Perl file replaces its `use v5.36;` line with the four-line
 block. The block sits where the one line sat, after the license header and
 before the `package` line.
 
-| File                         | Change                                                  |
-| ---------------------------- | ------------------------------------------------------- |
-| `lib/**/*.pm`                | The pragma block, in 28 files                           |
-| `t/**/*.t`                   | The pragma block, in 36 of the 38 files                 |
-| `t/scripts/dist.t`           | A skip when the running perl is below 5.36              |
-| `scripts/spec-coverage`      | The pragma block                                        |
-| `t/scripts/conventions.t`    | Hold every Fugu-owned Perl file to the block            |
-| `.github/workflows/test.yml` | A `macos-latest` leg that runs `make test` on perl 5.34 |
-| `spec/index.md`              | The floor in the first paragraph                        |
-| `spec/architecture.md`       | The floor rule of ARC-COREPERL                          |
-| `spec/STATUS.md`             | The `ARC-COREPERL` note links the convention test       |
-| `README.md`                  | The floor in the second paragraph                       |
-| `INSTALL.md`                 | The floor in the first paragraph                        |
-| `spec/DECISIONS.md`          | Decision D-06, with this plan                           |
+| File                         | Change                                                           |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `lib/**/*.pm`                | The pragma block, in 28 files                                    |
+| `t/**/*.t`                   | The pragma block, in 36 of the 38 files                          |
+| `t/scripts/dist.t`           | A skip when the running perl is below 5.36                       |
+| `scripts/spec-coverage`      | The pragma block                                                 |
+| `t/scripts/conventions.t`    | Hold every Fugu-owned Perl file to the block                     |
+| `.github/workflows/test.yml` | A `macos-latest` leg that runs the Fugu-owned tiers on perl 5.34 |
+| `spec/index.md`              | The floor in the first paragraph                                 |
+| `spec/architecture.md`       | The floor rule of ARC-COREPERL                                   |
+| `spec/STATUS.md`             | The `ARC-COREPERL` note links the convention test                |
+| `README.md`                  | The floor in the second paragraph                                |
+| `INSTALL.md`                 | The floor in the first paragraph                                 |
+| `spec/DECISIONS.md`          | Decision D-06, with this plan                                    |
 
 The rule that the implementation adds reads: "Fugu must compile and run on perl
 5.34, the perl that macOS ships in base. Every module, every test, and every
@@ -139,13 +148,15 @@ Fugu-owned script must start with the four-line pragma block."
   marker comment, so `t/ci/local.t` and `t/ci/workflows.t` stay out.
 - `t/scripts/dist.t` skips when the running perl is below 5.36. It runs
   `scripts/dist`, which holds `use v5.36`, so a lower perl cannot compile it.
-- The macOS leg of `test.yml` runs `make test` with `/usr/bin/perl`. It installs
-  nothing, so the leg proves the core-only claim and the floor claim in one run.
+- The macOS leg of `test.yml` runs the Fugu-owned tiers with `/usr/bin/perl`,
+  through `TEST_GLOBS` on the command line. It installs nothing, so the leg
+  proves the core-only claim and the floor claim in one run.
 - `t/fugu/coreperl.t` stays as it is, and it runs on both legs.
 
 ## Acceptance
 
-- `make check` passes on the Linux leg, and `make test` passes on the macOS leg.
+- `make check` passes on the Linux leg. The Fugu-owned tiers pass on the macOS
+  leg, under `make test` with the named `TEST_GLOBS`.
 - No Fugu-owned file under `lib/`, `t/`, or `scripts/spec-coverage` holds
   `use v5.36`.
 - `spec/index.md`, `README.md`, and `INSTALL.md` name v5.34.
