@@ -16,8 +16,12 @@ OpenBSD style; do not "fix" code toward generic Perl::Critic defaults.
 
 Rules the tools cannot enforce:
 
-- Always `use v5.36` (strict, warnings, say, signatures). The one exception is a
-  bootstrap script such as `scripts/deps`: it runs before anything is installed,
+- Start each file with the version pragma of the repository floor. The README
+  names that floor. `use v5.36` turns on strict, warnings, say, and signatures.
+  A v5.34 floor needs four lines: `use v5.34`, `use warnings`,
+  `use experimental 'signatures'`, and
+  `no feature qw(indirect multidimensional bareword_filehandles)`. A bootstrap
+  script such as `scripts/deps` takes v5.34 always. It runs before any install,
   and macOS ships perl 5.34.
 - Object-oriented style with signatures; the object is `$self`; internal methods
   carry a `_` prefix; do not name unused parameters: `sub foo($, $) { }`.
