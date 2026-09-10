@@ -2,16 +2,15 @@
 
 ## Status
 
-Proposed. The code change can land now.
+Proposed. The implementation waits on one condition.
 
 Extends: ARC-COREPERL. The implementation adds the floor rule to that unit and
 lands the rule with the code.
 
-One item waits on FuguBSD/Tooling. The perl pack rule sheet `lib/CLAUDE.md`
-tells a writer to use `use v5.36` in every file. That sheet is a synced copy, so
-this repository cannot change it. A Tooling patch must reword the rule so that
-it names the floor of the repository. The code of this plan can merge before
-that patch, because the sheet is guidance and no gate reads the pragma.
+The perl pack rule sheet `lib/CLAUDE.md` tells a writer to use `use v5.36` in
+every file. That sheet is a synced copy, and this repository must not change it.
+The implementation lands after the synced sheet names the floor of the
+repository.
 
 ## Purpose
 
@@ -34,12 +33,12 @@ snapshot, and FuguBench CLI-FUGU names the modules, so both depend on this plan.
 
 ## Consumers
 
-| Repo      | Need                                                                |
-| --------- | ------------------------------------------------------------------- |
-| FuguBench | Pack Fugu into one file that the macOS system perl runs             |
-| FuguWeb   | Keep its own floor, or lower it in a plan of its own                |
-| FuguVM    | Keep its own floor, or lower it in a plan of its own                |
-| Tooling   | Reword the perl pack rule sheet, so it names the floor of each repo |
+| Repo      | Need                                                    |
+| --------- | ------------------------------------------------------- |
+| FuguBench | Pack Fugu into one file that the macOS system perl runs |
+| FuguWeb   | Keep its own floor, or lower it in a plan of its own    |
+| FuguVM    | Keep its own floor, or lower it in a plan of its own    |
+| Tooling   | None. This plan waits on the perl pack rule sheet       |
 
 ## Scope
 
@@ -49,6 +48,8 @@ In scope:
 - The pragma block of every test under `t/`.
 - The pragma block of `scripts/spec-coverage`, the one script that Fugu owns.
 - A convention test that holds every Fugu-owned Perl file to the block.
+- A skip in `t/scripts/dist.t` when the running perl is below 5.36. The test
+  runs `scripts/dist` as a subprocess, and that script holds `use v5.36`.
 - A CI leg that runs the test suite on perl 5.34.
 - The floor statement in `spec/index.md`, `README.md`, and `INSTALL.md`.
 - Decision D-06, which this plan adds to `spec/DECISIONS.md`.
@@ -56,6 +57,9 @@ In scope:
 
 Out of scope:
 
+- Every file that carries the org pack marker comment, such as `t/ci/local.t`
+  and `t/ci/workflows.t`. An edit there breaks the drift gate, and the next sync
+  restores `use v5.36`.
 - `scripts/dist`. The perl pack of Tooling owns it, and it runs at build time on
   the CI perl. It never runs on a consumer host.
 - The rule sheet `lib/CLAUDE.md`. Tooling owns it.
@@ -91,9 +95,11 @@ they do under `use v5.36`.
 
 **The proof runs on the real floor.** A GitHub `macos-latest` runner ships
 `/usr/bin/perl` 5.34, the perl that this plan targets. The leg runs `make test`
-with that perl and with no CPAN module. A test that needs a CPAN module skips,
-as the test rules of `lib/CLAUDE.md` demand. An `ubuntu-22.04` runner ships perl
-5.34.0, and it is the fallback when the macOS image moves on.
+with that perl and with no CPAN module. The leg must not run `make check`,
+because the lint gate and the format gate need `Perl::Critic` and `Perl::Tidy`
+from CPAN. A test that needs a CPAN module skips, as the test rules of
+`lib/CLAUDE.md` demand. An `ubuntu-22.04` runner ships perl 5.34.0, and it is
+the fallback when the macOS image moves on.
 
 **The load contract stays.** ARC-COREPERL-1 holds: the change adds no module.
 `t/fugu/coreperl.t` runs on the new leg, so the core-only proof runs on the
@@ -107,8 +113,9 @@ before the `package` line.
 
 | File                         | Change                                                  |
 | ---------------------------- | ------------------------------------------------------- |
-| `lib/**/*.pm`                | The pragma block, in 29 files                           |
-| `t/**/*.t`                   | The pragma block, in 38 files                           |
+| `lib/**/*.pm`                | The pragma block, in 28 files                           |
+| `t/**/*.t`                   | The pragma block, in 36 of the 38 files                 |
+| `t/scripts/dist.t`           | A skip when the running perl is below 5.36              |
 | `scripts/spec-coverage`      | The pragma block                                        |
 | `t/scripts/conventions.t`    | Hold every Fugu-owned Perl file to the block            |
 | `.github/workflows/test.yml` | A `macos-latest` leg that runs `make test` on perl 5.34 |
@@ -128,15 +135,19 @@ Fugu-owned script must start with the four-line pragma block."
 - `t/scripts/conventions.t` gains one check. Each `.pm` under `lib/`, each `.t`
   under `t/`, and `scripts/spec-coverage` must hold the four pragma lines. The
   lines must sit in order, before the first `package` line. A file with
-  `use v5.36` fails the check.
+  `use v5.36` fails the check. The check skips a file that carries the org pack
+  marker comment, so `t/ci/local.t` and `t/ci/workflows.t` stay out.
+- `t/scripts/dist.t` skips when the running perl is below 5.36. It runs
+  `scripts/dist`, which holds `use v5.36`, so a lower perl cannot compile it.
 - The macOS leg of `test.yml` runs `make test` with `/usr/bin/perl`. It installs
   nothing, so the leg proves the core-only claim and the floor claim in one run.
 - `t/fugu/coreperl.t` stays as it is, and it runs on both legs.
 
 ## Acceptance
 
-- `make check` passes on the Linux leg and on the macOS leg.
-- No file under `lib/`, `t/`, or `scripts/spec-coverage` holds `use v5.36`.
+- `make check` passes on the Linux leg, and `make test` passes on the macOS leg.
+- No Fugu-owned file under `lib/`, `t/`, or `scripts/spec-coverage` holds
+  `use v5.36`.
 - `spec/index.md`, `README.md`, and `INSTALL.md` name v5.34.
 - ARC-COREPERL holds rule 3, and its register row stays `done` with a link to
   the convention test.

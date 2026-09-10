@@ -60,13 +60,17 @@ write to a named file, and stop after a time limit.
 | wget    | `--no-verbose --tries=1 --timeout=N --output-document=TMP`                                   |
 | ftp     | `-V -M -w N -o TMP`                                                                          |
 
-curl writes the HTTP status to standard output through `--write-out`. It exits
-22 on an HTTP error, 28 on a timeout, and 6 or 7 on a connection failure. wget
-follows a redirect by default, and it names the HTTP status on standard error.
-It exits 8 on an HTTP error, 4 on a connection failure, and 5 on a TLS failure.
-The ftp(1) of OpenBSD follows a redirect, verifies TLS against
-`/etc/ssl/cert.pem`, exits 1 on every failure, and names the status on standard
-error.
+curl writes the HTTP status to standard output through `--write-out`, and
+`--fail` keeps that report. The exit code of curl tells little: a 404 through a
+redirect exits 56, and the manual names 22. wget follows a redirect by default,
+it names the HTTP status on standard error, and it has no timeout exit code. The
+ftp(1) of OpenBSD follows a redirect, verifies TLS against `/etc/ssl/cert.pem`,
+exits 1 on every failure, and names the status on standard error.
+
+**One classification for three dialects.** The module reads the HTTP status
+where the command reports one, and `code` holds it. The time bound of the module
+gives the status `timeout`. Every failure that the command does not report takes
+the status `network`.
 
 **TLS verification stays on.** Each command verifies the certificate by default.
 The module passes no flag that turns it off, and a test reads each argument list
@@ -82,9 +86,9 @@ environment of the parent unless the caller sets `env`. The module sets no
 `env`, so `http_proxy`, `https_proxy`, `ftp_proxy`, and `no_proxy` reach the
 command. A host behind a proxy reaches a release through them.
 
-**Two time limits.** The command flag bounds the transfer, and the `timeout` of
-`Fugu::Process->run` bounds the process, with a margin of 30 seconds. A command
-that ignores its own flag still ends.
+**Two time limits.** The `timeout` of `Fugu::Process->run` bounds the process,
+and the command flag bounds the transfer 30 seconds later. The module therefore
+ends the fetch first, and it reports the status `timeout` for every dialect.
 
 **The load contract.** The module uses `Fugu::Process` and `Fugu::File`, and
 core Perl. ARC-COREPERL-1 holds with no lazy `require`.
@@ -144,7 +148,8 @@ holds curl.
   file appears at the destination.
 - A 302 answer to a 200 answer lands at the destination.
 - A server that never answers returns undef with the status `timeout`, under a
-  `timeout` of one second.
+  `timeout` of one second. The time bound of the module gives that status, and
+  never an exit code of a dialect.
 - A closed port returns undef with the status `network`.
 - A destination that exists holds the old bytes after a failure, and the new
   bytes after a success.

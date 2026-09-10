@@ -55,10 +55,12 @@ module.
   module must write to a temporary name in the destination directory, and it
   must rename the file on success. The rename is atomic, so a reader never sees
   a partial file.
-- **LIB-CURL-5** — The result must tell an HTTP error from a connection failure,
-  from a timeout, and from an absent command. It must carry the HTTP status when
-  the command reports one. A caller that probes for an optional file reads a 404
-  as the normal answer.
+- **LIB-CURL-5** — The result must tell the failures apart as far as the command
+  reports them. The module must read the HTTP status where the command gives
+  one, and `code` must hold it. The time bound of the module must give the
+  status `timeout`, and an absent command must give `absent`. Every other
+  failure must take the status `network`. A caller that probes for an optional
+  file then reads a 404 as the normal answer.
 - **LIB-CURL-6** — A `timeout` option must bound the whole fetch, with a default
   of 600 seconds. A release asset on a slow link needs minutes, and a stalled
   connection must not hold a bootstrap forever.
