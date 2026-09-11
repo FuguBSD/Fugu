@@ -30,7 +30,7 @@ phase applies.
 | [LIB-CLI](library.md#lib-cli)                    | done  | —       | [CLI.pm](../lib/Fugu/CLI.pm), [cli.t](../t/fugu/cli.t)                                                            |
 | [LIB-CONFIG](library.md#lib-config)              | done  | —       | [Config.pm](../lib/Fugu/Config.pm), [config.t](../t/fugu/config.t)                                                |
 | [LIB-CONTROL](library.md#lib-control)            | done  | —       | [Control.pm](../lib/Fugu/Control.pm), [control.t](../t/fugu/control.t)                                            |
-| [LIB-CURL](library.md#lib-curl)                  | open  | —       | The downloader over curl, wget, and ftp.                                                                          |
+| [LIB-CURL](library.md#lib-curl)                  | done  | —       | [Curl.pm](../lib/Fugu/Curl.pm), [curl.t](../t/fugu/curl.t)                                                        |
 | [LIB-DAEMON](library.md#lib-daemon)              | done  | —       | [Daemon.pm](../lib/Fugu/Daemon.pm), [daemon.t](../t/fugu/daemon.t)                                                |
 | [LIB-ED25519](library.md#lib-ed25519)            | open  | —       | The verifier that the perl engine of Fugu::Signify uses.                                                          |
 | [LIB-EVENTLOOP](library.md#lib-eventloop)        | done  | —       | [EventLoop.pm](../lib/Fugu/EventLoop.pm), [eventloop.t](../t/fugu/eventloop.t)                                    |
