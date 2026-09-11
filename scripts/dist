@@ -70,6 +70,10 @@ use Getopt::Long qw(GetOptions);
 #	  dist.abstract     one line        required
 #	  dist.author       Name <mail>     required; the META.json
 #	                                    author entry
+#	  dist.perl         5.034           optional; the perl floor of
+#	                                    the distribution, in the
+#	                                    form 5.0NN; the default is
+#	                                    5.036
 #	  dist.exe          bin/fuguvm      repeatable
 #	  dist.testdir      t/fuguvm        repeatable
 #	  dist.share-extra  scripts/ftp     repeatable; files outside
@@ -83,7 +87,7 @@ sub _read_toolingrc ($file)
 	open my $fh, '<', $file
 	    or die "dist: cannot read $file: $!\n";
 
-	my %single = map { $_ => 1 } qw(name module abstract author);
+	my %single = map { $_ => 1 } qw(name module abstract author perl);
 	my %list   = map { $_ => 1 } qw(exe testdir share-extra prereq);
 
 	my %conf;
@@ -121,6 +125,10 @@ sub _read_toolingrc ($file)
 		    or die "dist: $file: missing 'dist.$required'\n";
 	}
 
+	$conf{perl} //= '5.036';
+	$conf{perl} =~ /^5\.0[0-9][0-9]\z/a
+	    or die "dist: $file: 'dist.perl' is not in the form 5.0NN\n";
+
 	return \%conf;
 }
 
@@ -134,6 +142,7 @@ my @exe_files   = @{ $conf->{exe} };
 my @test_dirs   = @{ $conf->{testdir} };
 my @share_extra = @{ $conf->{'share-extra'} };
 my @prereqs     = @{ $conf->{prereq} };
+my $perl        = $conf->{perl};
 
 my $version;
 my $out = 'build';
@@ -273,7 +282,7 @@ WriteMakefile(
 	VERSION          => '$version',
 	ABSTRACT         => '$abstract',
 	LICENSE          => 'open_source',
-	MIN_PERL_VERSION => '5.036',
+	MIN_PERL_VERSION => '$perl',
 	EXE_FILES        => [
 $exe_lines
 	],
@@ -306,7 +315,7 @@ my $meta = CPAN::Meta->create( {
 		prereqs        => {
 			runtime => {
 				requires => {
-					perl => '5.036',
+					perl => $perl,
 					map { $_ => 0 } @prereqs,
 				},
 			},
