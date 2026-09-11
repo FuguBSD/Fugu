@@ -10,7 +10,10 @@
 # writes the index page and the KEYS file on every build, so an
 # unstable order would make a diff on each run.
 
-use v5.36;
+use v5.34;
+use warnings;
+use experimental 'signatures';
+no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
 use FindBin qw($RealBin);
 use lib "$RealBin/../../lib";

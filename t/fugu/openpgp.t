@@ -11,7 +11,10 @@
 # The expected fingerprint of each fixture comes from
 # 'gpg --list-keys --with-colons' at the time the fixture was made.
 
-use v5.36;
+use v5.34;
+use warnings;
+use experimental 'signatures';
+no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
 use MIME::Base64 qw(encode_base64);
 use Digest::SHA  ();

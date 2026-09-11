@@ -8,7 +8,10 @@
 # that PATH holds, and the argument subtests use a stub under the
 # name of a command, so all three dialects stay readable everywhere.
 
-use v5.36;
+use v5.34;
+use warnings;
+use experimental 'signatures';
+no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
 use File::Basename qw(basename dirname);
 use File::Temp     qw(tempdir);

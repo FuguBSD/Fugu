@@ -15,6 +15,10 @@ pipeline.
 - **REL-VERSION-3** — `make dist` must build a standard Perl distribution
   tarball. The staged tree alone holds the generated `Makefile.PL` and
   `MANIFEST`.
+- **REL-VERSION-4** — The distribution must declare the perl floor of
+  ARC-COREPERL-3. The `dist.perl` key of `.toolingrc` names that floor, and the
+  dist build stamps it into `Makefile.PL` and `META.json`. A perl that installs
+  the distribution must run the code.
 
 <a id="rel-assets"></a>
 

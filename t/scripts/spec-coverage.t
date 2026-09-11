@@ -2,7 +2,10 @@
 # ex:ts=8 sw=4:
 # Unit tests for scripts/spec-coverage against a fixture tree
 
-use v5.36;
+use v5.34;
+use warnings;
+use experimental 'signatures';
+no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
 use FindBin qw($RealBin);
 use File::Temp qw(tempdir);

@@ -34,6 +34,17 @@ The dependency direction is one way.
 - **ARC-COREPERL-2** — Every CPAN use must be a lazy `require` behind an
   optional feature. The uses are `Net::SSH2` in `Fugu::SSH`, `Net::MQTT::Simple`
   in `Fugu::MQTT`, and the HTTP stack in `Fugu::Proxy`.
+- **ARC-COREPERL-3** — Fugu must compile and run on perl 5.34, the perl that
+  macOS ships in base. Every Fugu-owned module, test, and Perl script must open
+  with the four-line pragma block. The four lines are `use v5.34`,
+  `use warnings`, `use experimental 'signatures'`, and
+  `no feature qw(indirect multidimensional bareword_filehandles)`. Only a
+  comment, a blank line, and one `package` statement can come before the block.
+- **ARC-COREPERL-4** — A file that a pack of FuguBSD/Tooling owns keeps the
+  floor of that pack, and this repository must not lower it. The convention test
+  must skip the pragma block check for that file. The test must also skip the
+  compile of a script whose version pragma names a perl above the perl that runs
+  the test.
 
 <a id="arc-callers"></a>
 

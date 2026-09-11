@@ -1,7 +1,7 @@
 # Fugu specification
 
 Fugu is a library of generic OpenBSD-style daemon utilities for Perl: core Perl
-v5.36, no runtime dependencies. The repository also ships `Protocol::Imsg`, the
+v5.34, no runtime dependencies. The repository also ships `Protocol::Imsg`, the
 imsg(3) frame codec. OpenBSD is the production platform; Linux and Darwin serve
 development and CI.
 
