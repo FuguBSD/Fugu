@@ -35,6 +35,8 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Daemon> - daemonization for Perl programs
 
+=item L<Fugu::Ed25519> - verify an Ed25519 signature with core Perl
+
 =item L<Fugu::EventLoop> - one select loop for a daemon with one process
 
 =item L<Fugu::File> - file operations for a daemon and its tools

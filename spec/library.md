@@ -327,6 +327,19 @@ maps each key to a local path. The module holds no private key and cannot sign.
   one byte sequence. It must reject a key that a stricter reader cannot carry. A
   parenthesis ends the key in a reader that stops at the first one. Whitespace
   breaks a reader that splits a line on space.
+- **LIB-SIGNIFY-2** — The module must verify with two engines, and the `engine`
+  option must name the one to take. The `perl` engine must use
+  [Fugu::Ed25519](#lib-ed25519), and it must be the default. The `signify`
+  engine must run the command, and a caller that names a `command` must get that
+  engine. Under the `perl` engine `is_available` must return 1, `command` must
+  return undef, and `command_absent` must return 0. Both engines must answer the
+  same on the same input, and both must write the same error shape.
+- **LIB-SIGNIFY-3** — The module must parse a signify(1) public key file and a
+  signify(1) signature file. Each file holds a comment line and a base64 body.
+  The body holds the two letters `Ed`, an 8-byte key number, and the key or the
+  signature. The comment line carries no trust. A key number that differs from
+  the signature must give the reason "checked against wrong key". The walk of
+  the key set must then continue.
 
 <a id="lib-statefile"></a>
 
