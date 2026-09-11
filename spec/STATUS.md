@@ -32,7 +32,7 @@ phase applies.
 | [LIB-CONTROL](library.md#lib-control)            | done  | —       | [Control.pm](../lib/Fugu/Control.pm), [control.t](../t/fugu/control.t)                                            |
 | [LIB-CURL](library.md#lib-curl)                  | done  | —       | [Curl.pm](../lib/Fugu/Curl.pm), [curl.t](../t/fugu/curl.t)                                                        |
 | [LIB-DAEMON](library.md#lib-daemon)              | done  | —       | [Daemon.pm](../lib/Fugu/Daemon.pm), [daemon.t](../t/fugu/daemon.t)                                                |
-| [LIB-ED25519](library.md#lib-ed25519)            | open  | —       | The verifier that the perl engine of Fugu::Signify uses.                                                          |
+| [LIB-ED25519](library.md#lib-ed25519)            | done  | —       | [Ed25519.pm](../lib/Fugu/Ed25519.pm), [ed25519.t](../t/fugu/ed25519.t)                                            |
 | [LIB-EVENTLOOP](library.md#lib-eventloop)        | done  | —       | [EventLoop.pm](../lib/Fugu/EventLoop.pm), [eventloop.t](../t/fugu/eventloop.t)                                    |
 | [LIB-FILE](library.md#lib-file)                  | done  | —       | [File.pm](../lib/Fugu/File.pm), [file.t](../t/fugu/file.t)                                                        |
 | [LIB-IMSG](library.md#lib-imsg)                  | done  | —       | [Imsg.pm](../lib/Fugu/Imsg.pm), [imsg.t](../t/fugu/imsg.t)                                                        |
@@ -51,7 +51,7 @@ phase applies.
 | [LIB-SSH](library.md#lib-ssh)                    | done  | —       | [SSH.pm](../lib/Fugu/SSH.pm), [ssh.t](../t/fugu/ssh.t)                                                            |
 | [LIB-SANDBOX](library.md#lib-sandbox)            | done  | —       | [Sandbox.pm](../lib/Fugu/Sandbox.pm), [sandbox.t](../t/fugu/sandbox.t)                                            |
 | [LIB-SIGNAL](library.md#lib-signal)              | done  | —       | [Signal.pm](../lib/Fugu/Signal.pm), [signal.t](../t/fugu/signal.t)                                                |
-| [LIB-SIGNIFY](library.md#lib-signify)            | done  | —       | [Signify.pm](../lib/Fugu/Signify.pm), [signify.t](../t/fugu/signify.t)                                            |
+| [LIB-SIGNIFY](library.md#lib-signify)            | done  | —       | [Signify.pm](../lib/Fugu/Signify.pm), [signify.t](../t/fugu/signify.t). Two engines, and perl is the default.     |
 | [LIB-STATEFILE](library.md#lib-statefile)        | done  | —       | [StateFile.pm](../lib/Fugu/StateFile.pm), [statefile.t](../t/fugu/statefile.t)                                    |
 | [LIB-TESTLOG](library.md#lib-testlog)            | done  | —       | [TestLog.pm](../lib/Fugu/TestLog.pm), [testlog.t](../t/fugu/testlog.t)                                            |
 | [LIB-TIMEOUT](library.md#lib-timeout)            | done  | —       | [Timeout.pm](../lib/Fugu/Timeout.pm), [timeout.t](../t/fugu/timeout.t)                                            |

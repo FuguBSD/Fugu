@@ -20,17 +20,26 @@ use v5.36;
 package Fugu::Signify;
 
 use Digest::SHA ();
+use Fugu::Ed25519;
 use Fugu::File;
 use Fugu::Process;
+use MIME::Base64 qw(decode_base64);
 
 # Fugu::Signify - verify a signify(1) signature and a SHA256 manifest,
 # and read and write the manifest form.
 #
-# The module runs signify(1) through Fugu::Process->run, with an
-# argument list and never a shell. It holds a small key set, so a
-# caller can accept the current key and the next key. It also verifies
-# each file that a signed SHA256 manifest names, against the digest of
-# that manifest, with core Digest::SHA.
+# The module verifies with two engines. The perl engine parses the
+# signify(1) file formats and checks the signature with
+# Fugu::Ed25519, so a host verifies a release with no command
+# installed. It is the default. The signify engine runs signify(1)
+# through Fugu::Process->run, with an argument list and never a
+# shell. A caller that names a command asks for the command, so that
+# call takes the signify engine.
+#
+# The module holds a small key set, so a caller can accept the
+# current key and the next key. It also verifies each file that a
+# signed SHA256 manifest names, against the digest of that manifest,
+# with core Digest::SHA.
 #
 # A manifest holds one key in each line, between the parentheses. The
 # key is opaque to this module: a release manifest writes a file name,
@@ -53,17 +62,46 @@ use constant MAX_MANIFEST_SIZE => 1_048_576;
 # milliseconds.
 use constant SIGNIFY_TIMEOUT => 30;
 
+# The size bound of a signify(1) public key file and signature file,
+# 4 KiB. Each file holds two short lines. A caller that names a disk
+# image by mistake gets a clean failure, not a read of 500 MB.
+use constant MAX_SIGNIFY_FILE_SIZE => 4096;
+
+# The first line of a signify(1) file. The line carries no trust: no
+# signature covers it, and any producer writes any text after it.
+use constant COMMENT_HEADER => 'untrusted comment: ';
+
+# The two letters that name the algorithm at the front of each body.
+use constant ALGORITHM => 'Ed';
+
+# The length of the key number, in bytes. The number binds a
+# signature to a key.
+use constant KEYNUM_SIZE => 8;
+
+# The byte length of the body of a public key file: the two letters,
+# the key number, and the 32-byte public key.
+use constant PUBLIC_KEY_SIZE => 42;
+
+# The byte length of the body of a signature file: the two letters,
+# the key number, and the 64-byte signature.
+use constant SIGNATURE_SIZE => 74;
+
 # Fugu::Signify->new(%args):
-#	Build a verifier. The method resolves the command once, and it
-#	runs no process.
+#	Build a verifier. Under the signify engine the method resolves
+#	the command once, and it runs no process.
 #
 #	%args:
 #		keys    => \@paths  # Required: public key files, in trust order
+#		engine  => $engine  # Optional: perl or signify
 #		command => $command # Optional: a name or an absolute path
 #
 #	The order of keys is the trust order: the current key first,
 #	the next key second. The method dies when keys is absent, not
-#	an array reference, or empty. Each one is a programming error.
+#	an array reference, or empty. Each one is a programming error,
+#	and so is an engine name that the module does not hold.
+#
+#	The default engine is perl. A caller that names a command asks
+#	for the command, so that call defaults to the signify engine.
 #
 #	The method must not die for an absent command. It sets error
 #	instead, and is_available then returns 0.
@@ -73,13 +111,24 @@ sub new ( $class, %args )
 	die "keys must be a non-empty array reference\n"
 	    unless ref $keys eq 'ARRAY' && @$keys;
 
+	my $engine = $args{engine}
+	    // ( defined $args{command} ? 'signify' : 'perl' );
+	die "engine must be perl or signify\n"
+	    unless $engine eq 'perl' || $engine eq 'signify';
+
 	my $self = bless {
 		keys           => [@$keys],
+		engine         => $engine,
+		ed25519        => Fugu::Ed25519->new,
 		command        => undef,
 		command_error  => undef,
 		command_absent => 0,
 		error          => undef,
 	}, $class;
+
+	# The perl engine needs no command, so the object never walks
+	# the search list and never holds an install failure.
+	return $self if $engine eq 'perl';
 
 	my $command = _find_command( $args{command} );
 	if ( defined $command ) {
@@ -97,16 +146,21 @@ sub new ( $class, %args )
 }
 
 # $self->is_available:
-#	Report if the object resolved an executable command. The
-#	method returns 1 or 0. It runs no process, and it never dies.
+#	Report if the object can verify. The perl engine always can,
+#	so it returns 1. The signify engine returns 1 when it resolved
+#	an executable command, and 0 otherwise. The method runs no
+#	process, and it never dies.
 sub is_available ($self)
 {
+	return 1 if $self->{engine} eq 'perl';
+
 	return defined $self->{command} ? 1 : 0;
 }
 
 # $self->command:
-#	The resolved command path, or undef. An operator who installed
-#	the wrong signify needs this answer in a diagnostic.
+#	The resolved command path, or undef. The perl engine runs no
+#	command, so it returns undef. An operator who installed the
+#	wrong signify needs this answer in a diagnostic.
 sub command ($self)
 {
 	return $self->{command};
@@ -138,15 +192,15 @@ sub command_absent ($self)
 #	The method returns the public key file that verified the
 #	signature. It returns undef on every failure, and error holds
 #	the reason. For a signature that no key verified, the reason
-#	names the file, then each key with the first line of its
-#	signify diagnostic. A caller thus tells a wrong key from an
-#	absent key file.
+#	names the file, then each key with its own reason. Both
+#	engines write that shape, so a caller tells a wrong key from
+#	an absent key file under either one.
 sub verify ( $self, $file, $sigfile = undef )
 {
 	$self->{error}          = undef;
 	$self->{command_absent} = 0;
 
-	unless ( defined $self->{command} ) {
+	if ( $self->{engine} eq 'signify' && !defined $self->{command} ) {
 		$self->{error}          = $self->{command_error};
 		$self->{command_absent} = 1;
 		return;
@@ -161,42 +215,59 @@ sub verify ( $self, $file, $sigfile = undef )
 		return;
 	}
 
-	my @reasons;
-	for my $keyfile ( @{ $self->{keys} } ) {
-		my $result = $self->_run_signify( $keyfile, $sigfile, $file );
-		return $keyfile if $result->{success};
+	return $self->_verify_perl( $file, $sigfile )
+	    if $self->{engine} eq 'perl';
 
-		# A run that never reached the child means that
-		# signify(1) never ran. That is an install problem, so
-		# the loop stops: every later key would fail the same
-		# way.
-		if ( defined $result->{error} ) {
-			$self->{error}          = $result->{error};
-			$self->{command_absent} = 1;
-			return;
-		}
+	return $self->_verify_signify( $file, $sigfile );
+}
 
-		my $reason;
-		if ( $result->{timed_out} ) {
-			$reason =
-			    'timeout after ' . SIGNIFY_TIMEOUT . ' seconds';
-		}
-		else {
-			# The first line of the diagnostic, without the
-			# program name in front.
-			($reason) = split /\n/, $result->{stderr} // '';
-			$reason //= '';
-			$reason =~ s/^\S*signify\S*:\s*//;
-			$reason = "exit code $result->{exit_code}"
-			    unless length $reason;
-		}
-		push @reasons, "$keyfile: $reason";
+# $self->parse_public_key($bytes):
+#	Parse a signify(1) public key file. The method returns a hash
+#	reference with comment, keynum and key, or undef with the
+#	reason in error.
+#
+#	The comment carries no trust. The key number binds the key to
+#	a signature, and the key is the 32 bytes that Fugu::Ed25519
+#	takes.
+sub parse_public_key ( $self, $bytes )
+{
+	$self->{error} = undef;
+
+	my ( $parsed, $reason ) = _parse_file( $bytes, PUBLIC_KEY_SIZE );
+	unless ( defined $parsed ) {
+		$self->{error} = $reason;
+		return;
 	}
 
-	$self->{error} = "$file: no key verified the signature:\n    "
-	    . join( ";\n    ", @reasons );
+	return {
+		comment => $parsed->{comment},
+		keynum  => $parsed->{keynum},
+		key     => $parsed->{payload},
+	};
+}
 
-	return;
+# $self->parse_signature($bytes):
+#	Parse a signify(1) signature file. The method returns a hash
+#	reference with comment, keynum and signature, or undef with
+#	the reason in error.
+#
+#	The signature is the 64 bytes that Fugu::Ed25519 takes, and it
+#	covers the bytes of the signed file.
+sub parse_signature ( $self, $bytes )
+{
+	$self->{error} = undef;
+
+	my ( $parsed, $reason ) = _parse_file( $bytes, SIGNATURE_SIZE );
+	unless ( defined $parsed ) {
+		$self->{error} = $reason;
+		return;
+	}
+
+	return {
+		comment   => $parsed->{comment},
+		keynum    => $parsed->{keynum},
+		signature => $parsed->{payload},
+	};
 }
 
 # $self->verify_manifest(%args):
@@ -387,6 +458,211 @@ sub write_manifest ( $self, $digests )
 	}
 
 	return $text;
+}
+
+# $self->_verify_perl($file, $sigfile):
+#	Verify with Fugu::Ed25519, and never with a command. The
+#	method parses the signature file once, and then walks the key
+#	set in trust order. It returns the key file that verified the
+#	signature, or undef with the reason in error.
+sub _verify_perl ( $self, $file, $sigfile )
+{
+	my $bytes = _read_bounded($sigfile);
+	unless ( defined $bytes ) {
+		$self->{error} = sprintf
+		    '%s: cannot read a signify file under %d bytes',
+		    $sigfile, MAX_SIGNIFY_FILE_SIZE;
+		return;
+	}
+
+	my $signature = $self->parse_signature($bytes);
+	unless ( defined $signature ) {
+
+		# Both engines must write one error shape. The
+		# signify(1) engine reads the signature file once for
+		# each key, so a malformed file gives one reason for
+		# each key. This parse runs once, and its reason
+		# stands against every key of the set.
+		my $reason = $self->{error};
+		$self->{error} = _no_key_verified( $file,
+			map { "$_: $reason" } @{ $self->{keys} } );
+		return;
+	}
+
+	my @reasons;
+	for my $keyfile ( @{ $self->{keys} } ) {
+		my $reason = $self->_verify_key( $keyfile, $signature, $file );
+
+		# The key parser reports through error, so the reason
+		# of one key must not survive as the reason of the
+		# whole call.
+		$self->{error} = undef;
+		return $keyfile unless defined $reason;
+		push @reasons, "$keyfile: $reason";
+	}
+
+	$self->{error} = _no_key_verified( $file, @reasons );
+
+	return;
+}
+
+# $self->_verify_key($keyfile, $signature, $file):
+#	Check one file against one public key file. The method
+#	returns undef when the signature verifies, and the reason
+#	otherwise.
+#
+#	A key number that differs from the signature gives "checked
+#	against wrong key", which is the diagnostic of signify(1)
+#	itself. The loop of the caller then continues to the next key.
+sub _verify_key ( $self, $keyfile, $signature, $file )
+{
+	my $bytes = _read_bounded($keyfile);
+	return sprintf 'cannot read a signify file under %d bytes',
+	    MAX_SIGNIFY_FILE_SIZE
+	    unless defined $bytes;
+
+	my $key = $self->parse_public_key($bytes);
+	return $self->{error} unless defined $key;
+
+	return 'checked against wrong key'
+	    unless $key->{keynum} eq $signature->{keynum};
+
+	my $verified = $self->{ed25519}->verify(
+		key       => $key->{key},
+		signature => $signature->{signature},
+		file      => $file,
+	);
+
+	# undef means that the verifier refused the input, and the
+	# reason belongs to this key.
+	return $self->{ed25519}->error unless defined $verified;
+
+	return 'signature verification failed' unless $verified;
+
+	return;
+}
+
+# $self->_verify_signify($file, $sigfile):
+#	Verify by running signify(1) over each key of the set. The
+#	method returns the key file that verified the signature, or
+#	undef with the reason in error.
+sub _verify_signify ( $self, $file, $sigfile )
+{
+	my @reasons;
+	for my $keyfile ( @{ $self->{keys} } ) {
+		my $result = $self->_run_signify( $keyfile, $sigfile, $file );
+		return $keyfile if $result->{success};
+
+		# A run that never reached the child means that
+		# signify(1) never ran. That is an install problem, so
+		# the loop stops: every later key would fail the same
+		# way.
+		if ( defined $result->{error} ) {
+			$self->{error}          = $result->{error};
+			$self->{command_absent} = 1;
+			return;
+		}
+
+		my $reason;
+		if ( $result->{timed_out} ) {
+			$reason =
+			    'timeout after ' . SIGNIFY_TIMEOUT . ' seconds';
+		}
+		else {
+			# The first line of the diagnostic, without the
+			# program name in front.
+			($reason) = split /\n/, $result->{stderr} // '';
+			$reason //= '';
+			$reason =~ s/^\S*signify\S*:\s*//;
+			$reason = "exit code $result->{exit_code}"
+			    unless length $reason;
+		}
+		push @reasons, "$keyfile: $reason";
+	}
+
+	$self->{error} = _no_key_verified( $file, @reasons );
+
+	return;
+}
+
+# _no_key_verified($file, @reasons):
+#	The error of a verification that no key passed: the file,
+#	then one reason for each key of the set. Both engines write
+#	this shape, so a caller reads one shape under either engine.
+sub _no_key_verified ( $file, @reasons )
+{
+	return "$file: no key verified the signature:\n    "
+	    . join( ";\n    ", @reasons );
+}
+
+# _read_bounded($path):
+#	The bytes of a signify(1) file, or undef. The bound reads the
+#	size on disk, before the content, so a file that a caller
+#	named by mistake never enters memory.
+sub _read_bounded ($path)
+{
+	my $size = -s $path;
+	return if !defined $size || $size > MAX_SIGNIFY_FILE_SIZE;
+
+	return Fugu::File->read($path);
+}
+
+# _parse_file($bytes, $size):
+#	Parse the two lines of a signify(1) file. A public key file
+#	and a signature file share the shape: the comment line, then
+#	the base64 body. The body holds the two letters Ed, the key
+#	number, and the key or the signature.
+#
+#	The sub returns the hash reference and undef, or undef and
+#	the reason. The comment carries no trust, so the sub reads it
+#	and tests nothing after the header.
+#
+#	decode_base64 skips a character that no base64 alphabet
+#	holds, so a body of the right character count with one bad
+#	character decodes short. The two length tests together
+#	therefore hold the body to the exact form.
+sub _parse_file ( $bytes, $size )
+{
+	return ( undef, 'the file is undef' ) unless defined $bytes;
+
+	return ( undef,
+		      'the file holds a character above 255, and a '
+		    . 'signify file holds bytes' )
+	    if $bytes =~ /[^\x00-\xFF]/;
+
+	# A list assignment would give split an implicit limit, and a
+	# trailing empty field would then survive as a body. The array
+	# takes the whole split, so a file of one line fails, and so
+	# does a file of three.
+	my @lines = split /\n/, $bytes;
+	return ( undef, 'a signify file holds two lines' )
+	    unless @lines == 2;
+
+	my ( $comment, $body ) = @lines;
+
+	return ( undef, 'the first line is no untrusted comment' )
+	    unless index( $comment, COMMENT_HEADER ) == 0;
+
+	my $characters = 4 * int( ( $size + 2 ) / 3 );
+	return ( undef, "the body is not $characters base64 characters" )
+	    unless length($body) == $characters;
+
+	my $raw = decode_base64($body);
+	return ( undef, "the body is not $size bytes" )
+	    unless length($raw) == $size;
+
+	return ( undef, 'the body names no Ed25519 key or signature' )
+	    unless index( $raw, ALGORITHM ) == 0;
+
+	return ( {
+			comment => substr( $comment, length COMMENT_HEADER ),
+			keynum  =>
+			    substr( $raw, length(ALGORITHM), KEYNUM_SIZE ),
+			payload =>
+			    substr( $raw, length(ALGORITHM) + KEYNUM_SIZE ),
+		},
+		undef
+	);
 }
 
 # _find_command($name):
