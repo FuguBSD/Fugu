@@ -44,7 +44,11 @@ that ships a shell helper over the same three commands replaces it with this
 module.
 
 - **LIB-CURL-1** — The module must pick the first command of the list `curl`,
-  `wget`, `ftp` that `PATH` holds, unless the caller names one. It must resolve
+  `wget`, `ftp` that `PATH` holds. A caller can name a command. The module must
+  take that name instead of the list. The module must read a name that holds a
+  solidus as a path. It must find a plain name on `PATH`. The base name must be
+  one of the three, because each dialect has its own flag set. Another name
+  resolves nothing, and `error` must hold the reason. The module must resolve
   the command once, in `new`, and it must run no process there.
 - **LIB-CURL-2** — A fetch must verify the TLS certificate of the peer. The
   module must pass no option that turns the check off.
@@ -60,9 +64,9 @@ module.
   `absent`. The module must read the HTTP status where the command gives one,
   and `code` must hold it. A status of 400 or above must give `http`. The module
   must give `timeout` when its own bound fires, or when the command reports a
-  timeout. An absent command must give `absent`, and every other failure must
-  take `network`. A caller that probes for an optional file then reads a 404 as
-  the normal answer.
+  timeout. The module must give `absent` when it resolved no command, or when
+  the command never ran. Every other failure must take `network`. A caller that
+  probes for an optional file then reads a 404 as the normal answer.
 - **LIB-CURL-6** — A `timeout` option must bound the whole fetch, with a default
   of 600 seconds. A release asset on a slow link needs minutes, and a stalled
   connection must not hold a bootstrap forever.

@@ -31,6 +31,8 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Control> - a control socket for a running daemon
 
+=item L<Fugu::Curl> - download one URL to one file, through curl, wget, or ftp
+
 =item L<Fugu::Daemon> - daemonization for Perl programs
 
 =item L<Fugu::EventLoop> - one select loop for a daemon with one process
