@@ -1,7 +1,7 @@
 # Install Fugu
 
 Fugu runs on core Perl v5.36 or later. There are two install flows: from a
-checkout with make, and from a release tarball with cpanm.
+checkout with make, and from CPAN with cpanm.
 
 ## From a checkout
 
@@ -25,13 +25,13 @@ the optional features you use:
 `make deps-test` installs the test dependencies; `make deps-develop` installs
 everything.
 
-## From a release tarball
+## From CPAN
 
-Every release carries a standard Perl distribution tarball. The stable URL
-always serves the latest release:
+Every release goes to CPAN as the [Fugu](https://metacpan.org/dist/Fugu)
+distribution. cpanm installs the latest release:
 
 ```sh
-cpanm --notest https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
+cpanm --notest Fugu
 ```
 
 Both flows install the modules with their `.pod` sidecars, so `perldoc` serves
