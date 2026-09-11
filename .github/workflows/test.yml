@@ -61,3 +61,36 @@ jobs:
 
       - name: Check spec coverage
         run: make spec-coverage
+
+  # The floor leg. macOS ships perl 5.34 in base, and that perl is the
+  # floor of the library. The leg installs nothing, so one run proves
+  # the core-only claim and the floor claim together. It must not run
+  # `make check`: the lint gate and the format gate need Perl::Critic
+  # and Perl::Tidy from CPAN.
+  floor:
+    name: Perl floor
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The glob list holds the Fugu-owned tiers only. The two tests
+      # under t/ci/ come from the org pack and keep `use v5.36`, so
+      # perl 5.34 stops at that line before a skip can run.
+      #
+      # PROVE names the base perl, because the image can add a newer
+      # perl to PATH at any time. A leg that ran that perl would prove
+      # nothing about the floor.
+      #
+      # The guard stops the leg when the image raises the base perl to
+      # 5.36 or above. Without it the leg stays green and proves
+      # nothing.
+      - name: Run the Fugu-owned tiers on the base perl
+        run: |
+          /usr/bin/perl -e 'print "$^V\n"'
+          /usr/bin/perl -e 'exit($] >= 5.036)' || {
+            echo 'The base perl reached 5.36. This leg no longer proves the floor.' >&2
+            exit 1
+          }
+          make test PROVE='/usr/bin/perl /usr/bin/prove -l' \
+            TEST_GLOBS="t/fugu/*.t t/protocol/*.t t/conformance/*.t t/scripts/*.t"

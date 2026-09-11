@@ -16,7 +16,10 @@
 # The test reads tracked files only, like the sweeps in the sibling
 # repositories: build trees hold stale copies until make clean.
 
-use v5.36;
+use v5.34;
+use warnings;
+use experimental 'signatures';
+no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
 use FindBin qw($RealBin);
 use Module::CoreList;

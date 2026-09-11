@@ -8,7 +8,10 @@
 # The operator takes a vector from the document once. No test makes
 # one, and no test runs another program to make one.
 
-use v5.36;
+use v5.34;
+use warnings;
+use experimental 'signatures';
+no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
 use File::Temp qw(tempdir);
 use FindBin    qw($RealBin);

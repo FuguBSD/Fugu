@@ -1,6 +1,6 @@
 # Install Fugu
 
-Fugu runs on core Perl v5.36 or later. There are two install flows: from a
+Fugu runs on core Perl v5.34 or later. There are two install flows: from a
 checkout with make, and from CPAN with cpanm.
 
 ## From a checkout

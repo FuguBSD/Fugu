@@ -18,9 +18,12 @@ Tooling tests are named after what they cover, such as `t/scripts/deps.t` for
 `scripts/deps`. They drive the script as a subprocess, and they load no module.
 They assert on exit status and output. `t/scripts/conventions.t` covers the
 directory as a whole: exec bits, shebangs, and that every Perl script compiles.
-`t/scripts/symbols.t` holds the API surface at its size. Every sub in
-`lib/Fugu/` has a caller in lib/ or in a test. Every module has its one
-documentation home, and every non-core import is in the `cpanfile`.
+It also sweeps `lib/`, `t/` and `scripts/` for the four-line pragma block of the
+perl floor. It fails a file that holds a second version pragma. It skips that
+sweep for a file that a pack of FuguBSD/Tooling owns. `t/scripts/symbols.t`
+holds the API surface at its size. Every sub in `lib/Fugu/` has a caller in lib/
+or in a test. Every module has its one documentation home, and every non-core
+import is in the `cpanfile`.
 
 `t/ci/` is the exception to driving anything, because nothing under `.github/`
 runs outside a runner. These tests read the workflows and the composite actions

@@ -4,13 +4,34 @@
 #
 # The test builds a real dist from this checkout into a temporary
 # directory, extracts it, and asserts the shape a cpanm install needs.
+#
+# The perl pack of FuguBSD/Tooling owns scripts/dist, and that pack
+# keeps the perl floor at 5.36. The script builds a tarball on the CI
+# perl and never runs on a consumer host, so the floor of this
+# repository does not reach it. A perl below 5.36 cannot compile it,
+# so this file skips there.
 
-use v5.36;
+use v5.34;
+use warnings;
+use experimental 'signatures';
+no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
+use CPAN::Meta ();
+use version   ();
 use Cwd        qw(getcwd);
 use FindBin    qw($RealBin);
 use File::Find ();
 use File::Temp qw(tempdir);
+
+plan skip_all => "scripts/dist needs perl 5.36, this perl is $]"
+    if $] < 5.036;
+
+# THE DECLARED FLOOR. scripts/dist reads the dist.perl key of
+# .toolingrc and stamps that value into the generated Makefile.PL and
+# META.json. This value must match the key. It must also match the
+# source floor of ARC-COREPERL-3, because a perl that installs the
+# distribution must run the code.
+my $MIN_PERL = '5.034';
 
 my $script = "$RealBin/../../scripts/dist";
 my $root   = "$RealBin/../..";
@@ -101,8 +122,27 @@ subtest 'the Makefile.PL declares the identity' => sub {
 
 	like( $text, qr/NAME\s+=>\s+'Fugu'/,     'the NAME anchors PAUSE' );
 	like( $text, qr/VERSION\s+=>\s+'0\.1'/,  'the version is the input' );
-	like( $text, qr/MIN_PERL_VERSION/,       'the perl floor is stated' );
+	like( $text, qr/MIN_PERL_VERSION\s*=>\s*'\Q$MIN_PERL\E'/,
+		"the perl floor is $MIN_PERL" );
 	like( $text, qr/'lib\/Fugu\/Daemon\.pm'/, 'the PM map lists modules' );
+};
+
+# REL-VERSION-4 names two stamps, so the test reads both. A floor in
+# Makefile.PL alone lets cpanm refuse a perl that ExtUtils accepts.
+subtest 'the META.json declares the same perl floor' => sub {
+	my $meta = eval { CPAN::Meta->load_file("$tree/META.json") };
+	ok( defined $meta, 'META.json ships and parses' ) or do {
+		diag($@);
+		return;
+	};
+
+	my $want = version->parse("v$MIN_PERL")->numify;
+	my $reqs = $meta->effective_prereqs->requirements_for( 'runtime', 'requires' );
+
+	ok( $reqs->accepts_module( 'perl', $want ),
+		"the META floor accepts perl $MIN_PERL" );
+	ok( !$reqs->accepts_module( 'perl', $want - 0.001 ),
+		'the META floor refuses the perl below it' );
 };
 
 done_testing();

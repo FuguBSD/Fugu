@@ -15,9 +15,12 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use v5.36;
-
 package Fugu::KeyDir;
+
+use v5.34;
+use warnings;
+use experimental 'signatures';
+no feature qw(indirect multidimensional bareword_filehandles);
 
 # Fugu::KeyDir - the names, the order and the generated text of a
 # published key directory.

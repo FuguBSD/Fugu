@@ -18,7 +18,7 @@ the module index.
 The distribution also ships C<Protocol::Imsg>, a sans-IO codec for
 the imsg(3) frame.
 
-Fugu needs core Perl only (v5.36). Every CPAN module it can use is an
+Fugu needs core Perl only (v5.34). Every CPAN module it can use is an
 optional feature, loaded lazily.
 
 =head1 MODULES
