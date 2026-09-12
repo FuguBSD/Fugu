@@ -21,8 +21,9 @@ use experimental 'signatures';
 no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
 use File::Temp   qw(tempdir);
-use MIME::Base64 qw(encode_base64);
+use MIME::Base64 qw(decode_base64 encode_base64);
 use Digest::SHA  ();
+use Time::Local  qw(timegm_modern);
 use FindBin      qw($RealBin);
 use lib "$RealBin/../../lib";
 
@@ -46,6 +47,21 @@ my %EXPECTED = (
 # expires then or later to a GeneralizedTime, so a notAfter above
 # this bound proves the second time form.
 use constant YEAR_2050 => 2_524_608_000;
+
+# The bytes that the built certificates hold. 2.5.4.3 is the common
+# name, and 2.5.4.15 is the business category, which the name table
+# of the module does not hold. The tags name the DER forms that the
+# subtests of the reader need.
+use constant {
+	OID_CN                => "\x55\x04\x03",
+	OID_BUSINESS_CATEGORY => "\x55\x04\x0F",
+	TAG_OCTET_STRING      => 0x04,
+	TAG_UTF8_STRING       => 0x0C,
+	TAG_PRINTABLE_STRING  => 0x13,
+	TAG_UTC_TIME          => 0x17,
+	TAG_GENERALIZED_TIME  => 0x18,
+	TAG_BMP_STRING        => 0x1E,
+};
 
 my $openssl = Fugu::X509::_find_command();
 
@@ -120,6 +136,70 @@ sub make_certificate ( $stem, $days )
 	);
 
 	return ( $certificate, $secret );
+}
+
+# der($tag, $bytes):
+#	One DER element of the tag over the bytes. The helper writes
+#	the short length form under 128 bytes, and the one-byte long
+#	form above it. Each element of this test is smaller than 256
+#	bytes.
+sub der ( $tag, $bytes )
+{
+	die 'the DER helper writes no length above 255 bytes'
+	    if length $bytes > 255;
+
+	my $length =
+	    length($bytes) < 128
+	    ? chr( length $bytes )
+	    : "\x81" . chr( length $bytes );
+
+	return chr($tag) . $length . $bytes;
+}
+
+# attribute($oid, $tag, $value):
+#	One attribute of a name, as a SEQUENCE of the object
+#	identifier and the value.
+sub attribute ( $oid, $tag, $value )
+{
+	return der( 0x30, der( 0x06, $oid ) . der( $tag, $value ) );
+}
+
+# rdn(@attribute):
+#	One relative distinguished name, as a SET of the attributes.
+sub rdn (@attribute)
+{
+	return der( 0x31, join '', @attribute );
+}
+
+# certificate(%args):
+#	The DER bytes of a certificate that holds the fields which
+#	parse reads: the serial number, the signature algorithm, the
+#	issuer, the validity and the subject. An argument replaces
+#	one field, so a test names the one field that it breaks.
+#
+#	openssl(1) writes a correct certificate only, so it reaches
+#	no failure branch of the reader. The test therefore builds
+#	these bytes itself, and each subtest of a failure branch runs
+#	where openssl(1) is absent.
+sub certificate (%args)
+{
+	my $name =
+	    rdn( attribute( OID_CN, TAG_PRINTABLE_STRING, 'Fugu Test' ) );
+	my $time = der( TAG_UTC_TIME, '240102030405Z' );
+
+	# The serial number stands first, because a version 1
+	# certificate holds no version element. The signature
+	# algorithm is an empty SEQUENCE: the walk reads its tag and
+	# steps over it.
+	my $tbs =
+	      der( 0x02, "\x01" )
+	    . der( 0x30, '' )
+	    . der( 0x30, $args{issuer} // $name )
+	    . der( 0x30,
+		( $args{not_before} // $time ) . ( $args{not_after} // $time ) )
+	    . der( 0x30, $args{subject} // $name );
+
+	return der( 0x30, der( 0x30, $tbs ) );
 }
 
 # --- the byte reader ------------------------------------------------------
@@ -301,6 +381,146 @@ subtest 'parse rejects bytes that hold no certificate' => sub {
 	}
 };
 
+subtest 'parse reads each time form and each century' => sub {
+
+	# Time::Local answers the epoch here, so no assertion rests
+	# on the module that it checks. A UTCTime year of 50 or above
+	# names the last century, per RFC 5280 section 4.1.2.5.
+	my %case = (
+		'a UTCTime of this century' =>
+		    [ TAG_UTC_TIME, '240102030405Z', 2024, 1, 2, 3, 4, 5 ],
+		'a UTCTime of the last century' =>
+		    [ TAG_UTC_TIME, '960102030405Z', 1996, 1, 2, 3, 4, 5 ],
+		'a GeneralizedTime' => [
+			TAG_GENERALIZED_TIME, '20510102030405Z',
+			2051, 1, 2, 3, 4, 5
+		],
+		'the 29th of February in a leap year' =>
+		    [ TAG_UTC_TIME, '240229120000Z', 2024, 2, 29, 12, 0, 0 ],
+	);
+
+	for my $label ( sort keys %case ) {
+		my ( $tag, $text, @field ) = @{ $case{$label} };
+		my ( $year, $month, $day, $hour, $minute, $second ) = @field;
+
+		my ( $parsed, $reason ) = Fugu::X509->parse(
+			certificate( not_before => der( $tag, $text ) ) );
+		unless ( ok( defined $parsed, "$label parses" ) ) {
+			diag($reason);
+			next;
+		}
+
+		is(
+			$parsed->{not_before},
+			timegm_modern(
+				$second, $minute, $hour,
+				$day,    $month - 1, $year
+			),
+			"and $label names the second of the epoch"
+		);
+	}
+};
+
+subtest 'parse rejects a time that names no date' => sub {
+
+	# The reader reads each field before it computes, so the 31st
+	# of April is a failure and never a date in May.
+	my %case = (
+		'a month above 12' => [
+			TAG_UTC_TIME, '241302030405Z',
+			qr/month 13 is no month/
+		],
+		'a day above the length of its month' => [
+			TAG_UTC_TIME, '240431030405Z',
+			qr/day 31 is no day of month 4/
+		],
+		'an hour above 23' => [
+			TAG_UTC_TIME, '240102240405Z',
+			qr/24:4:5 is no time of day/
+		],
+		'the 29th of February in a common year' => [
+			TAG_UTC_TIME, '230229120000Z',
+			qr/day 29 is no day of month 2/
+		],
+		'a UTCTime of four year digits' => [
+			TAG_UTC_TIME, '20240102030405Z',
+			qr/a UTCTime holds YYMMDDHHMMSSZ/
+		],
+		'a tag that names no time' => [
+			TAG_OCTET_STRING, '240102030405Z',
+			qr/tag 0x04 names no time/
+		],
+	);
+
+	for my $label ( sort keys %case ) {
+		my ( $tag, $text, $expected ) = @{ $case{$label} };
+
+		my ( $parsed, $reason ) = Fugu::X509->parse(
+			certificate( not_before => der( $tag, $text ) ) );
+		is( $parsed, undef, "a notBefore with $label fails" ) or next;
+		like( $reason, qr/\Athe notBefore: /,
+			'and the reason names the field' );
+		like( $reason, $expected, 'and it says why' );
+	}
+};
+
+subtest 'parse rejects a name that it cannot read' => sub {
+	my $cn   = attribute( OID_CN, TAG_PRINTABLE_STRING, 'Fugu Test' );
+	my $form = 'IA5String, PrintableString, UTF8String';
+
+	# A hash holds one value for each type, so a caller that pins
+	# a team identifier must never read one of two values.
+	my %case = (
+		'two attributes of one type in one set' =>
+		    [ rdn( $cn, $cn ), qr/two attributes of type CN/ ],
+		'two attributes of one type in two sets' =>
+		    [ rdn($cn) . rdn($cn), qr/two attributes of type CN/ ],
+		'an attribute value under an unsupported string tag' => [
+			rdn( attribute( OID_CN, TAG_BMP_STRING, "\x00F" ) ),
+			qr/value is tag 0x1E, and this reader takes \Q$form\E/
+		],
+	);
+
+	for my $label ( sort keys %case ) {
+		my ( $subject, $expected ) = @{ $case{$label} };
+
+		my ( $parsed, $reason ) =
+		    Fugu::X509->parse( certificate( subject => $subject ) );
+		is( $parsed, undef, "a subject with $label fails" ) or next;
+		like( $reason, qr/\Athe subject: /,
+			'and the reason names the name' );
+		like( $reason, $expected, 'and it says why' );
+	}
+};
+
+subtest 'parse names an attribute type outside the table' => sub {
+
+	# The name table of the module holds no business category, so
+	# the reader must answer that attribute under its dotted
+	# object identifier. A reader that drops it would hide an
+	# attribute of the subject.
+	my $subject =
+	    rdn( attribute( OID_CN, TAG_PRINTABLE_STRING, 'Fugu Test' ) )
+	    . rdn(
+		attribute(
+			OID_BUSINESS_CATEGORY, TAG_UTF8_STRING,
+			'Private Organization'
+		)
+	    );
+
+	my ( $parsed, $reason ) =
+	    Fugu::X509->parse( certificate( subject => $subject ) );
+	ok( defined $parsed, 'the certificate parses' ) or diag($reason);
+	is_deeply(
+		$parsed->{subject},
+		{
+			CN         => 'Fugu Test',
+			'2.5.4.15' => 'Private Organization'
+		},
+		'the reader names the attribute by its dotted identifier'
+	);
+};
+
 # --- the certificate of openssl(1) ----------------------------------------
 
 my ( $CERT, $KEY, $MADE, $LONG, $OTHER, $OTHER_KEY, $FILE );
@@ -477,9 +697,16 @@ subtest 'sign_cms and verify_cms agree' => sub {
 	is( $x509->error, undef, 'and it reports no reason' );
 
 	# The signature is detached: it holds the digest of the file
-	# and no byte of it.
-	unlike( $signature, qr/the release bytes/,
-		'the signature holds no byte of the file' );
+	# and no byte of it. The guard reads the decoded bytes,
+	# because the base64 of a PEM text can never hold the plain
+	# text of the file. An opaque signature carries the file, and
+	# it still verifies with -content, so the PEM text proves
+	# nothing.
+	my $body = $signature =~ s/^-----(BEGIN|END) CMS-----\n//gmr;
+	my $bytes = decode_base64($body);
+	ok( length $bytes, 'the signature decodes to DER bytes' );
+	is( index( $bytes, slurp($FILE) ),
+		-1, 'and the signature holds no byte of the file' );
 
 	is(
 		$x509->verify_cms(

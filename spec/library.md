@@ -173,12 +173,12 @@ of bindings. A binding is the signature of one key file by another key.
   forged block would publish a second key under one name.
 - **LIB-KEYDIR-5** — The binding name must be
   `<target file>.<signer stem>.<ext>`. The extension must follow the type table
-  of the module: `sig` for a signify signer, and `asc` for an OpenPGP signer. A
-  later type adds its own extension. The parser and the builder must stay
-  inverses. The parser must answer the signer as a key file name. Those parts
-  must feed the builder, and must name the same file. The extension table must
-  stay in the module, so a writer and a reader name one file, and no caller
-  holds a second copy.
+  of the module: `sig` for a signify signer, and `asc` for an OpenPGP signer. An
+  X.509 signer takes `p7s`, and an X.509 key file takes `pem`. A later type adds
+  its own extension. The parser and the builder must stay inverses. The parser
+  must answer the signer as a key file name. Those parts must feed the builder,
+  and must name the same file. The extension table must stay in the module, so a
+  writer and a reader name one file, and no caller holds a second copy.
 - **LIB-KEYDIR-6** — The retention rule must hold each binding of a directory. A
   signer that is `current` or `next` must target the root key. A signer that is
   `retired` must target a key of its own purpose with a higher serial. The
