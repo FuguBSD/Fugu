@@ -217,6 +217,11 @@ sub command_absent ($self)
 #	overwrites a key. It writes the private half first, so a call
 #	that refuses the public path leaves the private half behind.
 #
+#	The comment reaches the first line of each half, and one line
+#	holds one field. The method therefore refuses a comment that
+#	holds a newline, and it refuses it before the command runs, so
+#	such a call writes no key.
+#
 #	The chmod holds the private half to the owner under any build
 #	of the command.
 sub generate ( $self, %args )
@@ -227,6 +232,16 @@ sub generate ( $self, %args )
 	my ( $comment, $public, $secret ) = @args{qw(comment public secret)};
 	die "comment, public and secret are necessary arguments\n"
 	    unless defined $comment && defined $public && defined $secret;
+
+	# signify(1) writes the comment in the first line of each
+	# half, and one line holds one field. A comment with a newline
+	# would write a third line into the key file, and the parser
+	# of this module then refuses that file. The check runs before
+	# the command, so the call writes no key.
+	if ( $comment =~ /[\r\n]/ ) {
+		$self->{error} = 'the comment holds a newline';
+		return;
+	}
 
 	my $command = $self->_command or return;
 

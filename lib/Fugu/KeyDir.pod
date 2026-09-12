@@ -109,7 +109,8 @@ type adds its own extension.
 
 The key file of the signer is its stem with the key extension of that
 type. A C<sig> binding therefore names a C<.pub> key, and an C<asc>
-binding names a C<.asc> key.
+binding names a C<.asc> key. C<parse_binding> answers that key file
+name, so the module holds the one extension table.
 
 The retention rule holds each binding of a directory. A signer that is
 C<current> or C<next> targets the root key, so each key in force
@@ -216,9 +217,11 @@ pattern, and an unknown type are each a failure.
 C<parse_binding($filename)> returns the parts of a binding file name,
 as a hash reference with C<target>, C<signer> and C<type>.
 
-The C<target> is a key file name, and the C<signer> is the stem of
-one. Each of the two parses under C<parse_name>, and the C<type> names
-the type of the signer.
+The C<target> and the C<signer> are each a key file name, and each one
+parses under C<parse_name>. The C<type> names the type of the signer.
+The name of a binding holds the stem of the signer, and the method
+completes it with the key extension of the type. The two parts
+therefore feed C<binding_for>, which names the same file again.
 
 Each of these is a failure:
 
@@ -242,7 +245,8 @@ The reason of the last two holds the reason of C<parse_name>.
 
 C<binding_for(target =E<gt> $name, signer =E<gt> $name)> returns the
 file name of a binding. Each argument is a key file name. The method
-is the inverse of C<parse_binding>, so a caller never builds a name by
+is the inverse of C<parse_binding>: the C<target> and the C<signer> of
+a parse name the same file again, so a caller never builds a name by
 hand.
 
 The type of the signer selects the extension of the binding. A target

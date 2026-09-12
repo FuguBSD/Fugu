@@ -276,9 +276,11 @@ sub name_for ( $self, %args )
 #	names the type of the signer: sig for a signify signer, and
 #	asc for an OpenPGP signer.
 #
-#	The target is a key file name, and the signer is the stem of
-#	one. The key file of the signer is that stem with the key
-#	extension of the type, such as fugubsd-1-root.pub.
+#	The target and the signer are each a key file name. The name
+#	of a binding holds the stem of the signer, and the method
+#	completes it with the key extension of the type, such as
+#	fugubsd-1-root.pub. The answer therefore feeds binding_for,
+#	which names the same file again.
 sub parse_binding ( $self, $filename )
 {
 	$self->{error} = undef;
@@ -304,7 +306,6 @@ sub parse_binding ( $self, $filename )
 	}
 
 	my $target    = "$field[0].$field[1]";
-	my $signer    = $field[2];
 	my $extension = $field[3];
 
 	my $type = $TYPE_OF_BINDING_EXTENSION{$extension};
@@ -312,6 +313,12 @@ sub parse_binding ( $self, $filename )
 		return $self->_fail(
 			"unknown binding extension in $filename: $extension");
 	}
+
+	# The name holds the stem of the signer, and the answer holds
+	# its key file name: the key extension of the type completes
+	# the stem. The answer therefore feeds binding_for, and no
+	# caller holds a second copy of the extension table.
+	my $signer = $field[2] . '.' . $EXTENSION_OF_TYPE{$type};
 
 	# Each half is a key name, so parse_name holds it to the
 	# pattern and to the organization word. That method records a
@@ -323,9 +330,7 @@ sub parse_binding ( $self, $filename )
 			    . $self->{error} );
 	}
 
-	unless (
-		$self->parse_name( $signer . '.' . $EXTENSION_OF_TYPE{$type} ) )
-	{
+	unless ( $self->parse_name($signer) ) {
 		return $self->_fail(
 			"the signer of $filename is no key stem: "
 			    . $self->{error} );
@@ -530,16 +535,15 @@ sub check_bindings ( $self, $keys, $bindings, $root )
 	for my $name (@$bindings) {
 		my $parts = $self->parse_binding($name) or return;
 
-		my $signer_name = $parts->{signer} . '.'
-		    . $EXTENSION_OF_TYPE{ $parts->{type} };
-
 		# The status of the signer selects the rule, and the
-		# set is the one source of a status.
-		my $signer = $key{$signer_name};
+		# set is the one source of a status. parse_binding
+		# answers the key file name of the signer, so the set
+		# holds the answer under that name.
+		my $signer = $key{ $parts->{signer} };
 		unless ($signer) {
 			return $self->_fail( "the binding $name names the "
-				    . "signer $signer_name, and the key set "
-				    . 'holds no such key' );
+				    . "signer $parts->{signer}, and the key "
+				    . 'set holds no such key' );
 		}
 
 		# A binding over an unpublished file verifies nothing,
@@ -557,16 +561,17 @@ sub check_bindings ( $self, $keys, $bindings, $root )
 			    && $target->{serial} > $signer->{serial};
 
 			return $self->_fail( "the retired signer "
-				    . "$signer_name of $name must target a key "
-				    . "of the purpose $signer->{purpose} with a "
-				    . "serial above $signer->{serial}" );
+				    . "$parts->{signer} of $name must "
+				    . "target a key of the purpose "
+				    . "$signer->{purpose} with a serial above "
+				    . $signer->{serial} );
 		}
 
 		next if $parts->{target} eq $root;
 
 		return $self->_fail( "the $signer->{status} signer "
-			    . "$signer_name of $name must target the root key "
-			    . $root );
+			    . "$parts->{signer} of $name must target "
+			    . "the root key $root" );
 	}
 
 	return 1;

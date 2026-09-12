@@ -159,7 +159,7 @@ subtest 'binding_for is the inverse of parse_binding' => sub {
 		$kd->parse_binding('fugubsd-1-root.pub.fugubsd-2-release.sig'),
 		{
 			target => 'fugubsd-1-root.pub',
-			signer => 'fugubsd-2-release',
+			signer => 'fugubsd-2-release.pub',
 			type   => 'signify',
 		},
 		'parse_binding reads the target, the signer and the type'
@@ -171,10 +171,11 @@ subtest 'binding_for is the inverse of parse_binding' => sub {
 		'an .asc binding names an OpenPGP signer'
 	);
 
-	# The round trip must return the names that went in. A builder
-	# and a parser that drift would name two files for one
-	# signature, and a reader would find neither.
-	my %key_extension = ( signify => 'pub', openpgp => 'asc' );
+	# The round trip must return the names that went in, in both
+	# directions. A builder and a parser that drift would name two
+	# files for one signature, and a reader would find neither.
+	# The module holds the extension table, so this test holds no
+	# copy of it.
 	for my $signer (qw(fugubsd-2-release.pub fugubsd-3-mail.asc)) {
 		for my $target (qw(fugubsd-1-root.pub fugubsd-4-code.asc)) {
 			my $name = $kd->binding_for(
@@ -183,12 +184,14 @@ subtest 'binding_for is the inverse of parse_binding' => sub {
 			);
 			my $parts = $kd->parse_binding($name);
 			is( $parts->{target}, $target, "$name: the target" );
-			is(
-				$parts->{signer} . '.'
-				    . $key_extension{ $parts->{type} },
-				$signer,
-				"$name: the key file of the signer"
-			);
+			is( $parts->{signer}, $signer,
+				"$name: the key file of the signer" );
+
+			# The other direction: the parts of a parse
+			# name the same file again, with no work in the
+			# caller.
+			is( $kd->binding_for(%$parts),
+				$name, "$name: the parts name the file again" );
 		}
 	}
 

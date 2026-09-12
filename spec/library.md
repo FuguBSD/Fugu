@@ -175,7 +175,10 @@ of bindings. A binding is the signature of one key file by another key.
   `<target file>.<signer stem>.<ext>`. The extension must follow the type table
   of the module: `sig` for a signify signer, and `asc` for an OpenPGP signer. A
   later type adds its own extension. The parser and the builder must stay
-  inverses, so a writer and a reader name one file.
+  inverses: the parser must answer the signer as a key file name, and those
+  parts must feed the builder and name the same file. The extension table must
+  stay in the module, so a writer and a reader name one file, and no caller
+  holds a second copy.
 - **LIB-KEYDIR-6** — The retention rule must hold each binding of a directory. A
   signer that is `current` or `next` must target the root key. A signer that is
   `retired` must target a key of its own purpose with a higher serial. The
@@ -430,7 +433,9 @@ The module holds no private key of its own: a caller names each key file.
   as a path, and must run the command with an argument list. Neither one must
   log the bytes of a key.
 - **LIB-SIGNIFY-6** — The generator must make a pair with no passphrase. It must
-  write the private half with no group mode and no other mode.
+  write the private half with no group mode and no other mode. It must reject a
+  comment that holds a newline, before the command runs. The comment reaches the
+  first line of each half, so a newline would forge a line of the key file.
 - **LIB-SIGNIFY-7** — `new` must take an absent or empty `keys` list. A caller
   then reaches the signer or the generator with no public key. `verify` and
   `verify_manifest` must die on such an object.

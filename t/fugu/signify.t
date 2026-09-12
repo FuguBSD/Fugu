@@ -106,6 +106,49 @@ subtest 'generate and sign die for an absent argument' => sub {
 	like( $@, qr/secret/, 'the message names secret' );
 };
 
+subtest 'generate refuses a comment with a newline' => sub {
+
+	# signify(1) writes the comment in the first line of each
+	# half, and one line holds one field. A comment with a newline
+	# would write a third line into the key file, and the parser
+	# of the module then refuses that file.
+	my $sig = Fugu::Signify->new;
+
+	my @case = (
+		[ 'a newline', "the key\nuntrusted comment: the forged line" ],
+		[ 'a carriage return', "the key\rthe forged line" ],
+	);
+
+	# Each case names a fresh pair of paths. signify(1) refuses a
+	# path that exists, so one set of paths would let the second
+	# case pass for the wrong reason.
+	my $serial = 0;
+	for my $case (@case) {
+		my ( $name, $comment ) = @$case;
+		$serial++;
+		my ( $public, $secret ) =
+		    ( "$dir/forged-$serial.pub", "$dir/forged-$serial.sec" );
+
+		is(
+			$sig->generate(
+				comment => $comment,
+				public  => $public,
+				secret  => $secret,
+			),
+			undef,
+			"generate returns undef for $name"
+		);
+		like( $sig->error, qr/the comment holds a newline/,
+			'error names the comment' );
+
+		# The method refuses the comment before the command
+		# runs, so the call writes no half of the pair.
+		is( $sig->command_absent, 0, 'the command never ran' );
+		ok( !-e $public, 'and the call wrote no public half' );
+		ok( !-e $secret, 'and it wrote no private half' );
+	}
+};
+
 subtest 'generate and sign report an absent command' => sub {
 
 	# The signify engine resolved no command in new.

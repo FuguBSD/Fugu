@@ -178,6 +178,12 @@ no key byte reaches a log. It writes C<comment> in the untrusted
 comment line of each half, and it appends C<public key> or C<secret
 key> to that text.
 
+C<comment> must hold no newline. The text reaches the first line of
+each half, and one line holds one field. A newline would write a third
+line into the key file, and the parsers of this module refuse such a
+file. The method refuses the comment before the command runs, so the
+call writes no key.
+
 signify(1) holds the two paths to one naming scheme: the stem of
 C<public> and the stem of C<secret> must agree, as in
 C<example-01.pub> and C<example-01.sec>. It refuses another pair of
