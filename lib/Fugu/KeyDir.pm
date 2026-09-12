@@ -332,7 +332,7 @@ sub parse_binding ( $self, $filename )
 
 	unless ( $self->parse_name($signer) ) {
 		return $self->_fail(
-			"the signer of $filename is no key stem: "
+			"the signer of $filename is no key name: "
 			    . $self->{error} );
 	}
 

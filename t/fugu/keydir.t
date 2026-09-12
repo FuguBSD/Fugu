@@ -232,9 +232,9 @@ subtest 'parse_binding rejects a bad name' => sub {
 		'fugubsd-0-root.pub.fugubsd-2-release.sig' =>
 		    qr/the target of .* is no key name/,
 		'fugubsd-1-root.pub.other-2-release.sig' =>
-		    qr/the signer of .* is no key stem/,
+		    qr/the signer of .* is no key name/,
 		'fugubsd-1-root.pub.fugubsd-0-release.sig' =>
-		    qr/the signer of .* is no key stem/,
+		    qr/the signer of .* is no key name/,
 	);
 
 	for my $name ( sort keys %bad ) {

@@ -175,8 +175,8 @@ of bindings. A binding is the signature of one key file by another key.
   `<target file>.<signer stem>.<ext>`. The extension must follow the type table
   of the module: `sig` for a signify signer, and `asc` for an OpenPGP signer. A
   later type adds its own extension. The parser and the builder must stay
-  inverses: the parser must answer the signer as a key file name, and those
-  parts must feed the builder and name the same file. The extension table must
+  inverses. The parser must answer the signer as a key file name. Those parts
+  must feed the builder, and must name the same file. The extension table must
   stay in the module, so a writer and a reader name one file, and no caller
   holds a second copy.
 - **LIB-KEYDIR-6** — The retention rule must hold each binding of a directory. A

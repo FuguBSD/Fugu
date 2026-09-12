@@ -143,7 +143,7 @@ subtest 'generate refuses a comment with a newline' => sub {
 
 		# The method refuses the comment before the command
 		# runs, so the call writes no half of the pair.
-		is( $sig->command_absent, 0, 'the command never ran' );
+		is( $sig->command_absent, 0, 'a refused comment is no absent command' );
 		ok( !-e $public, 'and the call wrote no public half' );
 		ok( !-e $secret, 'and it wrote no private half' );
 	}

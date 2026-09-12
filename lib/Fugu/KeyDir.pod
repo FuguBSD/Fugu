@@ -235,7 +235,7 @@ Each of these is a failure:
 
 =item * a target that C<parse_name> rejects
 
-=item * a signer stem that C<parse_name> rejects
+=item * a completed signer name that C<parse_name> rejects
 
 =back
 
