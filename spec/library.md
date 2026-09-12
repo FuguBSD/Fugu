@@ -153,7 +153,8 @@ The names, the order and the generated text of a published key directory. It
 holds the key name pattern `<org>-<serial>-<purpose>.<ext>`, the type from the
 extension, and the status vocabulary. It also holds the order of a key set. It
 holds the text of the Apache `KEYS` file, of the human index, and of
-`security.txt`.
+`security.txt`. It holds the name of a binding, and the retention rule of a set
+of bindings. A binding is the signature of one key file by another key.
 
 - **LIB-KEYDIR-1** — The publication order must be total: `current`, then
   `next`, then `retired`, and inside one status the serial must descend. A site
@@ -170,6 +171,15 @@ holds the text of the Apache `KEYS` file, of the human index, and of
   value that a list joins must hold no separator. An armored body must hold one
   block with no text outside it. `gpg --import` reads the `KEYS` file, so a
   forged block would publish a second key under one name.
+- **LIB-KEYDIR-5** — The binding name must be
+  `<target file>.<signer stem>.<ext>`. The extension must follow the type table
+  of the module: `sig` for a signify signer, and `asc` for an OpenPGP signer. A
+  later type adds its own extension. The parser and the builder must stay
+  inverses, so a writer and a reader name one file.
+- **LIB-KEYDIR-6** — The retention rule must hold each binding of a directory. A
+  signer that is `current` or `next` must target the root key. A signer that is
+  `retired` must target a key of its own purpose with a higher serial. The
+  caller names the root key, per LIB-KEYDIR-3.
 
 <a id="lib-log"></a>
 
