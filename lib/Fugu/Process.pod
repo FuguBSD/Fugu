@@ -157,6 +157,11 @@ that end, and the parent reads end-of-file. A failure leaves a message
 in the pipe, and the parent returns it in C<error>. Thus a command
 that does not exist reports its own reason at once.
 
+The reason of a failed execve(2) starts with C<Cannot exec>. Each
+other start failure starts with another form. A caller that must tell
+an absent command from a failure of the machinery reads that form, as
+L<Fugu::Signer> does.
+
 =head2 spawn_peer
 
 C<spawn_peer(%args)> starts a peer child over a socketpair(2). A

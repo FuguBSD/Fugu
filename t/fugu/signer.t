@@ -91,6 +91,27 @@ package Stub::Helper {
 	}
 }
 
+# A third subclass, for a start failure that is no failed execve(2).
+# It runs the command in a directory that does not exist. Fugu::Process
+# then stops in the child before the execve(2), and it answers the
+# reason in error.
+package Stub::Cwd {
+	our @ISA = ('Stub::Signer');
+
+	sub _sign ( $self, %args )
+	{
+		$self->_run(
+			[ 'sign', $args{secret}, $args{file},
+				$args{signature}
+			],
+			"cannot sign $args{file}",
+			cwd => "$args{file}.absent"
+		) or return;
+
+		return 1;
+	}
+}
+
 # The command of the test. It plays one verb of a signing command.
 # generate reports the mode of the directory that holds the secret
 # half, because no other caller sees that directory. verify passes for
@@ -318,6 +339,35 @@ subtest 'a failed execve reports an absent command' => sub {
 	);
 	is( $signer->command_absent, 1, 'command_absent returns 1' );
 	like( $signer->error, qr/Cannot exec/, 'and the reason names the exec' );
+};
+
+subtest 'a start failure is no absent command' => sub {
+	my $dir     = work('start');
+	my $command = stub();
+	my $signer  = Stub::Cwd->new( command => $command );
+	my $file    = write_file( "$dir/file", "payload\n" );
+	my $key     = write_file( "$dir/key",  "secret\n" );
+
+	# The run reports a reason of its own, and the command never
+	# execs. Such a failure is no install problem, so the flag
+	# stays at 0.
+	is(
+		$signer->sign(
+			secret    => $key,
+			file      => $file,
+			signature => "$dir/out.sig"
+		),
+		undef,
+		'sign returns undef'
+	);
+	like(
+		$signer->error,
+		qr/\Acannot sign \Q$file\E: Cannot chdir to /,
+		'the reason names the act and the directory'
+	);
+	is( $signer->command_absent, 0, 'command_absent returns 0' );
+	my @none = runs($command);
+	is( scalar @none, 0, 'and the command never ran' );
 };
 
 subtest 'a run that failed is no absent command' => sub {

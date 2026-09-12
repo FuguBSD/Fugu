@@ -250,7 +250,9 @@ reader, the temporary home and the expiry.
 - **LIB-OPENPGP-7** — Each run of `gpg(1)` must take a temporary home that the
   run removes. The module must read no home of the user, and no agent of the
   user. It must stop the agent of the temporary home before it removes the home,
-  per LIB-SIGNER-10. An agent that outlives its home leaks a process.
+  per LIB-SIGNER-10. An agent that outlives its home leaks a process. The
+  default `timeout` must be 60 seconds, because a key generation waits for
+  entropy.
 - **LIB-OPENPGP-8** — `generate` must take `email` beside `public` and `secret`,
   and an optional `expires`, per LIB-SIGNER-2. It must make one Ed25519 key with
   one user id, and one Curve25519 encryption subkey. The user id must hold the
@@ -420,10 +422,12 @@ manifest methods and the `perl` engine.
   two: no command resolved, or the execve(2) failed. It must report 0 after
   every other failure. An install problem and an integrity problem must stay
   apart.
-- **LIB-SIGNER-10** — One run of the command must end within `timeout` seconds,
-  with a default of 30. The run must take an argument list and never a shell. A
-  run that makes a temporary directory must remove it on every exit. It must
-  first stop each helper process that the command started under it.
+- **LIB-SIGNER-10** — One run of the command must end within `timeout` seconds.
+  The default of the parent must be 30, and a subclass can raise it. The unit of
+  a subclass that raises it must name its own default. The run must take an
+  argument list and never a shell. A run that makes a temporary directory must
+  remove it on every exit. It must first stop each helper process that the
+  command started under it.
 
 <a id="lib-signify"></a>
 
@@ -524,6 +528,9 @@ and this unit holds the byte reader and the DER walk.
   `secret`, per LIB-SIGNER-2. They name the subject and the validity of the
   self-signed certificate of LIB-SIGNER-4. LIB-SIGNER-5 holds the `public`
   argument of `sign`.
+- **LIB-X509-8** — The default `timeout` must be 300 seconds, per LIB-SIGNER-10.
+  A signature reads the whole file, and a file of a few hundred megabytes needs
+  the wider bound.
 
 <a id="lib-protocol"></a>
 

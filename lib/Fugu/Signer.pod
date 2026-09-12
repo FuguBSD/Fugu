@@ -8,9 +8,12 @@ Fugu::Signer - one shape for the three modules that drive a signing command
     my $signer = Fugu::Signify->new;
     die $signer->error unless $signer->is_available;
 
+    # Each type takes the arguments that its unit names, such as
+    # the comment of a signify(1) key.
     $signer->generate(
-        public => '/etc/keys/example.pub',
-        secret => '/etc/keys/example.sec',
+        comment => 'example key',
+        public  => '/etc/keys/example.pub',
+        secret  => '/etc/keys/example.sec',
     ) or die $signer->error;
 
     $signer->sign(
@@ -158,8 +161,9 @@ starts.
 
 =head2 command_absent
 
-C<command_absent()> returns 1 after a failure in which the command
-never ran, and 0 after every other failure.
+C<command_absent()> returns 1 after a failure in which no command
+resolved, or the execve(2) failed. It returns 0 after every other
+failure.
 
 =head2 generate
 
@@ -187,9 +191,9 @@ reason in C<error>.
 =head1 A SUBCLASS
 
 A subclass inherits this class with C<our @ISA>. It holds five hooks,
-and it can call the parts below. Each method of the parent reports
-through C<error>, so a subclass writes no reason of its own into the
-object.
+it can override two more, and it can call the parts below. Each method
+of the parent reports through C<error>, so a subclass writes no reason
+of its own into the object.
 
 =head2 The hooks of a subclass
 
@@ -217,6 +221,15 @@ with the one key, and pin that key in the run. The hook returns
 C<undef> when the key verified, or the reason that it did not. It
 resolves the command with C<_command> itself, because a subclass can
 verify with no command.
+
+=back
+
+=head2 The overrides of a subclass
+
+The parent holds a default for each method below, so a subclass takes
+it or overrides it.
+
+=over 4
 
 =item C<_reason($result)> - the reason of a run that reached the child
 and failed, and that did not time out. The default takes the first

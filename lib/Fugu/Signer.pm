@@ -349,8 +349,10 @@ sub _command_error ($self)
 #	names its whole environment, and cwd runs it in a directory.
 #
 #	The caller resolves the command with _command before the first
-#	run. A run that never reached the child means that the command
-#	never ran, so command_absent reports 1 for that call.
+#	run. Fugu::Process answers error for each failure that started
+#	no child: a bad argument list, a rejected env, a pipe, a fork,
+#	a chdir, and the execve(2). The execve(2) alone means that the
+#	command never ran, so command_absent reports 1 for that one.
 sub _run ( $self, $args, $what = undef, %options )
 {
 	my $result = Fugu::Process->run(
@@ -362,7 +364,13 @@ sub _run ( $self, $args, $what = undef, %options )
 
 	my $reason;
 	if ( defined $result->{error} ) {
-		$self->{command_absent} = 1;
+
+		# Fugu::Process writes this reason for a failed
+		# execve(2), and another reason for each other start
+		# failure. An absent command is an install problem,
+		# and a pipe or a chdir that failed is not.
+		$self->{command_absent} = 1
+		    if $result->{error} =~ /\ACannot exec /;
 		$reason = $result->{error};
 	}
 	elsif ( $result->{timed_out} ) {
