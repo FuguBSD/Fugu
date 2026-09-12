@@ -70,20 +70,25 @@ my %STATUS_RANK = do {
 use constant MAX_SERIAL_DIGITS => 9;
 
 # The extension of a key file selects its type. OpenBSD names a
-# signify key .pub, and the armored OpenPGP convention is .asc.
+# signify key .pub, and the armored OpenPGP convention is .asc. A
+# key directory publishes a certificate as PEM, so an X.509 key
+# file is .pem.
 my %TYPE_OF_EXTENSION = (
 	pub => 'signify',
 	asc => 'openpgp',
+	pem => 'x509',
 );
 
 my %EXTENSION_OF_TYPE = reverse %TYPE_OF_EXTENSION;
 
 # The extension of a binding names the type of its signer. signify(1)
 # writes a detached signature .sig, and the armored OpenPGP convention
-# is .asc. A later signer type adds its own extension.
+# is .asc. A detached CMS signature of an X.509 signer takes .p7s by
+# convention. A later signer type adds its own extension.
 my %TYPE_OF_BINDING_EXTENSION = (
 	sig => 'signify',
 	asc => 'openpgp',
+	p7s => 'x509',
 );
 
 my %BINDING_EXTENSION_OF_TYPE = reverse %TYPE_OF_BINDING_EXTENSION;
@@ -223,7 +228,7 @@ sub parse_name ( $self, $filename )
 #	%args:
 #		serial  => $n     # Required: above zero
 #		purpose => $word  # Required
-#		type    => $type  # Required: signify or openpgp
+#		type    => $type  # Required: signify, openpgp or x509
 #
 #	The method is the inverse of parse_name, so a caller never
 #	builds a name by hand. It returns undef on every failure, and
@@ -273,8 +278,8 @@ sub name_for ( $self, %args )
 #
 #	A binding is the signature of one key file by another key, and
 #	the name is <target file>.<signer stem>.<ext>. The extension
-#	names the type of the signer: sig for a signify signer, and
-#	asc for an OpenPGP signer.
+#	names the type of the signer: sig for a signify signer, asc
+#	for an OpenPGP signer, and p7s for an X.509 signer.
 #
 #	The target and the signer are each a key file name. The name
 #	of a binding holds the stem of the signer, and the method

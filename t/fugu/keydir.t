@@ -65,6 +65,9 @@ subtest 'parse_name reads a valid name of each type' => sub {
 	is( $openpgp->{type},   'openpgp', 'a .asc name gives the openpgp type' );
 	is( $openpgp->{serial}, 12,        'a two-digit serial reads as 12' );
 
+	my $x509 = $kd->parse_name('fugubsd-4-code.pem');
+	is( $x509->{type}, 'x509', 'a .pem name gives the x509 type' );
+
 	# The serial must be a number, so a sort of 2 and 10 puts 10
 	# second. A text sort would put 10 first.
 	my @serials =
@@ -111,9 +114,11 @@ subtest 'name_for is the inverse of parse_name' => sub {
 		'fugubsd-1-release.pub', 'a signify name' );
 	is( $kd->name_for( serial => 2, purpose => 'mail', type => 'openpgp' ),
 		'fugubsd-2-mail.asc', 'an openpgp name' );
+	is( $kd->name_for( serial => 4, purpose => 'code', type => 'x509' ),
+		'fugubsd-4-code.pem', 'an x509 name' );
 
 	# The round trip must return the parts that went in.
-	for my $type (qw(signify openpgp)) {
+	for my $type (qw(signify openpgp x509)) {
 		my $name = $kd->name_for(
 			serial  => 7,
 			purpose => 'release',
@@ -155,6 +160,15 @@ subtest 'binding_for is the inverse of parse_binding' => sub {
 		'an OpenPGP signer names an .asc binding'
 	);
 
+	is(
+		$kd->binding_for(
+			target => 'fugubsd-1-root.pub',
+			signer => 'fugubsd-4-code.pem'
+		),
+		'fugubsd-1-root.pub.fugubsd-4-code.p7s',
+		'an X.509 signer names a .p7s binding'
+	);
+
 	is_deeply(
 		$kd->parse_binding('fugubsd-1-root.pub.fugubsd-2-release.sig'),
 		{
@@ -171,13 +185,32 @@ subtest 'binding_for is the inverse of parse_binding' => sub {
 		'an .asc binding names an OpenPGP signer'
 	);
 
+	# The name of a binding holds the stem of the signer, and
+	# the answer completes it with the key extension of the
+	# type.
+	is_deeply(
+		$kd->parse_binding('fugubsd-1-root.pub.fugubsd-4-code.p7s'),
+		{
+			target => 'fugubsd-1-root.pub',
+			signer => 'fugubsd-4-code.pem',
+			type   => 'x509',
+		},
+		'a .p7s binding names an X.509 signer and its .pem key file'
+	);
+
 	# The round trip must return the names that went in, in both
 	# directions. A builder and a parser that drift would name two
 	# files for one signature, and a reader would find neither.
 	# The module holds the extension table, so this test holds no
 	# copy of it.
-	for my $signer (qw(fugubsd-2-release.pub fugubsd-3-mail.asc)) {
-		for my $target (qw(fugubsd-1-root.pub fugubsd-4-code.asc)) {
+	for my $signer (
+		qw(fugubsd-2-release.pub fugubsd-3-mail.asc fugubsd-4-code.pem)
+	    )
+	{
+		for my $target (
+			qw(fugubsd-1-root.pub fugubsd-4-code.asc fugubsd-5-cert.pem)
+		    )
+		{
 			my $name = $kd->binding_for(
 				target => $target,
 				signer => $signer

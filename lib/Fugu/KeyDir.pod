@@ -69,8 +69,8 @@ The organization word holds lower-case letters and digits, and it
 starts on a letter. The serial is an integer with no padding, above
 zero, so a reader sorts it as a number. The purpose names what the key
 signs, and it holds lower-case letters, digits and hyphens. The
-extension names the type: C<pub> is a signify key, and C<asc> is an
-armored OpenPGP key.
+extension names the type: C<pub> is a signify key, C<asc> is an
+armored OpenPGP key, and C<pem> is an X.509 certificate.
 
 The serial starts at 1 for each purpose, and each rotation of that
 purpose adds one. A new purpose therefore starts at 1, and a
@@ -104,13 +104,15 @@ C<E<lt>target fileE<gt>.E<lt>signer stemE<gt>.E<lt>extE<gt>>, for
 example C<fugubsd-1-root.pub.fugubsd-2-release.sig>.
 
 The extension names the type of the signer: C<sig> is a signify
-signature, and C<asc> is an armored OpenPGP signature. A later signer
+signature, and C<asc> is an armored OpenPGP signature. A C<p7s>
+binding is a detached CMS signature of an X.509 signer. A later signer
 type adds its own extension.
 
 The key file of the signer is its stem with the key extension of that
-type. A C<sig> binding therefore names a C<.pub> key, and an C<asc>
-binding names a C<.asc> key. C<parse_binding> answers that key file
-name, so the module holds the one extension table.
+type. A C<sig> binding therefore names a C<.pub> key, an C<asc>
+binding names a C<.asc> key, and a C<p7s> binding names a C<.pem> key.
+C<parse_binding> answers that key file name, so the module holds the
+one extension table.
 
 The retention rule holds each binding of a directory. A signer that is
 C<current> or C<next> targets the root key, so each key in force
