@@ -2,8 +2,7 @@
 
 ## Status
 
-Proposed. It waits on plan 011 for the binding parser. FuguWeb WEB-X509 waits on
-it.
+Proposed. It can land now. FuguWeb WEB-X509 waits on it.
 
 Implements: LIB-X509. Extends: LIB-KEYDIR.
 
@@ -41,7 +40,7 @@ no chain. LIB-X509-3 rests on those three options.
 ### LIB-KEYDIR
 
 - The type table gains `pem` for the type `x509`. A binding by an X.509 signer
-  takes the extension `p7s`, in the binding names that plan 011 lands.
+  takes the extension `p7s`, in the binding names of LIB-KEYDIR-5.
 
 ## The interface
 
