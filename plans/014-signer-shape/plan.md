@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed. It waits on plans 011, 012 and 013, which land the signer of each
-type. FuguWeb WEB-TRUST, WEB-OPENPGP and WEB-X509 wait on it. The change lands
-as a minor release: the interface breaks, and no shim keeps the old one.
+Proposed. It waits on plans 012 and 013, which land the signer of each type.
+FuguWeb WEB-TRUST, WEB-OPENPGP and WEB-X509 wait on it. The change lands as a
+minor release: the interface breaks, and no shim keeps the old one.
 
 Implements: LIB-SIGNER. Extends: LIB-SIGNIFY. Extends: LIB-OPENPGP. Extends:
 LIB-PROCESS. Extends: LIB-CURL. Defers: LIB-X509.
@@ -75,9 +75,9 @@ the timeout.
   engine with no command, per LIB-SIGNER-1, because `verify` runs. `command`
   answers the resolved path or undef under both engines, and `command_absent`
   follows LIB-SIGNER-9.
-- The rules of the signer and the generator, which plan 011 adds, change. `new`
-  takes no `keys`. `verify` and `verify_manifest` take `keys` per LIB-SIGNER-6,
-  and `generate` takes `comment` beside `public` and `secret`.
+- The rules of the signer and the generator, LIB-SIGNIFY-4 to LIB-SIGNIFY-7,
+  change. `new` takes no `keys`. `verify` and `verify_manifest` take `keys` per
+  LIB-SIGNER-6, and `generate` takes `comment` beside `public` and `secret`.
 
 ### LIB-OPENPGP
 

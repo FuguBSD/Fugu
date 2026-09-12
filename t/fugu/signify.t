@@ -57,18 +57,143 @@ subtest 'the constants hold the documented values' => sub {
 	is( Fugu::Signify::SIGNATURE_SIZE(),  74, 'SIGNATURE_SIZE is 74' );
 };
 
-subtest 'the module cannot sign' => sub {
-	ok( !Fugu::Signify->can('sign'), 'no sign method exists' );
+subtest 'the module holds the signer and the generator' => sub {
+	ok( Fugu::Signify->can('generate'), 'generate exists' );
+	ok( Fugu::Signify->can('sign'),     'sign exists' );
 };
 
-subtest 'new dies for a bad keys argument' => sub {
-	ok( !eval { Fugu::Signify->new; 1 }, 'new dies for an absent keys' );
-	like( $@, qr/keys/, 'the message names keys' );
+subtest 'new takes an absent or empty keys list' => sub {
+
+	# A first key mint holds no public key yet, so it builds the
+	# object that generates with none.
+	for my $case ( [ 'an absent keys', undef ], [ 'an empty keys', [] ] ) {
+		my ( $name, $keys ) = @$case;
+		my $sig = Fugu::Signify->new(
+			defined $keys ? ( keys => $keys ) : () );
+		ok( defined $sig, "new returns an object for $name" );
+
+		ok( !eval { $sig->verify("$dir/file"); 1 },
+			"verify dies for $name" );
+		like( $@, qr/keys/, 'the message names keys' );
+
+		ok(
+			!eval {
+				$sig->verify_manifest(
+					manifest => "$dir/SHA256",
+					files => { 'file' => "$dir/file" },
+				);
+				1;
+			},
+			"verify_manifest dies for $name"
+		);
+		like( $@, qr/keys/, 'the message names keys' );
+	}
 
 	ok( !eval { Fugu::Signify->new( keys => 'one.pub' ); 1 },
 		'new dies for a scalar keys' );
-	ok( !eval { Fugu::Signify->new( keys => [] ); 1 },
-		'new dies for an empty keys' );
+	like( $@, qr/keys/, 'the message names keys' );
+};
+
+subtest 'generate and sign die for an absent argument' => sub {
+	my $sig = Fugu::Signify->new;
+
+	ok( !eval { $sig->generate( public => 'p', secret => 's' ); 1 },
+		'generate dies for an absent comment' );
+	like( $@, qr/comment/, 'the message names comment' );
+
+	ok( !eval { $sig->sign( file => 'f', signature => 's' ); 1 },
+		'sign dies for an absent secret' );
+	like( $@, qr/secret/, 'the message names secret' );
+};
+
+subtest 'generate refuses a comment with a newline' => sub {
+
+	# signify(1) writes the comment in the first line of each
+	# half, and one line holds one field. A comment with a newline
+	# would write a third line into the key file, and the parser
+	# of the module then refuses that file.
+	my $sig = Fugu::Signify->new;
+
+	my @case = (
+		[ 'a newline', "the key\nuntrusted comment: the forged line" ],
+		[ 'a carriage return', "the key\rthe forged line" ],
+	);
+
+	# Each case names a fresh pair of paths. signify(1) refuses a
+	# path that exists, so one set of paths would let the second
+	# case pass for the wrong reason.
+	my $serial = 0;
+	for my $case (@case) {
+		my ( $name, $comment ) = @$case;
+		$serial++;
+		my ( $public, $secret ) =
+		    ( "$dir/forged-$serial.pub", "$dir/forged-$serial.sec" );
+
+		is(
+			$sig->generate(
+				comment => $comment,
+				public  => $public,
+				secret  => $secret,
+			),
+			undef,
+			"generate returns undef for $name"
+		);
+		like( $sig->error, qr/the comment holds a newline/,
+			'error names the comment' );
+
+		# The method refuses the comment before the command
+		# runs, so the call writes no half of the pair.
+		is( $sig->command_absent, 0, 'a refused comment is no absent command' );
+		ok( !-e $public, 'and the call wrote no public half' );
+		ok( !-e $secret, 'and it wrote no private half' );
+	}
+};
+
+subtest 'generate and sign report an absent command' => sub {
+
+	# The signify engine resolved no command in new.
+	my $named = Fugu::Signify->new( command => "$dir/no-such-signify" );
+	is(
+		$named->generate(
+			comment => 'the absent command',
+			public  => "$dir/absent.pub",
+			secret  => "$dir/absent.sec",
+		),
+		undef,
+		'generate returns undef'
+	);
+	like( $named->error, qr{\Q$dir/no-such-signify\E},
+		'error names the command' );
+	is( $named->command_absent, 1, 'command_absent reports 1' );
+
+	is(
+		$named->sign(
+			secret    => "$dir/absent.sec",
+			file      => $MSG,
+			signature => "$dir/absent.sig",
+		),
+		undef,
+		'sign returns undef'
+	);
+	is( $named->command_absent, 1, 'command_absent reports 1' );
+
+	# The perl engine resolves the command of the call itself, and
+	# an empty PATH holds none.
+	local $ENV{PATH} = '';
+	my $sig = Fugu::Signify->new;
+	is(
+		$sig->generate(
+			comment => 'the empty PATH',
+			public  => "$dir/empty.pub",
+			secret  => "$dir/empty.sec",
+		),
+		undef,
+		'generate returns undef under the perl engine'
+	);
+	is( $sig->command_absent, 1, 'command_absent reports 1 for that call' );
+	like( $sig->error, qr/signify-openbsd, signify/,
+		'error names the search list' );
+	is( $sig->command, undef, 'and command stays undef under that engine' );
 };
 
 subtest 'an absent command is a clean failure' => sub {
@@ -422,8 +547,9 @@ subtest 'verify_manifest serves the perl engine' => sub {
 my $signify = Fugu::Signify::_find_command();
 
 # sign($seckey, $file, $sigfile):
-#	Sign a fixture with signify(1) itself. The module never signs,
-#	so the test drives the command directly for the setup.
+#	Sign a fixture with signify(1) itself. The setup drives the
+#	command directly, so no fixture rests on the method that the
+#	tests check.
 sub sign ( $seckey, $file, $sigfile = undef )
 {
 	$sigfile //= "$file.sig";
@@ -484,6 +610,145 @@ if ( defined $signify ) {
 		    . manifest_line( $URL_KEY, "$dir/two.img" ) );
 	sign( $sec_a, $manifest );
 }
+
+subtest 'generate makes a key pair with no passphrase' => sub {
+	plan skip_all => 'signify(1) not available' unless defined $signify;
+
+	# The default engine is perl, and it resolves no command in
+	# new. A private key operation still runs signify(1), so the
+	# method resolves the command of the call itself.
+	my $sig = Fugu::Signify->new;
+	my ( $public, $secret ) = ( "$dir/made.pub", "$dir/made.sec" );
+
+	is(
+		$sig->generate(
+			comment => 'the made key',
+			public  => $public,
+			secret  => $secret,
+		),
+		1,
+		'generate returns 1'
+	) or diag( $sig->error );
+	is( $sig->error,          undef, 'error is undef after a success' );
+	is( $sig->command_absent, 0,     'command_absent returns 0' );
+	is( $sig->command, undef, 'and command stays undef under perl' );
+
+	ok( -f $public, 'the public half exists' );
+	ok( -f $secret, 'the private half exists' );
+
+	# The private half must hold no group mode and no other mode.
+	is( sprintf( '%04o', ( stat $secret )[2] & 07777 ),
+		'0600', 'the private half is owner-only' );
+
+	# signify(1) appends "public key" to the comment of the public
+	# half, and "secret key" to the comment of the private half.
+	my $key = $sig->parse_public_key( Fugu::File->read($public) );
+	is( $key->{comment}, 'the made key public key',
+		'the comment reaches the file' );
+
+	# signify(1) refuses a path that exists, so one pair never
+	# overwrites another.
+	is(
+		$sig->generate(
+			comment => 'the second key',
+			public  => $public,
+			secret  => $secret,
+		),
+		undef,
+		'a second generate over one path returns undef'
+	);
+	like( $sig->error, qr/\Qcannot generate $public\E/,
+		'error names the act and the file' );
+	is( $sig->command_absent, 0, 'a refusal is no absent command' );
+
+	# signify(1) holds the two paths to one naming scheme: the
+	# stem of the public half and the stem of the private half
+	# must agree.
+	is(
+		$sig->generate(
+			comment => 'the odd pair',
+			public  => "$dir/pair.pub",
+			secret  => "$dir/other.sec",
+		),
+		undef,
+		'a pair of names with two stems returns undef'
+	);
+	ok( !-e "$dir/pair.pub", 'and the call wrote no public half' );
+	ok( !-e "$dir/other.sec", 'and it wrote no private half' );
+
+	# signify(1) writes the private half first, so a call that
+	# refuses the public path leaves the private half behind. The
+	# sidecar names that outcome.
+	unlink $secret or die "Cannot remove $secret: $!";
+	is(
+		$sig->generate(
+			comment => 'the orphan key',
+			public  => $public,
+			secret  => $secret,
+		),
+		undef,
+		'a generate over one public path returns undef'
+	);
+	ok( -f $secret, 'and the private half stays behind' );
+};
+
+subtest 'sign writes a signature that verify takes' => sub {
+	plan skip_all => 'signify(1) not available' unless defined $signify;
+
+	my $signed  = write_file( "$dir/signed.txt", "the signed body\n" );
+	my $written = "$dir/signed.sig";
+
+	# The signify engine resolved the command in new, and the
+	# object holds no public key.
+	my $sig = Fugu::Signify->new( engine => 'signify' );
+	is(
+		$sig->sign(
+			secret    => $sec_a,
+			file      => $signed,
+			signature => $written,
+		),
+		1,
+		'sign returns 1'
+	) or diag( $sig->error );
+	is( $sig->error,          undef, 'error is undef after a success' );
+	is( $sig->command_absent, 0,     'command_absent returns 0' );
+	ok( -f $written, 'the signature file exists' );
+
+	# Both engines must take what the signer wrote.
+	for my $engine (qw(perl signify)) {
+		my $verifier = Fugu::Signify->new(
+			keys   => [$pub_a],
+			engine => $engine,
+		);
+		is( $verifier->verify( $signed, $written ),
+			$pub_a, "the $engine engine verifies the signature" );
+	}
+
+	# A rotation signs one manifest again, so a second call over
+	# one signature path replaces the file.
+	is(
+		$sig->sign(
+			secret    => $sec_a,
+			file      => $signed,
+			signature => $written,
+		),
+		1,
+		'a second sign over one path returns 1'
+	);
+
+	is(
+		$sig->sign(
+			secret    => "$dir/no-such.sec",
+			file      => $signed,
+			signature => $written,
+		),
+		undef,
+		'sign returns undef for an absent private half'
+	);
+	like( $sig->error, qr/\Qcannot sign $signed\E/,
+		'error names the act and the file' );
+	is( $sig->command_absent, 0, 'a read failure is no absent command' );
+};
 
 subtest 'verify returns the key for a good signature' => sub {
 	plan skip_all => 'signify(1) not available' unless defined $signify;

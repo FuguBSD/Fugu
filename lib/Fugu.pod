@@ -73,7 +73,7 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Signal> - signal handlers for graceful shutdown
 
-=item L<Fugu::Signify> - verify a signify(1) signature, and read and write a SHA256 manifest
+=item L<Fugu::Signify> - make a signify(1) key pair, sign a file, verify a signature, and read and write a SHA256 manifest
 
 =item L<Fugu::StateFile> - a small JSON state file
 
