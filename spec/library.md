@@ -256,9 +256,11 @@ and it never dies for an absent command.
   because an agent that outlives its home leaks a process.
 - **LIB-OPENPGP-8** — The generator must make one Ed25519 key with one user id,
   and one Curve25519 encryption subkey. The user id must hold the email alone.
-  The generator must set the same expiry on the key and the subkey, when the
-  caller names one. It must set no expiry when the caller names none. FuguWeb
-  WEB-OPENPGP publishes the key, and a correspondent encrypts to the subkey.
+  The generator must give the key and the subkey the expiry that the caller
+  named. It must set no expiry when the caller names none. gpg(1) writes each
+  expiry as a duration from a creation time, so the subkey expiry can fall one
+  second before the key expiry. FuguWeb WEB-OPENPGP publishes the key, and a
+  correspondent encrypts to the subkey.
 - **LIB-OPENPGP-9** — The verifier must import the one public key of the signer
   into an empty home. A signature of another key must fail.
 - **LIB-OPENPGP-10** — The module must never log the armored secret half, and

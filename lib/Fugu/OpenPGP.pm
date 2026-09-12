@@ -902,9 +902,11 @@ sub _colon_field ( $text, $type, $number )
 
 # _iso_utc($epoch):
 #	The UTC form YYYYMMDDTHHMMSS of an epoch. gpg(1) reads that
-#	form as an expiry, and the key then expires on the exact
-#	second. The seconds=N form is off by one, so the generator
-#	never writes it.
+#	form as an expiry, and the primary key then expires on the
+#	exact second. gpg(1) writes each expiry as a duration from a
+#	creation time, so the subkey expiry can fall one second before
+#	the key expiry. The seconds=N form is off by one, so the
+#	generator never writes it.
 sub _iso_utc ($epoch)
 {
 	my @time = gmtime $epoch;

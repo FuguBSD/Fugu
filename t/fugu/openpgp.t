@@ -752,6 +752,25 @@ sub agents ()
 	return @line;
 }
 
+subtest '_find_command prefers gpg2 over gpg' => sub {
+
+	# A host that kept gpg for version 1 carries version 2 under
+	# the name gpg2, and the command part needs version 2. A PATH
+	# that holds both names must therefore give gpg2.
+	my $bindir = tempdir( 'path-XXXXXXXX', DIR => $WORK, CLEANUP => 1 );
+	for my $name (qw(gpg gpg2)) {
+		my $stub = write_file( "$bindir/$name", "#!/bin/sh\nexit 0\n" );
+		chmod 0755, $stub or die "Cannot chmod $stub: $!";
+	}
+
+	local $ENV{PATH} = $bindir;
+	is( Fugu::OpenPGP::_find_command(),
+		"$bindir/gpg2", 'a PATH with both names gives gpg2' );
+
+	like( Fugu::OpenPGP::_command_error(), qr/gpg2, gpg/,
+		'and the reason names the search list in that order' );
+};
+
 subtest 'the object answers cleanly for an absent command' => sub {
 
 	# An absent gpg(1) is an install problem, and new must never
@@ -944,7 +963,8 @@ subtest 'generate makes the encryption subkey' => sub {
 	my ($flags) = ( split /:/, $sub[0], -1 )[11];
 	is( $flags, 'e', 'and it holds the encryption use alone' );
 
-	# LIB-OPENPGP-8 holds one expiry on the key and on the subkey.
+	# LIB-OPENPGP-8 gives the key and the subkey the expiry that
+	# the caller named, and no expiry when the caller names none.
 	# Field 7 of the sub line holds that expiry, and an empty
 	# field 7 means no expiry. The caller named no expiry here.
 	is( ( split /:/, $sub[0], -1 )[6],
@@ -960,13 +980,15 @@ subtest 'generate makes the encryption subkey' => sub {
 	like( $expiry, qr/\A[0-9]+\z/,
 		'and that subkey holds an expiry' );
 
-	# The generator adds the subkey in a second run of gpg(1), and
-	# gpg(1) counts each expiry from the creation second of its own
-	# run. The two seconds therefore differ by a second of the run,
-	# and this window holds that difference. A subkey with another
-	# expiry falls outside it.
+	# gpg(1) writes an expiry as a duration from the creation time
+	# of a key, and not as an absolute second. --quick-add-key
+	# samples the creation time and the duration in two steps, so a
+	# second boundary between them moves the subkey expiry one
+	# second early. The primary key holds one creation time in one
+	# run, so it never moves. This window holds that one second,
+	# and a subkey with another expiry falls outside it.
 	cmp_ok( abs( $expiry - $EXPIRES ),
-		'<=', 60, 'and it expires with its primary key' );
+		'<=', 2, 'and it expires with its primary key' );
 
 	my ($pub) = grep { /\Apub:/ } split /\n/, $colons;
 	like( $pub, qr/:ed25519:/, 'the primary key is an Ed25519 key' );
