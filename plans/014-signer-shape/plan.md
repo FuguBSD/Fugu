@@ -4,8 +4,7 @@
 
 Proposed. It waits on plans 011, 012 and 013, which land the signer of each
 type. FuguWeb WEB-TRUST, WEB-OPENPGP and WEB-X509 wait on it. The change lands
-as a minor release, per REL-VERSION-1: the interface breaks, and no shim keeps
-the old one.
+as a minor release: the interface breaks, and no shim keeps the old one.
 
 Implements: LIB-SIGNER. Extends: LIB-SIGNIFY. Extends: LIB-OPENPGP. Extends:
 LIB-PROCESS. Extends: LIB-CURL. Defers: LIB-X509.
@@ -34,9 +33,9 @@ consumer that learns one type then knows the other two.
 names the file and then one reason for each key. That shape serves each type, so
 the parent holds the walk and each subclass pins one key in one run.
 
-`Fugu::Signify` and `Fugu::Curl` hold one `_find_command` each, byte for byte.
-Plans 012 and 013 add a third and a fourth copy. `Fugu::Process` owns the
-process boundary, so it owns the resolver.
+`Fugu::Signify` and `Fugu::Curl` hold one `_find_command` each, and the two
+differ in the default list alone. Plans 012 and 013 add a third and a fourth
+copy. `Fugu::Process` owns the process boundary, so it owns the resolver.
 
 A secret half that passes through Perl sits in the heap of a long process. A
 secret half that a command writes into a private directory, and a rename then
@@ -70,10 +69,12 @@ the timeout.
   takes the same three sentences as the other two units: the type and its files,
   the readers, and the parent.
 - The text of LIB-SIGNIFY-2 changes. The `engine` option selects the verifier
-  alone: `perl` verifies with `Fugu::Ed25519`, and `signify` runs the command.
-  `generate` and `sign` run the command under both. `is_available`, `command`
-  and `command_absent` follow LIB-SIGNER-1 and LIB-SIGNER-9 under both engines,
-  so the perl engine holds no special case for the accessors.
+  alone: `perl` verifies with `Fugu::Ed25519`, and `signify` runs the command. A
+  caller that names a `command` still gets the `signify` engine. `generate` and
+  `sign` run the command under both. `is_available` answers 1 under the `perl`
+  engine with no command, per LIB-SIGNER-1, because `verify` runs. `command`
+  answers the resolved path or undef under both engines, and `command_absent`
+  follows LIB-SIGNER-9.
 - The rules of the signer and the generator, which plan 011 adds, change. `new`
   takes no `keys`. `verify` and `verify_manifest` take `keys` per LIB-SIGNER-6,
   and `generate` takes `comment` beside `public` and `secret`.
@@ -89,14 +90,23 @@ the timeout.
   makes one Ed25519 primary key with one Curve25519 encryption subkey, per
   FuguWeb WEB-OPENPGP-1. `sign` and `verify` take the names of LIB-SIGNER-2.
   `expiry` takes `public` as a path.
+- A new rule: `generate` takes `email` and an optional `expires`, per
+  LIB-SIGNER-2. `email` holds the one user id, and `expires` holds the expiry.
 - A new rule: each run stops the agent under its temporary home before it
   removes the home, per LIB-SIGNER-10.
 
 ### LIB-X509
 
+Each change of this section lands with this plan, once the citation moves per
+the Status section.
+
 - The unit text states that the module follows LIB-SIGNER over openssl(1), in
-  the same three sentences. The rules keep their text: LIB-SIGNER-4 holds the
-  generator, and LIB-SIGNER-5 holds the `public` argument of `sign`.
+  the same three sentences.
+- The text of LIB-X509-5 changes. A reader takes bytes, and a command method
+  takes paths, per LIB-SIGNER-7.
+- A new rule: `generate` takes `subject` and `days`, per LIB-SIGNER-2. They name
+  the subject and the validity of the self-signed certificate of LIB-SIGNER-4.
+  LIB-SIGNER-5 holds the `public` argument of `sign`.
 
 ### LIB-PROCESS
 
@@ -152,7 +162,9 @@ the timeout.
 ## The change
 
 1. `lib/Fugu/Process.pm` and its sidecar gain `find_command`. `lib/Fugu/Curl.pm`
-   drops its copy. `t/fugu/process.t` covers the three forms of a name.
+   and `lib/Fugu/Signify.pm` drop their copies. `t/fugu/process.t` covers the
+   three forms of a name. `t/fugu/curl.t` and `t/fugu/signify.t` call the new
+   method in place of a copy.
 2. `lib/Fugu/Signer.pm` and its sidecar hold the parent class. `t/fugu/signer.t`
    covers the shared shape with a stub subclass over a script that the test
    writes. It covers the absent command, `command_absent`, the timeout, and the

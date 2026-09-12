@@ -321,19 +321,22 @@ over signify(1), `Fugu::OpenPGP` over gpg(1), and `Fugu::X509` over openssl(1).
 The module is the parent class of the three. It holds the constructor, the
 command resolution, the run through `Fugu::Process`, the key walk of a
 verification, and the failure convention. A subclass holds its file formats, its
-readers, and the arguments of its command, and nothing else.
+readers, and the arguments of its command. `Fugu::Signify` also holds its
+manifest methods and the `perl` engine.
 
 - **LIB-SIGNER-1** — `new` must take an optional `command` and an optional
   `timeout`. It must resolve the command once, through
   `Fugu::Process->find_command`, and must run no process there. An absent
-  command must not die: `is_available` must return 0, `command` must return
-  undef, and `error` must hold the reason. A subclass must hold no resolver of
-  its own.
+  command must not die. `is_available` must answer 1 when `verify` can run, and
+  0 when it cannot. A subclass with a verifier in Perl then answers 1 with no
+  command. `command` must answer the resolved path, or undef, and `error` must
+  hold the reason of an absent command. A subclass must hold no resolver of its
+  own.
 - **LIB-SIGNER-2** — The method names must be `generate`, `sign` and `verify` in
   each module, with the argument names `public`, `secret`, `keys`, `file` and
-  `signature`. Each one is a path. A subclass can add an argument that its type
-  needs, and its unit names it. A caller then moves from one type to another
-  with no new vocabulary.
+  `signature`. `keys` is a list of paths, and each other one is a path. A
+  subclass can add an argument that its type needs, and its unit names it. A
+  caller then moves from one type to another with no new vocabulary.
 - **LIB-SIGNER-3** — Every private key operation must run in the command. No
   method must take or answer the bytes of a secret half, and the module must
   never log them. A secret half enters as a path and leaves as a file.
@@ -341,10 +344,10 @@ readers, and the arguments of its command, and nothing else.
 - **LIB-SIGNER-4** — `generate` must refuse when `public` or `secret` exists,
   and must make a key with no passphrase. The command must write the secret half
   in a private directory beside its destination. The module must set the
-  owner-only mode there, and must move the file into place with one rename. No
-  wider mode exists at any moment, and the bytes of the secret half never enter
-  Perl. `Fugu::X509` makes a self-signed certificate, because a test needs one
-  and no other generator exists.
+  owner-only mode on the file inside that directory. It must then move the file
+  into place with one rename. No wider mode exists at any moment, and the bytes
+  of the secret half never enter Perl. `Fugu::X509` makes a self-signed
+  certificate, because a test needs one and no other generator exists.
 - **LIB-SIGNER-5** — `sign` must take `secret`, `file` and `signature`, and the
   command must write the signature file itself. A second `sign` over one
   `signature` path must replace the file, because a rotation signs one manifest
@@ -356,19 +359,23 @@ readers, and the arguments of its command, and nothing else.
   that verified, or undef. When no key verifies, `error` must name the file and
   then one reason for each key, in one shape across the three modules. An empty
   `keys` list is a programming error, and the method must die.
-- **LIB-SIGNER-7** — A command method must take paths, and must refuse a path
-  that is not a plain file before it runs the command. A reader must take bytes,
-  must reject a string with a code point above 255, and must bound the size that
-  it reads. Bad bytes are data, so a shape error is a failure with a reason and
-  never a die.
+- **LIB-SIGNER-7** — A command method must take paths. It must refuse an input
+  path that is not a plain file before it runs the command. The input paths of
+  `sign` are `secret`, `file`, and `public` for `Fugu::X509`. The input paths of
+  `verify` are `file`, `signature` and each path of `keys`. `public` and
+  `secret` of `generate` and `signature` of `sign` are outputs, per LIB-SIGNER-4
+  and LIB-SIGNER-5. A reader must take bytes, must reject a string with a code
+  point above 255, and must bound the size that it reads. Bad bytes are data, so
+  a shape error is a failure with a reason and never a die.
 - **LIB-SIGNER-8** — Every recoverable failure, of a reader and of a command
   method alike, must return undef, and `error` must hold the reason. No method
   must answer the reason as a second return value. The module never logs, and
   the caller decides what to report.
-- **LIB-SIGNER-9** — `command_absent` must report 1 after a failure in which the
-  command never ran: no command resolved, or the execve(2) failed. It must
-  report 0 after every other failure. An install problem and an integrity
-  problem must stay apart.
+- **LIB-SIGNER-9** — `command_absent` must report 1 only after a failure in
+  which a method needed the command and it never ran. That failure is one of
+  two: no command resolved, or the execve(2) failed. It must report 0 after
+  every other failure. An install problem and an integrity problem must stay
+  apart.
 - **LIB-SIGNER-10** — One run of the command must end within `timeout` seconds,
   with a default of 30. The run must take an argument list and never a shell. A
   run that makes a temporary directory must remove it on every exit. It must
