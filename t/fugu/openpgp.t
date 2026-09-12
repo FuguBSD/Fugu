@@ -860,6 +860,18 @@ subtest 'the module follows the signer shape' => sub {
 	);
 };
 
+subtest 'the module raises the timeout of the parent' => sub {
+
+	# LIB-OPENPGP-12 holds the default at 60 seconds, over the
+	# parent default of 30, because a key generation waits for
+	# entropy. The constructor runs no process, so the subtest
+	# runs where gpg(1) is absent.
+	is( Fugu::OpenPGP->new->{timeout},
+		60, 'the default timeout is 60 seconds' );
+	is( Fugu::OpenPGP->new( timeout => 5 )->{timeout},
+		5, 'and the caller names its own' );
+};
+
 subtest 'the command resolves through Fugu::Process' => sub {
 
 	# A host that kept gpg for version 1 carries version 2 under

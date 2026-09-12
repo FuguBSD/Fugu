@@ -5,7 +5,7 @@
 # The parent class drives a command, and every real command of a
 # subclass is optional on a host. The test therefore writes its own
 # command: a shell script that plays the three verbs, records each run
-# in a log beside itself, and fails on demand. Two stub subclasses
+# in a log beside itself, and fails on demand. Three stub subclasses
 # hold the hooks over it.
 #
 # The stub command reports what only it can see: the mode of the
@@ -92,9 +92,9 @@ package Stub::Helper {
 }
 
 # A third subclass, for a start failure that is no failed execve(2).
-# It runs the command in a directory that does not exist. Fugu::Process
-# then stops in the child before the execve(2), and it answers the
-# reason in error.
+# The signer hook and the verifier hook each run the command in a
+# directory that does not exist. Fugu::Process then stops in the child
+# before the execve(2), and it answers the reason in error.
 package Stub::Cwd {
 	our @ISA = ('Stub::Signer');
 
@@ -109,6 +109,18 @@ package Stub::Cwd {
 		) or return;
 
 		return 1;
+	}
+
+	sub _verify ( $self, $key, %args )
+	{
+		$self->_command or return $self->error;
+
+		$self->_run(
+			[ 'verify', $key, $args{file}, $args{signature} ],
+			undef, cwd => "$args{file}.absent"
+		) or return $self->error;
+
+		return;
 	}
 }
 
@@ -649,6 +661,35 @@ subtest 'verify walks the keys in trust order' => sub {
 		'the reason holds the file and one reason for each key'
 	);
 	is( $none->command_absent, 0, 'a wrong key is no absent command' );
+};
+
+subtest 'the key walk stops at a start failure' => sub {
+	my $dir     = work('walk');
+	my $command = stub();
+	my $signer  = Stub::Cwd->new( command => $command );
+	my $file    = write_file( "$dir/file",     "payload\n" );
+	my $sig     = write_file( "$dir/file.sig", "signature\n" );
+
+	my $first  = write_file( "$dir/first.pub",  "good\n" );
+	my $second = write_file( "$dir/second.pub", "good\n" );
+
+	# The chdir of the child fails before the execve(2), so the
+	# command never ran. The second key would fail the same way,
+	# and a failure of the machinery is no integrity failure.
+	is(
+		$signer->verify(
+			keys      => [ $first, $second ],
+			file      => $file,
+			signature => $sig
+		),
+		undef,
+		'verify returns undef'
+	);
+	like( $signer->error, qr/\ACannot chdir to /,
+		'the reason of the start failure stands alone' );
+	is( $signer->command_absent, 0, 'a chdir failure is no absent command' );
+	my @none = runs($command);
+	is( scalar @none, 0, 'and the command never ran' );
 };
 
 subtest 'verify needs a key set' => sub {

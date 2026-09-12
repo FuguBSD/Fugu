@@ -245,6 +245,18 @@ subtest 'the module follows the signer shape' => sub {
 		['openssl'], 'and the search list names openssl' );
 };
 
+subtest 'the module raises the timeout of the parent' => sub {
+
+	# LIB-X509-8 holds the default at 300 seconds, over the parent
+	# default of 30, because a signature reads the whole file. The
+	# constructor runs no process, so the subtest runs where
+	# openssl(1) is absent.
+	is( Fugu::X509->new->{timeout},
+		300, 'the default timeout is 300 seconds' );
+	is( Fugu::X509->new( timeout => 5 )->{timeout},
+		5, 'and the caller names its own' );
+};
+
 # --- the byte reader ------------------------------------------------------
 
 subtest 'a reader answers no reason in list context' => sub {

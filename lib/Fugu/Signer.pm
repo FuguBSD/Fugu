@@ -89,6 +89,7 @@ sub new ( $class, %args )
 		command_name   => $args{command},
 		command        => undef,
 		command_absent => 0,
+		start_failed   => 0,
 		timeout        => $timeout,
 		error          => undef,
 	}, $class;
@@ -268,10 +269,11 @@ sub verify ( $self, %args )
 			return $key;
 		}
 
-		# A command that never ran is an install problem, and
-		# every later key would fail the same way. The walk
-		# stops there, and that one reason stands alone.
-		return $self->_set_error($reason) if $self->{command_absent};
+		# A run that did not start gives the same answer for
+		# every later key. The walk stops there, and that one
+		# reason stands alone. Such a failure is no integrity
+		# failure, and it must not read as one.
+		return $self->_set_error($reason) if $self->{start_failed};
 
 		push @reasons, "$key: $reason";
 	}
@@ -282,13 +284,14 @@ sub verify ( $self, %args )
 # --- the parts that a subclass calls --------------------------------------
 
 # $self->_begin:
-#	Start one call: clear the reason and the command_absent flag.
-#	Every public method calls it first, so error answers the
-#	failure of the current call alone.
+#	Start one call: clear the reason, the command_absent flag and
+#	the start_failed flag. Every public method calls it first, so
+#	error answers the failure of the current call alone.
 sub _begin ($self)
 {
 	$self->{error}          = undef;
 	$self->{command_absent} = 0;
+	$self->{start_failed}   = 0;
 
 	return;
 }
@@ -308,12 +311,14 @@ sub _set_error ( $self, $reason )
 #	The command of one call, or undef with the reason in error. new
 #	resolved the command once, so the method reads that answer. It
 #	sets command_absent for the call, because a command that never
-#	ran is an install problem.
+#	ran is an install problem. It also sets start_failed, because
+#	no run of the call can start.
 sub _command ($self)
 {
 	return $self->{command} if defined $self->{command};
 
 	$self->{command_absent} = 1;
+	$self->{start_failed}   = 1;
 
 	return $self->_set_error( $self->_command_error );
 }
@@ -350,9 +355,10 @@ sub _command_error ($self)
 #
 #	The caller resolves the command with _command before the first
 #	run. Fugu::Process answers error for each failure that started
-#	no child: a bad argument list, a rejected env, a pipe, a fork,
-#	a chdir, and the execve(2). The execve(2) alone means that the
-#	command never ran, so command_absent reports 1 for that one.
+#	no child, such as a bad argument list, a rejected env, a pipe,
+#	a fork, a chdir, and the execve(2). The list is open. Each such
+#	failure sets start_failed. The execve(2) alone also sets
+#	command_absent, because that one failure is an install problem.
 sub _run ( $self, $args, $what = undef, %options )
 {
 	my $result = Fugu::Process->run(
@@ -365,10 +371,12 @@ sub _run ( $self, $args, $what = undef, %options )
 	my $reason;
 	if ( defined $result->{error} ) {
 
-		# Fugu::Process writes this reason for a failed
-		# execve(2), and another reason for each other start
-		# failure. An absent command is an install problem,
-		# and a pipe or a chdir that failed is not.
+		# The run started no child. The reason of a failed
+		# execve(2) starts with "Cannot exec", and each other
+		# start failure starts with another form, per
+		# LIB-PROCESS-6. An absent command is an install
+		# problem, and a pipe or a chdir that failed is not.
+		$self->{start_failed}   = 1;
 		$self->{command_absent} = 1
 		    if $result->{error} =~ /\ACannot exec /;
 		$reason = $result->{error};

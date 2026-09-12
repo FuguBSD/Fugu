@@ -155,12 +155,8 @@ The parent always waits for the execve(2) to resolve. The child holds
 the write end of a close-on-exec pipe. A successful execve(2) closes
 that end, and the parent reads end-of-file. A failure leaves a message
 in the pipe, and the parent returns it in C<error>. Thus a command
-that does not exist reports its own reason at once.
-
-The reason of a failed execve(2) starts with C<Cannot exec>. Each
-other start failure starts with another form. A caller that must tell
-an absent command from a failure of the machinery reads that form, as
-L<Fugu::Signer> does.
+that does not exist reports its own reason at once. L</ERRORS> holds
+the form of each start reason.
 
 =head2 spawn_peer
 
@@ -280,6 +276,10 @@ on the terminal under C<passthrough>.
 The method reads standard output and standard error at the same time.
 A reader that took them in sequence would deadlock: a child that fills
 one pipe blocks until someone drains it.
+
+The method starts the child with the same fork-and-exec step as
+C<spawn_command()>. A failure to start it gives C<error> in the hash,
+and L</ERRORS> holds the form of each start reason.
 
 =head2 exit_code
 
@@ -421,6 +421,15 @@ This example runs a helper and then stops it:
 No method dies for a failure of the system: the methods report such a
 failure through the hash reference or the boolean value that they
 return.
+
+A method that starts a child gives the reason of a start failure in
+C<error>. C<spawn_command()>, C<spawn_peer()>, C<spawn_perl()> and
+C<run()> share that step, so they share the form of the reason. The
+reason of a failed execve(2) starts with C<Cannot exec>. Each other
+start failure starts with another form, among them a failed pipe, a
+failed fork, a failed chdir and a failed redirect. A caller that must
+tell an absent command from a failure of the machinery reads that
+form, as L<Fugu::Signer> does.
 
 A programming error dies. These are the cases: an C<inherit> value
 that is not an array reference, an C<inherit> member with no

@@ -100,6 +100,11 @@ each key:
 Each subclass writes that one shape, so a caller tells a wrong key
 from an absent key file under each type.
 
+When a run does not start, the walk stops at that key, and C<error>
+holds that one reason. A failed fork, a failed chdir and an absent
+command give the same answer for every later key. Such a failure is no
+integrity failure.
+
 An empty C<keys> list is a programming error, and the method dies.
 
 =head2 An input path
@@ -247,9 +252,8 @@ because gpg(1) starts an agent.
 
 =over 4
 
-=item C<_begin()> - start one call: clear the reason and the
-C<command_absent> flag. Every public method of a subclass calls it
-first.
+=item C<_begin()> - start one call: clear the reason and each flag of
+a failure. Every public method of a subclass calls it first.
 
 =item C<_set_error($reason)> - the failure return of every method: the
 reason goes to C<error>, and the method answers C<undef>.

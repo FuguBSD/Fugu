@@ -250,9 +250,7 @@ reader, the temporary home and the expiry.
 - **LIB-OPENPGP-7** — Each run of `gpg(1)` must take a temporary home that the
   run removes. The module must read no home of the user, and no agent of the
   user. It must stop the agent of the temporary home before it removes the home,
-  per LIB-SIGNER-10. An agent that outlives its home leaks a process. The
-  default `timeout` must be 60 seconds, because a key generation waits for
-  entropy.
+  per LIB-SIGNER-10. An agent that outlives its home leaks a process.
 - **LIB-OPENPGP-8** — `generate` must take `email` beside `public` and `secret`,
   and an optional `expires`, per LIB-SIGNER-2. It must make one Ed25519 key with
   one user id, and one Curve25519 encryption subkey. The user id must hold the
@@ -271,6 +269,9 @@ reader, the temporary home and the expiry.
   the expiry as seconds since the epoch. It must answer 0 for a key that holds
   no expiry, and undef with the reason for a failure. A caller then tells "no
   expiry" from "cannot read" with one test.
+- **LIB-OPENPGP-12** — The default `timeout` must be 60 seconds, per
+  LIB-SIGNER-10. A key generation waits for entropy, and it needs the wider
+  bound.
 
 <a id="lib-pidfile"></a>
 
@@ -312,6 +313,11 @@ Child process management.
   resolves only as a plain file that is executable. The method must answer the
   path, or undef. It must run no process, and it must not die. A module that
   drives a command then holds no resolver of its own.
+- **LIB-PROCESS-6** — The reason of a failed execve(2) must start with
+  `Cannot exec`, and each other start failure must start with another form.
+  `spawn_command`, `spawn_peer`, `spawn_perl` and `run` share the step, so they
+  share the form. The prefix is an interface: `Fugu::Signer` reads it to tell an
+  absent command from a failure of the machinery, per LIB-SIGNER-9.
 
 <a id="lib-proxy"></a>
 
@@ -428,6 +434,11 @@ manifest methods and the `perl` engine.
   argument list and never a shell. A run that makes a temporary directory must
   remove it on every exit. It must first stop each helper process that the
   command started under it.
+- **LIB-SIGNER-11** — The key walk of `verify` must stop at the first key whose
+  run did not start. `error` must then hold that one reason. A failed fork, a
+  failed chdir and an absent command give the same answer for every later key.
+  Such a failure must not read as "no key verified the signature". A failure of
+  the machinery is no integrity failure, per LIB-SIGNER-9.
 
 <a id="lib-signify"></a>
 
