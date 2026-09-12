@@ -539,6 +539,10 @@ sub _stop_helpers ( $, $ )
 #	worked. The name holds the process id, so two processes take
 #	different names, and the tries cover a repeat inside one
 #	process.
+#
+#	The method sets start_failed, because no run inside the
+#	directory can start. It sets no command_absent, because a
+#	directory that it cannot make is no install problem.
 sub _make_dir ( $self, $parent )
 {
 	for my $try ( 1 .. TEMP_TRIES ) {
@@ -546,6 +550,8 @@ sub _make_dir ( $self, $parent )
 		next if -e $dir;
 		return $dir if mkdir $dir, 0700;
 	}
+
+	$self->{start_failed} = 1;
 
 	return $self->_set_error(
 		"cannot make a private directory in $parent: $!");

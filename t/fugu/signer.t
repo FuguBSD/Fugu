@@ -5,7 +5,7 @@
 # The parent class drives a command, and every real command of a
 # subclass is optional on a host. The test therefore writes its own
 # command: a shell script that plays the three verbs, records each run
-# in a log beside itself, and fails on demand. Three stub subclasses
+# in a log beside itself, and fails on demand. Four stub subclasses
 # hold the hooks over it.
 #
 # The stub command reports what only it can see: the mode of the
@@ -121,6 +121,34 @@ package Stub::Cwd {
 		) or return $self->error;
 
 		return;
+	}
+}
+
+# A fourth subclass, for a temporary directory that the module cannot
+# make. The verifier hook runs the command under a private directory,
+# as Fugu::OpenPGP runs each key under a temporary home. The parent of
+# that directory does not exist, so mkdir fails and no run starts.
+package Stub::Temp {
+	our @ISA = ('Stub::Signer');
+
+	sub _verify ( $self, $key, %args )
+	{
+		$self->_command or return $self->error;
+
+		my $verified = $self->_with_temp_dir(
+			"$args{file}.absent",
+			sub ($) {
+				return $self->_run(
+					[
+						'verify', $key,
+						$args{file},
+						$args{signature}
+					] );
+			} );
+
+		return if $verified;
+
+		return $self->error;
 	}
 }
 
@@ -688,6 +716,39 @@ subtest 'the key walk stops at a start failure' => sub {
 	like( $signer->error, qr/\ACannot chdir to /,
 		'the reason of the start failure stands alone' );
 	is( $signer->command_absent, 0, 'a chdir failure is no absent command' );
+	my @none = runs($command);
+	is( scalar @none, 0, 'and the command never ran' );
+};
+
+subtest 'the key walk stops when no private directory is made' => sub {
+	my $dir     = work('tempdir');
+	my $command = stub();
+	my $signer  = Stub::Temp->new( command => $command );
+	my $file    = write_file( "$dir/file",     "payload\n" );
+	my $sig     = write_file( "$dir/file.sig", "signature\n" );
+
+	my $first  = write_file( "$dir/first.pub",  "good\n" );
+	my $second = write_file( "$dir/second.pub", "good\n" );
+
+	# The parent of the private directory does not exist, so mkdir
+	# fails and the run of the first key never starts. The second
+	# key gives the same answer, so the walk stops at the first one.
+	is(
+		$signer->verify(
+			keys      => [ $first, $second ],
+			file      => $file,
+			signature => $sig
+		),
+		undef,
+		'verify returns undef'
+	);
+	like(
+		$signer->error,
+		qr{\Acannot make a private directory in \Q$file.absent\E},
+		'the reason of the start failure stands alone'
+	);
+	is( $signer->command_absent, 0,
+		'a directory that failed is no absent command' );
 	my @none = runs($command);
 	is( scalar @none, 0, 'and the command never ran' );
 };

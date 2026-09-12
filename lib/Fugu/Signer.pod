@@ -259,7 +259,8 @@ a failure. Every public method of a subclass calls it first.
 reason goes to C<error>, and the method answers C<undef>.
 
 =item C<_command()> - the command of one call, or C<undef> with the
-reason in C<error>. It sets C<command_absent> for the call.
+reason in C<error>. It sets C<command_absent> for the call, and it
+sets the flag that stops the key walk of C<verify>.
 
 =item C<_run($args, $what, %options)> - run one command of this
 object, and answer the result of the run, or C<undef> with the reason
