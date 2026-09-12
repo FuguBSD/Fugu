@@ -2,26 +2,23 @@
 
 ## Status
 
-Proposed. It waits on plan 013, which lands the X.509 signer. FuguWeb WEB-TRUST,
-WEB-OPENPGP and WEB-X509 wait on it. The change lands as a minor release: the
-interface breaks, and no shim keeps the old one.
+Proposed. It can land now. FuguWeb WEB-TRUST, WEB-OPENPGP and WEB-X509 wait on
+it. The change lands as a minor release: the interface breaks, and no shim keeps
+the old one.
 
 Implements: LIB-SIGNER. Extends: LIB-SIGNIFY. Extends: LIB-OPENPGP. Extends:
-LIB-PROCESS. Extends: LIB-CURL. Defers: LIB-X509.
-
-LIB-X509 stays `open` until plan 013 lands, so this plan cannot cite it under
-`Extends:` yet. The change that lands plan 013 moves the citation, because the
-shape change of `Fugu::X509` waits for that module.
+LIB-PROCESS. Extends: LIB-CURL. Extends: LIB-X509.
 
 ## Purpose
 
 After the three plans, the three modules drive their commands in three shapes.
 The signify signer takes each secret half as a path. The OpenPGP generator
 answers the armored secret half as text, and its signer takes it as text. The
-X.509 plan names neither. The signify signer writes a signature file, and the
-other two answer the signature as a string. `Fugu::OpenPGP` answers a reason in
-list context, and `Fugu::Signify` reports through `error`. Each module resolves
-its command with a copy of one resolver, and `Fugu::Curl` holds a fourth.
+X.509 signer takes it as a path, and that module holds no generator. The signify
+signer writes a signature file, and the other two answer the signature as a
+string. `Fugu::OpenPGP` answers a reason in list context, and `Fugu::Signify`
+reports through `error`. Each module resolves its command with a copy of one
+resolver, and `Fugu::Curl` holds a fourth.
 
 This plan gives the three modules one shape, one architecture and one security
 rule set. One parent class, `Fugu::Signer`, holds what the three share. A
@@ -33,16 +30,16 @@ consumer that learns one type then knows the other two.
 names the file and then one reason for each key. That shape serves each type, so
 the parent holds the walk and each subclass pins one key in one run.
 
-`Fugu::Signify`, `Fugu::OpenPGP` and `Fugu::Curl` hold one `_find_command` each,
-and they differ in the default list alone. Plan 013 adds a fourth copy.
-`Fugu::Process` owns the process boundary, so it owns the resolver.
+`Fugu::Signify`, `Fugu::OpenPGP`, `Fugu::X509` and `Fugu::Curl` hold one
+`_find_command` each, and they differ in the default list alone. `Fugu::Process`
+owns the process boundary, so it owns the resolver.
 
 A secret half that passes through Perl sits in the heap of a long process. A
 secret half that a command writes into a private directory, and a rename then
 moves, never does. `Fugu::File->atomic_dir` publishes a directory that way, and
 the generator takes the same idea for one file.
 
-The tests of plan 013 make a certificate with openssl(1), and the tests of
+The tests of `Fugu::X509` make a certificate with openssl(1), and the tests of
 FuguWeb WEB-X509 make one too. One generator replaces each shell snippet, and it
 gives the third module the same three verbs as the other two.
 
@@ -86,9 +83,6 @@ the timeout.
   LIB-SIGNER-10.
 
 ### LIB-X509
-
-Each change of this section lands with this plan, once the citation moves per
-the Status section.
 
 - The unit text states that the module follows LIB-SIGNER over openssl(1), in
   the same three sentences.

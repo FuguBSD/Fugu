@@ -81,6 +81,8 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Timeout> - run something under a time limit
 
+=item L<Fugu::X509> - read an X.509 certificate as bytes, and make and verify a detached CMS signature
+
 =item L<Protocol::Imsg> - the OpenBSD imsg(3) frame, as bytes
 
 =back
