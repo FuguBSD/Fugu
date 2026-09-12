@@ -219,14 +219,11 @@ The wire protocol is in [protocol/MDNS-Control.md](protocol/MDNS-Control.md).
 
 ## Fugu::OpenPGP
 
-An armored OpenPGP public key as bytes, and gpg(1) over a key. The module holds
-a byte reader and a command part. The byte reader holds the armor decoder and
-the version 4 fingerprint of a public key packet. It also holds the Web Key
-Directory hash of an email local part. It runs no command, and it holds class
-methods only. The command part runs `gpg(1)` through an object. The object
-generates a key and exports both halves. It makes a detached signature, it
-verifies one, and it reads the expiry of a key. `new` resolves the command once,
-and it never dies for an absent command.
+The module follows [Fugu::Signer](#lib-signer) over gpg(1), and it holds the
+armored key pair, the detached signature and the expiry of a key. Each reader is
+a method of the object: the armor decoder, the key fingerprint, and the Web Key
+Directory hash. The parent holds the three verbs, and this unit holds the byte
+reader, the temporary home and the expiry.
 
 - **LIB-OPENPGP-1** — The armor decoder must compare the CRC-24 checksum line
   against the decoded bytes. A decoder that skips the comparison accepts a
@@ -252,25 +249,26 @@ and it never dies for an absent command.
   wrong answer in place of a failure.
 - **LIB-OPENPGP-7** — Each run of `gpg(1)` must take a temporary home that the
   run removes. The module must read no home of the user, and no agent of the
-  user. It must kill the agent of the temporary home before it removes the home,
-  because an agent that outlives its home leaks a process.
-- **LIB-OPENPGP-8** — The generator must make one Ed25519 key with one user id,
-  and one Curve25519 encryption subkey. The user id must hold the email alone.
-  The generator must give the key and the subkey the expiry that the caller
-  named. It must set no expiry when the caller names none. gpg(1) writes each
-  expiry as a duration from a creation time, so the subkey expiry can fall one
-  second before the key expiry. FuguWeb WEB-OPENPGP publishes the key, and a
-  correspondent encrypts to the subkey.
-- **LIB-OPENPGP-9** — The verifier must import the one public key of the signer
-  into an empty home. A signature of another key must fail.
-- **LIB-OPENPGP-10** — The module must never log the armored secret half, and
-  must never write it to a file of its own. It must pass each secret half to
-  `gpg(1)` on the standard input. The temporary home must hold no group mode and
-  no other mode.
-- **LIB-OPENPGP-11** — `expiry` must answer the expiry as seconds since the
-  epoch. It must answer 0 for a key that holds no expiry, and undef with the
-  reason for a failure. A caller then tells "no expiry" from "cannot read" with
-  one test.
+  user. It must stop the agent of the temporary home before it removes the home,
+  per LIB-SIGNER-10. An agent that outlives its home leaks a process.
+- **LIB-OPENPGP-8** — `generate` must take `email` beside `public` and `secret`,
+  and an optional `expires`, per LIB-SIGNER-2. It must make one Ed25519 key with
+  one user id, and one Curve25519 encryption subkey. The user id must hold the
+  email alone. The generator must give the key and the subkey the expiry that
+  the caller named. It must set no expiry when the caller names none. gpg(1)
+  writes each expiry as a duration from a creation time, so the subkey expiry
+  can fall one second before the key expiry. FuguWeb WEB-OPENPGP publishes the
+  key, and a correspondent encrypts to the subkey.
+- **LIB-OPENPGP-9** — `verify` must import the one public key of the walk into
+  an empty home, per LIB-SIGNER-6. A signature of another key must fail.
+- **LIB-OPENPGP-10** — The module must never log a private half, and must never
+  hold its bytes. `generate` and `sign` must name each half as a path, and
+  `gpg(1)` must read and write the file itself, per LIB-SIGNER-3. The temporary
+  home must hold no group mode and no other mode.
+- **LIB-OPENPGP-11** — `expiry` must take `public` as a path, and must answer
+  the expiry as seconds since the epoch. It must answer 0 for a key that holds
+  no expiry, and undef with the reason for a failure. A caller then tells "no
+  expiry" from "cannot read" with one test.
 
 <a id="lib-pidfile"></a>
 

@@ -6,7 +6,7 @@ Proposed. It can land now. FuguWeb WEB-TRUST, WEB-OPENPGP and WEB-X509 wait on
 it. The change lands as a minor release: the interface breaks, and no shim keeps
 the old one.
 
-Implements: LIB-SIGNER. Extends: LIB-OPENPGP. Extends: LIB-X509.
+Implements: LIB-SIGNER. Extends: LIB-X509.
 
 ## Purpose
 
