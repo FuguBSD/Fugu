@@ -113,8 +113,8 @@ signify(1) signature on a host without the command.
   and `error` holds the reason. A caller then tells bad input from a file that
   is not authentic.
 - **LIB-ED25519-6** — The module must hold no private key operation. It must not
-  sign, and it must not derive a key. A signature is a human act, and signify(1)
-  makes it.
+  sign, and it must not derive a key. A private key operation stays with
+  signify(1), which the signer of `Fugu::Signify` runs.
 - **LIB-ED25519-7** — The module must let `Math::BigInt` take a faster backend
   when the host has one, and it must run with the pure-Perl backend alone. One
   check takes about one second with that backend, so a caller runs a few checks,
@@ -386,12 +386,13 @@ manifest methods and the `perl` engine.
 
 ## Fugu::Signify
 
-Verify a file against a small set of signify(1) public keys. Verify each file of
-a signed SHA256 manifest against its digest. The module also reads and writes
-the SHA256 manifest form, so a producer and a checker share one implementation.
-A manifest key is the text between the parentheses, and the module holds it as
-text. The key can be a file name, a file path, or a download URL. The caller
-maps each key to a local path. The module holds no private key and cannot sign.
+Make a signify(1) key pair, and sign a file. Verify a file against a small set
+of signify(1) public keys. Verify each file of a signed SHA256 manifest against
+its digest. The module also reads and writes the SHA256 manifest form, so a
+producer and a checker share one implementation. A manifest key is the text
+between the parentheses, and the module holds it as text. The key can be a file
+name, a file path, or a download URL. The caller maps each key to a local path.
+The module holds no private key of its own: a caller names each key file.
 
 - **LIB-SIGNIFY-1** — The manifest writer must sort its keys, so two runs write
   one byte sequence. It must reject a key that a stricter reader cannot carry. A
@@ -401,15 +402,28 @@ maps each key to a local path. The module holds no private key and cannot sign.
   option must name the one to take. The `perl` engine must use
   [Fugu::Ed25519](#lib-ed25519), and it must be the default. The `signify`
   engine must run the command, and a caller that names a `command` must get that
-  engine. Under the `perl` engine `is_available` must return 1, `command` must
-  return undef, and `command_absent` must return 0. Both engines must answer the
-  same on the same input, and both must write the same error shape.
+  engine. The three accessors describe verification alone: under the `perl`
+  engine `is_available` must return 1, `command` must return undef, and
+  `command_absent` must return 0. Both engines must answer the same on the same
+  input, and both must write the same error shape.
 - **LIB-SIGNIFY-3** — The module must parse a signify(1) public key file and a
   signify(1) signature file. Each file holds a comment line and a base64 body.
   The body holds the two letters `Ed`, an 8-byte key number, and the key or the
   signature. The comment line carries no trust. A key number that differs from
   the signature must give the reason "checked against wrong key". The walk of
   the key set must then continue.
+- **LIB-SIGNIFY-4** — `generate` and `sign` must run signify(1) under either
+  engine, per LIB-ED25519-6. Each one must resolve the command itself. On an
+  absent command the method must return undef, it must set `error`, and
+  `command_absent` must report 1 for that call.
+- **LIB-SIGNIFY-5** — The signer and the generator must take each private half
+  as a path, and must run the command with an argument list. Neither one must
+  log the bytes of a key.
+- **LIB-SIGNIFY-6** — The generator must make a pair with no passphrase. It must
+  write the private half with no group mode and no other mode.
+- **LIB-SIGNIFY-7** — `new` must take an absent or empty `keys` list. A caller
+  then reaches the signer or the generator with no public key. `verify` and
+  `verify_manifest` must die on such an object.
 
 <a id="lib-statefile"></a>
 

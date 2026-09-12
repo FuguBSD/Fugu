@@ -28,8 +28,9 @@ use Fugu::File;
 use Fugu::Process;
 use MIME::Base64 qw(decode_base64);
 
-# Fugu::Signify - verify a signify(1) signature and a SHA256 manifest,
-# and read and write the manifest form.
+# Fugu::Signify - make a signify(1) key pair, sign a file, verify a
+# signature and a SHA256 manifest, and read and write the manifest
+# form.
 #
 # The module verifies with two engines. The perl engine parses the
 # signify(1) file formats and checks the signature with
@@ -50,10 +51,14 @@ use MIME::Base64 qw(decode_base64);
 # caller maps each key to a local path, and the module reads no key as
 # a path of its own.
 #
-# The module holds no private key, and it must not sign. A signature
-# is a human act. Every recoverable failure returns undef, and error
-# holds the reason. The module never logs: the caller decides what to
-# report.
+# The module also makes a key pair and signs a file. Perl holds no
+# private key operation, so generate and sign run signify(1) under
+# either engine. Each one names a key file as a path, so no key byte
+# enters Perl, and no key byte reaches a log.
+#
+# The module holds no private key of its own. Every recoverable
+# failure returns undef, and error holds the reason. The module never
+# logs: the caller decides what to report.
 
 # The size bound of a manifest, 1 MiB. An OpenBSD SHA256 file holds
 # tens of lines. A caller that names a disk image by mistake gets a
@@ -90,18 +95,23 @@ use constant PUBLIC_KEY_SIZE => 42;
 use constant SIGNATURE_SIZE => 74;
 
 # Fugu::Signify->new(%args):
-#	Build a verifier. Under the signify engine the method resolves
-#	the command once, and it runs no process.
+#	Build a verifier, a signer and a generator. Under the signify
+#	engine the method resolves the command once, and it runs no
+#	process.
 #
 #	%args:
-#		keys    => \@paths  # Required: public key files, in trust order
+#		keys    => \@paths  # Optional: public key files, in trust order
 #		engine  => $engine  # Optional: perl or signify
 #		command => $command # Optional: a name or an absolute path
 #
 #	The order of keys is the trust order: the current key first,
-#	the next key second. The method dies when keys is absent, not
-#	an array reference, or empty. Each one is a programming error,
-#	and so is an engine name that the module does not hold.
+#	the next key second. The list can be absent or empty: a first
+#	key mint holds no public key yet, and it reaches generate and
+#	sign with none. verify and verify_manifest then die, because a
+#	verification needs a key set.
+#
+#	A keys that is no array reference is a programming error, and
+#	so is an engine name that the module does not hold.
 #
 #	The default engine is perl. A caller that names a command asks
 #	for the command, so that call defaults to the signify engine.
@@ -110,9 +120,8 @@ use constant SIGNATURE_SIZE => 74;
 #	instead, and is_available then returns 0.
 sub new ( $class, %args )
 {
-	my $keys = $args{keys};
-	die "keys must be a non-empty array reference\n"
-	    unless ref $keys eq 'ARRAY' && @$keys;
+	my $keys = $args{keys} // [];
+	die "keys must be an array reference\n" unless ref $keys eq 'ARRAY';
 
 	my $engine = $args{engine}
 	    // ( defined $args{command} ? 'signify' : 'perl' );
@@ -123,14 +132,15 @@ sub new ( $class, %args )
 		keys           => [@$keys],
 		engine         => $engine,
 		ed25519        => Fugu::Ed25519->new,
+		command_name   => $args{command},
 		command        => undef,
-		command_error  => undef,
 		command_absent => 0,
 		error          => undef,
 	}, $class;
 
-	# The perl engine needs no command, so the object never walks
-	# the search list and never holds an install failure.
+	# The perl engine needs no command for a verification, so the
+	# object never walks the search list in new. generate and sign
+	# resolve the command of the call themselves.
 	return $self if $engine eq 'perl';
 
 	my $command = _find_command( $args{command} );
@@ -138,10 +148,7 @@ sub new ( $class, %args )
 		$self->{command} = $command;
 	}
 	else {
-		my $named = $args{command} // 'signify-openbsd, signify';
-		$self->{command_error} =
-		    "no executable signify command: $named";
-		$self->{error}          = $self->{command_error};
+		$self->{error}          = _command_error( $args{command} );
 		$self->{command_absent} = 1;
 	}
 
@@ -188,6 +195,94 @@ sub command_absent ($self)
 	return $self->{command_absent} ? 1 : 0;
 }
 
+# $self->generate(%args):
+#	Make a signify(1) key pair with no passphrase. The method
+#	returns 1, or undef with the reason in error.
+#
+#	%args:
+#		comment => $text  # Required: the untrusted comment
+#		public  => $path  # Required: the public half
+#		secret  => $path  # Required: the private half
+#
+#	Perl holds no private key operation, so the method runs
+#	signify(1) under either engine, and it resolves the command of
+#	the call itself. On an absent command the method returns undef
+#	and command_absent reports 1.
+#
+#	signify(1) writes each half itself, so no key byte enters
+#	Perl. It holds the two paths to one naming scheme: the stem of
+#	public and the stem of secret must agree.
+#
+#	It also refuses a path that exists, so one call never
+#	overwrites a key. It writes the private half first, so a call
+#	that refuses the public path leaves the private half behind.
+#
+#	The chmod holds the private half to the owner under any build
+#	of the command.
+sub generate ( $self, %args )
+{
+	$self->{error}          = undef;
+	$self->{command_absent} = 0;
+
+	my ( $comment, $public, $secret ) = @args{qw(comment public secret)};
+	die "comment, public and secret are necessary arguments\n"
+	    unless defined $comment && defined $public && defined $secret;
+
+	my $command = $self->_command or return;
+
+	return
+	    unless $self->_run( [
+			$command, '-G', '-n', '-c', $comment, '-p',
+			$public,  '-s', $secret,
+		],
+		"cannot generate $public"
+	    );
+
+	unless ( chmod 0600, $secret ) {
+		$self->{error} = "cannot set the mode of $secret: $!";
+		return;
+	}
+
+	return 1;
+}
+
+# $self->sign(%args):
+#	Sign one file with a private half. The method returns 1, or
+#	undef with the reason in error.
+#
+#	%args:
+#		secret    => $path  # Required: the private half
+#		file      => $path  # Required: the file to sign
+#		signature => $path  # Required: the signature file
+#
+#	Perl holds no private key operation, so the method runs
+#	signify(1) under either engine, and it resolves the command of
+#	the call itself. On an absent command the method returns undef
+#	and command_absent reports 1.
+#
+#	signify(1) reads the private half from the path and writes the
+#	signature file itself, so no key byte enters Perl. A second
+#	call over one signature path replaces the file, because a
+#	rotation signs one manifest again.
+sub sign ( $self, %args )
+{
+	$self->{error}          = undef;
+	$self->{command_absent} = 0;
+
+	my ( $secret, $file, $signature ) = @args{qw(secret file signature)};
+	die "secret, file and signature are necessary arguments\n"
+	    unless defined $secret && defined $file && defined $signature;
+
+	my $command = $self->_command or return;
+
+	return $self->_run( [
+			$command, '-S',  '-s', $secret,
+			'-m',     $file, '-x', $signature,
+		],
+		"cannot sign $file"
+	);
+}
+
 # $self->verify($file, $sigfile):
 #	Verify one file against the key set, in order. $sigfile
 #	defaults to "$file.sig", the default of signify(1) itself.
@@ -198,13 +293,19 @@ sub command_absent ($self)
 #	names the file, then each key with its own reason. Both
 #	engines write that shape, so a caller tells a wrong key from
 #	an absent key file under either one.
+#
+#	An empty key set is a programming error, so the method dies.
+#	verify_manifest calls this method, and it dies with it.
 sub verify ( $self, $file, $sigfile = undef )
 {
+	die "a verification needs a non-empty keys list\n"
+	    unless @{ $self->{keys} };
+
 	$self->{error}          = undef;
 	$self->{command_absent} = 0;
 
 	if ( $self->{engine} eq 'signify' && !defined $self->{command} ) {
-		$self->{error}          = $self->{command_error};
+		$self->{error} = _command_error( $self->{command_name} );
 		$self->{command_absent} = 1;
 		return;
 	}
@@ -289,10 +390,13 @@ sub parse_signature ( $self, $bytes )
 #	caller decides where the bytes sit.
 #
 #	The module must never choose which file to check, so an empty
-#	files is a programming error, and the method dies. The method
-#	returns the public key file that verified the manifest, or
-#	undef on every failure. No file is digested before the
-#	manifest verifies.
+#	files is a programming error, and the method dies. An empty
+#	key set is one too: verify holds that check, and this method
+#	dies with it.
+#
+#	The method returns the public key file that verified the
+#	manifest, or undef on every failure. No file is digested
+#	before the manifest verifies.
 sub verify_manifest ( $self, %args )
 {
 	my $manifest = $args{manifest};
@@ -553,7 +657,16 @@ sub _verify_signify ( $self, $file, $sigfile )
 {
 	my @reasons;
 	for my $keyfile ( @{ $self->{keys} } ) {
-		my $result = $self->_run_signify( $keyfile, $sigfile, $file );
+
+		# -q suppresses the success line: this method reads the
+		# exit code and the standard error only.
+		my $result = _run_signify( [
+			$self->{command}, '-V',
+			'-q',             '-p',
+			$keyfile,         '-x',
+			$sigfile,         '-m',
+			$file,
+		] );
 		return $keyfile if $result->{success};
 
 		# A run that never reached the child means that
@@ -566,21 +679,7 @@ sub _verify_signify ( $self, $file, $sigfile )
 			return;
 		}
 
-		my $reason;
-		if ( $result->{timed_out} ) {
-			$reason =
-			    'timeout after ' . SIGNIFY_TIMEOUT . ' seconds';
-		}
-		else {
-			# The first line of the diagnostic, without the
-			# program name in front.
-			($reason) = split /\n/, $result->{stderr} // '';
-			$reason //= '';
-			$reason =~ s/^\S*signify\S*:\s*//;
-			$reason = "exit code $result->{exit_code}"
-			    unless length $reason;
-		}
-		push @reasons, "$keyfile: $reason";
+		push @reasons, "$keyfile: " . _reason($result);
 	}
 
 	$self->{error} = _no_key_verified( $file, @reasons );
@@ -695,24 +794,91 @@ sub _find_command ( $name = undef )
 	return;
 }
 
-# $self->_run_signify($keyfile, $sigfile, $file):
-#	Run one signify(1) verification through Fugu::Process->run.
-#	The command is a list, so no argument needs quoting and no
-#	argument can become a shell operator. -q suppresses the
-#	success line: the caller reads the exit code and the standard
-#	error only.
-sub _run_signify ( $self, $keyfile, $sigfile, $file )
+# $self->_command:
+#	The signify(1) command of one call of the signer or the
+#	generator, or undef with the reason in error. The method sets
+#	command_absent for the call, because a command that never ran
+#	is an install problem.
+#
+#	The perl engine resolves no command in new, and the command
+#	accessor must stay undef under it. The method therefore walks
+#	the search list for the call. The signify engine resolved the
+#	command once, so the method reads the answer of new.
+sub _command ($self)
 {
-	my @cmd = (
-		$self->{command}, '-V', '-q',     '-p',
-		$keyfile,         '-x', $sigfile, '-m',
-		$file,
-	);
+	my $command =
+	      $self->{engine} eq 'signify'
+	    ? $self->{command}
+	    : _find_command( $self->{command_name} );
+	return $command if defined $command;
 
+	$self->{error}          = _command_error( $self->{command_name} );
+	$self->{command_absent} = 1;
+
+	return;
+}
+
+# _command_error($name):
+#	The reason that no signify(1) command resolved. new and each
+#	command method write one shape, so a caller reads one string.
+sub _command_error ( $name = undef )
+{
+	my $named = $name // 'signify-openbsd, signify';
+
+	return "no executable signify command: $named";
+}
+
+# _run_signify($cmd):
+#	Run one signify(1) command through Fugu::Process->run, and
+#	answer the result of the run. The command is a list, so no
+#	argument needs quoting and no argument can become a shell
+#	operator.
+sub _run_signify ($cmd)
+{
 	return Fugu::Process->run(
-		cmd     => \@cmd,
+		cmd     => $cmd,
 		timeout => SIGNIFY_TIMEOUT,
 	);
+}
+
+# $self->_run($cmd, $what):
+#	Run one signify(1) command of the signer or the generator.
+#	The method returns 1 on success, or undef with the reason in
+#	error. The reason starts with $what, which names the act that
+#	failed and the file of it.
+#
+#	A run that never reached the child means that signify(1) never
+#	ran, so command_absent reports 1 for that call.
+sub _run ( $self, $cmd, $what )
+{
+	my $result = _run_signify($cmd);
+	return 1 if $result->{success};
+
+	if ( defined $result->{error} ) {
+		$self->{error}          = "$what: $result->{error}";
+		$self->{command_absent} = 1;
+		return;
+	}
+
+	$self->{error} = "$what: " . _reason($result);
+
+	return;
+}
+
+# _reason($result):
+#	The reason of a signify(1) run that reached the child and
+#	failed: the timeout, the first line of the diagnostic without
+#	the program name in front, or the exit code.
+sub _reason ($result)
+{
+	return 'timeout after ' . SIGNIFY_TIMEOUT . ' seconds'
+	    if $result->{timed_out};
+
+	my ($reason) = split /\n/, $result->{stderr} // '';
+	$reason //= '';
+	$reason =~ s/^\S*signify\S*:\s*//;
+
+	return length $reason ? $reason : "exit code $result->{exit_code}";
 }
 
 # $self->_parse_manifest($bytes):

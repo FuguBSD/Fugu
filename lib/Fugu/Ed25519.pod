@@ -35,8 +35,8 @@ L<Fugu::Signify> uses the module for its C<perl> engine. A host
 verifies a signify(1) signature with no command installed.
 
 The module verifies only. It signs nothing, it makes no key, and it
-holds no private key operation. A signature is a human act, and
-signify(1) makes it.
+holds no private key operation. A private key operation stays with
+signify(1), which the signer of L<Fugu::Signify> runs.
 
 =head2 new
 

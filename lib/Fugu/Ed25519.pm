@@ -30,7 +30,8 @@ use Math::BigInt try => 'GMP,Pari';
 # The module holds the field arithmetic over Math::BigInt, the point
 # decoder, and the check of RFC 8032 section 5.1.7. It verifies only:
 # it signs nothing, it makes no key, and it holds no private key
-# operation. A signature is a human act, and signify(1) makes it.
+# operation. A private key operation stays with signify(1), which the
+# signer of Fugu::Signify runs.
 #
 # Fugu::Signify uses the module to verify a signify(1) signature on a
 # host without the command. Every input of a verification is public,
