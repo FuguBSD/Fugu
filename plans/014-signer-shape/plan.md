@@ -7,7 +7,7 @@ it. The change lands as a minor release: the interface breaks, and no shim keeps
 the old one.
 
 Implements: LIB-SIGNER. Extends: LIB-SIGNIFY. Extends: LIB-OPENPGP. Extends:
-LIB-PROCESS. Extends: LIB-CURL. Extends: LIB-X509.
+LIB-X509.
 
 ## Purpose
 

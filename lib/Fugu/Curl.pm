@@ -91,9 +91,11 @@ my %STATUS_PATTERN = (
 #		command => $command # Optional: a plain name, or a path
 #		timeout => $seconds # Optional: the whole-fetch bound
 #
-#	Without command the method walks $ENV{PATH} over the search
-#	list: curl, then wget, then ftp. The default timeout is
-#	DEFAULT_TIMEOUT.
+#	The method resolves the command through
+#	Fugu::Process->find_command, and the module holds no resolver
+#	of its own. Without command the method walks $ENV{PATH} over
+#	the search list: curl, then wget, then ftp. The default
+#	timeout is DEFAULT_TIMEOUT.
 #
 #	The method must not die for an absent command. It sets error
 #	instead, and is_available then returns 0.
@@ -109,7 +111,7 @@ sub new ( $class, %args )
 		error         => undef,
 	}, $class;
 
-	my $command = _find_command( $args{command} );
+	my $command = Fugu::Process->find_command( $args{command}, COMMANDS );
 	my $dialect = defined $command ? _dialect($command) : undef;
 
 	if ( defined $dialect ) {
@@ -326,30 +328,6 @@ sub _fail ( $self, $status, $url, $reason )
 
 	$self->{status} = $status;
 	$self->{error}  = "$name: $url: $reason";
-
-	return;
-}
-
-# _find_command($name):
-#	Resolve an executable path, or return undef. With a name that
-#	holds a solidus the sub tests that path only. With a plain
-#	name it walks $ENV{PATH} for that name. With no name it walks
-#	$ENV{PATH} over the search list.
-sub _find_command ( $name = undef )
-{
-	my @names = defined $name ? ($name) : (COMMANDS);
-
-	for my $candidate (@names) {
-		if ( index( $candidate, '/' ) >= 0 ) {
-			return $candidate if -f $candidate && -x _;
-			next;
-		}
-		for my $dir ( split /:/, $ENV{PATH} // '' ) {
-			next unless length $dir;
-			my $path = "$dir/$candidate";
-			return $path if -f $path && -x _;
-		}
-	}
 
 	return;
 }

@@ -43,13 +43,13 @@ through `Fugu::Process`, with an argument list and never a shell. A consumer
 that ships a shell helper over the same three commands replaces it with this
 module.
 
-- **LIB-CURL-1** — The module must pick the first command of the list `curl`,
-  `wget`, `ftp` that `PATH` holds. A caller can name a command. The module must
-  take that name instead of the list. The module must read a name that holds a
-  solidus as a path. It must find a plain name on `PATH`. The base name must be
-  one of the three, because each dialect has its own flag set. Another name
-  resolves nothing, and `error` must hold the reason. The module must resolve
-  the command once, in `new`, and it must run no process there.
+- **LIB-CURL-1** — The module must resolve its command through
+  `Fugu::Process->find_command`, per LIB-PROCESS-5, over the default list
+  `curl`, `wget`, `ftp`. It must hold no resolver of its own. A caller can name
+  a command, as a plain name or as a path. The base name of the resolved command
+  must be one of the three, because each dialect has its own flag set. Another
+  name resolves nothing, and `error` must hold the reason. The module must
+  resolve the command once, in `new`, and it must run no process there.
 - **LIB-CURL-2** — A fetch must verify the TLS certificate of the peer. The
   module must pass no option that turns the check off.
 - **LIB-CURL-3** — A fetch must follow a redirect, and it must fail on an HTTP
@@ -305,6 +305,13 @@ Child process management.
   with the child end on a named descriptor number. A privileged parent then runs
   unprivileged children in the OpenBSD daemon pattern. FuguTTX HRN-PROC names
   the pattern: one socketpair for each child, created before the fork.
+- **LIB-PROCESS-5** — `find_command` must resolve a command to an executable
+  path. A name that holds a solidus is a path, and the method must test that
+  path alone. A plain name must walk `PATH`. An absent name must walk `PATH`
+  over the default list of the caller, in the order of that list. A candidate
+  resolves only as a plain file that is executable. The method must answer the
+  path, or undef. It must run no process, and it must not die. A module that
+  drives a command then holds no resolver of its own.
 
 <a id="lib-proxy"></a>
 
