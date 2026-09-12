@@ -359,6 +359,33 @@ A quiet process default logger for a test file.
 
 Run something under a time limit.
 
+<a id="lib-x509"></a>
+
+## Fugu::X509
+
+An X.509 certificate as bytes, and a detached CMS signature over a file. The
+module decodes PEM and DER, computes the SHA-256 fingerprint, and reads the
+subject, the issuer and the validity from the certificate. It runs openssl(1)
+for a signature, through `Fugu::Process`.
+
+- **LIB-X509-1** — The reader must take the subject, the issuer, `notBefore` and
+  `notAfter` from the DER itself, with no command. A fingerprint check and an
+  expiry check then run where openssl(1) is absent.
+- **LIB-X509-2** — The fingerprint must be the SHA-256 of the DER bytes, in
+  upper-case hexadecimal with no separator. Other tools print the leaf hash in
+  that form.
+- **LIB-X509-3** — A signature must be a detached CMS signature. The verifier
+  must pin the one certificate that the caller names, and must check no chain.
+  The caller vouches for the certificate by other means.
+- **LIB-X509-4** — The module must hold no issuer by name. A code signing
+  certificate of Apple Developer ID is one use, and the module treats every
+  issuer the same way.
+- **LIB-X509-5** — Each method must take bytes, and must reject a string with a
+  code point above 255, as LIB-OPENPGP-6 holds for the OpenPGP reader.
+- **LIB-X509-6** — The PEM decoder must take one `CERTIFICATE` block, and must
+  reject a private key block and a second block. A key directory publishes what
+  the decoder accepts.
+
 <a id="lib-protocol"></a>
 
 ## Protocol::Imsg

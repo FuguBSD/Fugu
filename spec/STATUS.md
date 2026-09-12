@@ -55,6 +55,7 @@ phase applies.
 | [LIB-STATEFILE](library.md#lib-statefile)        | done  | —       | [StateFile.pm](../lib/Fugu/StateFile.pm), [statefile.t](../t/fugu/statefile.t)                                    |
 | [LIB-TESTLOG](library.md#lib-testlog)            | done  | —       | [TestLog.pm](../lib/Fugu/TestLog.pm), [testlog.t](../t/fugu/testlog.t)                                            |
 | [LIB-TIMEOUT](library.md#lib-timeout)            | done  | —       | [Timeout.pm](../lib/Fugu/Timeout.pm), [timeout.t](../t/fugu/timeout.t)                                            |
+| [LIB-X509](library.md#lib-x509)                  | open  | —       | Nothing implements it.                                                                                            |
 | [LIB-PROTOCOL](library.md#lib-protocol)          | done  | —       | [Imsg.pm](../lib/Protocol/Imsg.pm), [imsg.t](../t/protocol/imsg.t), [mdns-imsg.t](../t/conformance/mdns-imsg.t)   |
 | [REL-VERSION](release.md#rel-version)            | done  | —       | [perl.mk](../mk/perl.mk), [dist](../scripts/dist), [dist.t](../t/scripts/dist.t)                                  |
 | [REL-ASSETS](release.md#rel-assets)              | done  | —       | [release.yml](../.github/workflows/release.yml)                                                                   |
