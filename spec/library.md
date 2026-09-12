@@ -329,9 +329,10 @@ manifest methods and the `perl` engine.
   `Fugu::Process->find_command`, and must run no process there. An absent
   command must not die. `is_available` must answer 1 when `verify` can run, and
   0 when it cannot. A subclass with a verifier in Perl then answers 1 with no
-  command. `command` must answer the resolved path, or undef, and `error` must
-  hold the reason of an absent command. A subclass must hold no resolver of its
-  own.
+  command. `command` must answer the resolved path, or undef. When
+  `is_available` answers 0, `error` must hold the reason. Otherwise the first
+  method that needs the absent command sets it. A subclass must hold no resolver
+  of its own.
 - **LIB-SIGNER-2** — The method names must be `generate`, `sign` and `verify` in
   each module, with the argument names `public`, `secret`, `keys`, `file` and
   `signature`. `keys` is a list of paths, and each other one is a path. A
@@ -345,8 +346,8 @@ manifest methods and the `perl` engine.
   and must make a key with no passphrase. The command must write the secret half
   in a private directory beside its destination. The module must set the
   owner-only mode on the file inside that directory. It must then move the file
-  into place with one rename. No wider mode exists at any moment, and the bytes
-  of the secret half never enter Perl. `Fugu::X509` makes a self-signed
+  into place with one rename. No wider access exists at any moment, and the
+  bytes of the secret half never enter Perl. `Fugu::X509` makes a self-signed
   certificate, because a test needs one and no other generator exists.
 - **LIB-SIGNER-5** — `sign` must take `secret`, `file` and `signature`, and the
   command must write the signature file itself. A second `sign` over one
@@ -360,13 +361,13 @@ manifest methods and the `perl` engine.
   then one reason for each key, in one shape across the three modules. An empty
   `keys` list is a programming error, and the method must die.
 - **LIB-SIGNER-7** — A command method must take paths. It must refuse an input
-  path that is not a plain file before it runs the command. The input paths of
-  `sign` are `secret`, `file`, and `public` for `Fugu::X509`. The input paths of
-  `verify` are `file`, `signature` and each path of `keys`. `public` and
-  `secret` of `generate` and `signature` of `sign` are outputs, per LIB-SIGNER-4
-  and LIB-SIGNER-5. A reader must take bytes, must reject a string with a code
-  point above 255, and must bound the size that it reads. Bad bytes are data, so
-  a shape error is a failure with a reason and never a die.
+  path that is not a plain file before it runs the command. A path of `keys` is
+  the exception: a key that does not read is one reason of the walk, per
+  LIB-SIGNER-6. `public` and `secret` of `generate` and `signature` of `sign`
+  are outputs, per LIB-SIGNER-4 and LIB-SIGNER-5. A reader must take bytes, must
+  reject a string with a code point above 255, and must bound the size that it
+  reads. Bad bytes are data, so a shape error is a failure with a reason and
+  never a die.
 - **LIB-SIGNER-8** — Every recoverable failure, of a reader and of a command
   method alike, must return undef, and `error` must hold the reason. No method
   must answer the reason as a second return value. The module never logs, and

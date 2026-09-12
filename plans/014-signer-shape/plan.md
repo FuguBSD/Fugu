@@ -89,9 +89,8 @@ the timeout.
   `public` and `secret` as paths, and writes the two armored halves there. It
   makes one Ed25519 primary key with one Curve25519 encryption subkey, per
   FuguWeb WEB-OPENPGP-1. `sign` and `verify` take the names of LIB-SIGNER-2.
-  `expiry` takes `public` as a path.
-- A new rule: `generate` takes `email` and an optional `expires`, per
-  LIB-SIGNER-2. `email` holds the one user id, and `expires` holds the expiry.
+  `expiry` takes `public` as a path. The changed generator rule names `email`
+  and an optional `expires`, per LIB-SIGNER-2.
 - A new rule: each run stops the agent under its temporary home before it
   removes the home, per LIB-SIGNER-10.
 
