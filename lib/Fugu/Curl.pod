@@ -54,6 +54,10 @@ C<new(command =E<gt> $command, timeout =E<gt> $seconds)> builds a
 downloader. The method resolves the command once, and it runs no
 process.
 
+The module resolves the command through
+C<Fugu::Process-E<gt>find_command()>, and holds no resolver of its
+own.
+
 C<command> names the command, as a plain name or as a path. A name
 that holds a solidus is a path.
 Without the argument, the module walks C<$ENV{PATH}> over the search

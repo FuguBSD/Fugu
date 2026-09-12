@@ -382,8 +382,8 @@ SH
 
 # --- the subtests that need a command -------------------------------------
 
-my @available =
-    grep { defined Fugu::Curl::_find_command($_) } Fugu::Curl::COMMANDS();
+my @available = grep { defined Fugu::Process->find_command($_) }
+    Fugu::Curl::COMMANDS();
 
 # The ftp of a Linux host is another program, and it fetches no HTTP
 # URL. The fetch subtests therefore take ftp on OpenBSD only.

@@ -908,4 +908,82 @@ subtest 'the module reads the Perl configuration at compile time' => sub {
 	);
 };
 
+subtest 'find_command resolves a name in its three forms' => sub {
+	my $dir = tempdir( CLEANUP => 1 );
+
+	# Two executable stubs, one plain file, and one directory.
+	# The resolver runs no process, so the content never runs.
+	for my $name (qw(fugu-first fugu-second)) {
+		open my $fh, '>', "$dir/$name" or die "open: $!";
+		print {$fh} "#!/bin/sh\nexit 0\n";
+		close $fh;
+		chmod 0755, "$dir/$name" or die "chmod: $!";
+	}
+	open my $plain, '>', "$dir/fugu-plain" or die "open: $!";
+	print {$plain} "not a program\n";
+	close $plain;
+	chmod 0644, "$dir/fugu-plain" or die "chmod: $!";
+	mkdir "$dir/fugu-dir" or die "mkdir: $!";
+
+	local $ENV{PATH} = $dir;
+
+	# A name that holds a solidus is a path, and the method tests
+	# that path alone.
+	is( Fugu::Process->find_command("$dir/fugu-first"),
+		"$dir/fugu-first", 'a path resolves to itself' );
+	is( Fugu::Process->find_command("$dir/fugu-absent"),
+		undef, 'an absent path resolves to nothing' );
+	is( Fugu::Process->find_command("$dir/fugu-plain"),
+		undef, 'a file with no execute bit resolves to nothing' );
+	is( Fugu::Process->find_command("$dir/fugu-dir"),
+		undef, 'a directory resolves to nothing' );
+	is( Fugu::Process->find_command( "$dir/fugu-absent", 'fugu-first' ),
+		undef, 'a path takes no default list' );
+
+	# A plain name walks PATH.
+	is( Fugu::Process->find_command('fugu-first'),
+		"$dir/fugu-first", 'a plain name resolves on PATH' );
+	is( Fugu::Process->find_command('fugu-absent'),
+		undef, 'a name that PATH does not hold resolves to nothing' );
+	is( Fugu::Process->find_command('fugu-plain'),
+		undef, 'a plain name with no execute bit resolves to nothing' );
+	is( Fugu::Process->find_command( 'fugu-second', 'fugu-first' ),
+		"$dir/fugu-second", 'a plain name beats the default list' );
+
+	# An undef or an empty name walks PATH over the default list,
+	# in the order of that list.
+	is(
+		Fugu::Process->find_command(
+			undef, 'fugu-absent', 'fugu-second', 'fugu-first'
+		),
+		"$dir/fugu-second",
+		'the default list answers its first hit, and keeps its order'
+	);
+	is( Fugu::Process->find_command( '', 'fugu-first' ),
+		"$dir/fugu-first", 'an empty name takes the default list' );
+	is( Fugu::Process->find_command( undef, 'fugu-absent' ),
+		undef, 'a default list with no hit resolves to nothing' );
+	is( Fugu::Process->find_command(undef),
+		undef, 'no name and no default list resolves to nothing' );
+
+	# An empty PATH member names the current directory in the
+	# shell. The method skips it, so a stub beside the caller
+	# never resolves behind its back.
+	{
+		local $ENV{PATH} = ":$dir";
+		is( Fugu::Process->find_command('fugu-first'),
+			"$dir/fugu-first",
+			'an empty PATH member costs the walk nothing' );
+	}
+
+	# The method answers undef with no PATH at all, and it does
+	# not die.
+	{
+		local $ENV{PATH};
+		delete $ENV{PATH};
+		is( Fugu::Process->find_command( 'fugu-first', 'fugu-second' ),
+			undef, 'no PATH resolves nothing, and nothing dies' );
+	}
+};
+
 done_testing();

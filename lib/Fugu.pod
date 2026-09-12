@@ -73,6 +73,8 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Signal> - signal handlers for graceful shutdown
 
+=item L<Fugu::Signer> - one shape for the three modules that drive a signing command
+
 =item L<Fugu::Signify> - make a signify(1) key pair, sign a file, verify a signature, and read and write a SHA256 manifest
 
 =item L<Fugu::StateFile> - a small JSON state file
@@ -81,7 +83,7 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Timeout> - run something under a time limit
 
-=item L<Fugu::X509> - read an X.509 certificate as bytes, and make and verify a detached CMS signature
+=item L<Fugu::X509> - read an X.509 certificate as bytes, and drive openssl(1) over a certificate
 
 =item L<Protocol::Imsg> - the OpenBSD imsg(3) frame, as bytes
 

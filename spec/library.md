@@ -43,13 +43,13 @@ through `Fugu::Process`, with an argument list and never a shell. A consumer
 that ships a shell helper over the same three commands replaces it with this
 module.
 
-- **LIB-CURL-1** — The module must pick the first command of the list `curl`,
-  `wget`, `ftp` that `PATH` holds. A caller can name a command. The module must
-  take that name instead of the list. The module must read a name that holds a
-  solidus as a path. It must find a plain name on `PATH`. The base name must be
-  one of the three, because each dialect has its own flag set. Another name
-  resolves nothing, and `error` must hold the reason. The module must resolve
-  the command once, in `new`, and it must run no process there.
+- **LIB-CURL-1** — The module must resolve its command through
+  `Fugu::Process->find_command`, per LIB-PROCESS-5, over the default list
+  `curl`, `wget`, `ftp`. It must hold no resolver of its own. A caller can name
+  a command, as a plain name or as a path. The base name of the resolved command
+  must be one of the three, because each dialect has its own flag set. Another
+  name resolves nothing, and `error` must hold the reason. The module must
+  resolve the command once, in `new`, and it must run no process there.
 - **LIB-CURL-2** — A fetch must verify the TLS certificate of the peer. The
   module must pass no option that turns the check off.
 - **LIB-CURL-3** — A fetch must follow a redirect, and it must fail on an HTTP
@@ -219,14 +219,11 @@ The wire protocol is in [protocol/MDNS-Control.md](protocol/MDNS-Control.md).
 
 ## Fugu::OpenPGP
 
-An armored OpenPGP public key as bytes, and gpg(1) over a key. The module holds
-a byte reader and a command part. The byte reader holds the armor decoder and
-the version 4 fingerprint of a public key packet. It also holds the Web Key
-Directory hash of an email local part. It runs no command, and it holds class
-methods only. The command part runs `gpg(1)` through an object. The object
-generates a key and exports both halves. It makes a detached signature, it
-verifies one, and it reads the expiry of a key. `new` resolves the command once,
-and it never dies for an absent command.
+The module follows [Fugu::Signer](#lib-signer) over gpg(1), and it holds the
+armored key pair, the detached signature and the expiry of a key. Each reader is
+a method of the object: the armor decoder, the key fingerprint, and the Web Key
+Directory hash. The parent holds the three verbs, and this unit holds the byte
+reader, the temporary home and the expiry.
 
 - **LIB-OPENPGP-1** — The armor decoder must compare the CRC-24 checksum line
   against the decoded bytes. A decoder that skips the comparison accepts a
@@ -252,25 +249,29 @@ and it never dies for an absent command.
   wrong answer in place of a failure.
 - **LIB-OPENPGP-7** — Each run of `gpg(1)` must take a temporary home that the
   run removes. The module must read no home of the user, and no agent of the
-  user. It must kill the agent of the temporary home before it removes the home,
-  because an agent that outlives its home leaks a process.
-- **LIB-OPENPGP-8** — The generator must make one Ed25519 key with one user id,
-  and one Curve25519 encryption subkey. The user id must hold the email alone.
-  The generator must give the key and the subkey the expiry that the caller
-  named. It must set no expiry when the caller names none. gpg(1) writes each
-  expiry as a duration from a creation time, so the subkey expiry can fall one
-  second before the key expiry. FuguWeb WEB-OPENPGP publishes the key, and a
-  correspondent encrypts to the subkey.
-- **LIB-OPENPGP-9** — The verifier must import the one public key of the signer
-  into an empty home. A signature of another key must fail.
-- **LIB-OPENPGP-10** — The module must never log the armored secret half, and
-  must never write it to a file of its own. It must pass each secret half to
-  `gpg(1)` on the standard input. The temporary home must hold no group mode and
-  no other mode.
-- **LIB-OPENPGP-11** — `expiry` must answer the expiry as seconds since the
-  epoch. It must answer 0 for a key that holds no expiry, and undef with the
-  reason for a failure. A caller then tells "no expiry" from "cannot read" with
-  one test.
+  user. It must stop the agent of the temporary home before it removes the home,
+  per LIB-SIGNER-10. An agent that outlives its home leaks a process.
+- **LIB-OPENPGP-8** — `generate` must take `email` beside `public` and `secret`,
+  and an optional `expires`, per LIB-SIGNER-2. It must make one Ed25519 key with
+  one user id, and one Curve25519 encryption subkey. The user id must hold the
+  email alone. The generator must give the key and the subkey the expiry that
+  the caller named. It must set no expiry when the caller names none. gpg(1)
+  writes each expiry as a duration from a creation time, so the subkey expiry
+  can fall one second before the key expiry. FuguWeb WEB-OPENPGP publishes the
+  key, and a correspondent encrypts to the subkey.
+- **LIB-OPENPGP-9** — `verify` must import the one public key of the walk into
+  an empty home, per LIB-SIGNER-6. A signature of another key must fail.
+- **LIB-OPENPGP-10** — The module must never log a private half, and must never
+  hold its bytes. `generate` and `sign` must name each half as a path, and
+  `gpg(1)` must read and write the file itself, per LIB-SIGNER-3. The temporary
+  home must hold no group mode and no other mode.
+- **LIB-OPENPGP-11** — `expiry` must take `public` as a path, and must answer
+  the expiry as seconds since the epoch. It must answer 0 for a key that holds
+  no expiry, and undef with the reason for a failure. A caller then tells "no
+  expiry" from "cannot read" with one test.
+- **LIB-OPENPGP-12** — The default `timeout` must be 60 seconds, per
+  LIB-SIGNER-10. A key generation waits for entropy, and it needs the wider
+  bound.
 
 <a id="lib-pidfile"></a>
 
@@ -305,6 +306,18 @@ Child process management.
   with the child end on a named descriptor number. A privileged parent then runs
   unprivileged children in the OpenBSD daemon pattern. FuguTTX HRN-PROC names
   the pattern: one socketpair for each child, created before the fork.
+- **LIB-PROCESS-5** — `find_command` must resolve a command to an executable
+  path. A name that holds a solidus is a path, and the method must test that
+  path alone. A plain name must walk `PATH`. An absent name must walk `PATH`
+  over the default list of the caller, in the order of that list. A candidate
+  resolves only as a plain file that is executable. The method must answer the
+  path, or undef. It must run no process, and it must not die. A module that
+  drives a command then holds no resolver of its own.
+- **LIB-PROCESS-6** — The reason of a failed execve(2) must start with
+  `Cannot exec`, and each other start failure must start with another form.
+  `spawn_command`, `spawn_peer`, `spawn_perl` and `run` share the step, so they
+  share the form. The prefix is an interface: `Fugu::Signer` reads it to tell an
+  absent command from a failure of the machinery, per LIB-SIGNER-9.
 
 <a id="lib-proxy"></a>
 
@@ -415,35 +428,42 @@ manifest methods and the `perl` engine.
   two: no command resolved, or the execve(2) failed. It must report 0 after
   every other failure. An install problem and an integrity problem must stay
   apart.
-- **LIB-SIGNER-10** — One run of the command must end within `timeout` seconds,
-  with a default of 30. The run must take an argument list and never a shell. A
-  run that makes a temporary directory must remove it on every exit. It must
-  first stop each helper process that the command started under it.
+- **LIB-SIGNER-10** — One run of the command must end within `timeout` seconds.
+  The default of the parent must be 30, and a subclass can raise it. The unit of
+  a subclass that raises it must name its own default. The run must take an
+  argument list and never a shell. A run that makes a temporary directory must
+  remove it on every exit. It must first stop each helper process that the
+  command started under it.
+- **LIB-SIGNER-11** — The key walk of `verify` must stop at the first key whose
+  run did not start. `error` must then hold that one reason. A failed fork, a
+  failed chdir and an absent command give the same answer for every later key.
+  Such a failure must not read as "no key verified the signature". A failure of
+  the machinery is no integrity failure, per LIB-SIGNER-9.
 
 <a id="lib-signify"></a>
 
 ## Fugu::Signify
 
-Make a signify(1) key pair, and sign a file. Verify a file against a small set
-of signify(1) public keys. Verify each file of a signed SHA256 manifest against
-its digest. The module also reads and writes the SHA256 manifest form, so a
-producer and a checker share one implementation. A manifest key is the text
-between the parentheses, and the module holds it as text. The key can be a file
-name, a file path, or a download URL. The caller maps each key to a local path.
-The module holds no private key of its own: a caller names each key file.
+The module follows [Fugu::Signer](#lib-signer) over signify(1), and it holds the
+key pair, the signature file and the SHA256 manifest. Each reader is a method of
+the object: the public key reader, the signature reader, and the manifest
+reader. The parent holds the three verbs, and this unit holds the two engines,
+the manifest methods and the file formats.
 
 - **LIB-SIGNIFY-1** — The manifest writer must sort its keys, so two runs write
   one byte sequence. It must reject a key that a stricter reader cannot carry. A
   parenthesis ends the key in a reader that stops at the first one. Whitespace
   breaks a reader that splits a line on space.
 - **LIB-SIGNIFY-2** — The module must verify with two engines, and the `engine`
-  option must name the one to take. The `perl` engine must use
-  [Fugu::Ed25519](#lib-ed25519), and it must be the default. The `signify`
-  engine must run the command, and a caller that names a `command` must get that
-  engine. The three accessors describe verification alone: under the `perl`
-  engine `is_available` must return 1, `command` must return undef, and
-  `command_absent` must return 0. Both engines must answer the same on the same
-  input, and both must write the same error shape.
+  option must name the one to take. The engine must select the verifier alone.
+  The `perl` engine must use [Fugu::Ed25519](#lib-ed25519), and it must be the
+  default. The `signify` engine must run the command, and a caller that names a
+  `command` must get that engine. `generate` and `sign` must run the command
+  under both engines. Under the `perl` engine `is_available` must return 1 with
+  no command, per LIB-SIGNER-1, because `verify` runs. `command` must answer the
+  resolved path, or undef, under both engines, and `command_absent` must follow
+  LIB-SIGNER-9. Both engines must answer the same on the same input, and both
+  must write the same error shape.
 - **LIB-SIGNIFY-3** — The module must parse a signify(1) public key file and a
   signify(1) signature file. Each file holds a comment line and a base64 body.
   The body holds the two letters `Ed`, an 8-byte key number, and the key or the
@@ -451,19 +471,23 @@ The module holds no private key of its own: a caller names each key file.
   the signature must give the reason "checked against wrong key". The walk of
   the key set must then continue.
 - **LIB-SIGNIFY-4** — `generate` and `sign` must run signify(1) under either
-  engine, per LIB-ED25519-6. Each one must resolve the command itself. On an
-  absent command the method must return undef, it must set `error`, and
-  `command_absent` must report 1 for that call.
-- **LIB-SIGNIFY-5** — The signer and the generator must take each private half
-  as a path, and must run the command with an argument list. Neither one must
-  log the bytes of a key.
-- **LIB-SIGNIFY-6** — The generator must make a pair with no passphrase. It must
-  write the private half with no group mode and no other mode. It must reject a
-  comment that holds a newline, before the command runs. The comment reaches the
-  first line of each half, so a newline would forge a line of the key file.
-- **LIB-SIGNIFY-7** — `new` must take an absent or empty `keys` list. A caller
-  then reaches the signer or the generator with no public key. `verify` and
-  `verify_manifest` must die on such an object.
+  engine, per LIB-ED25519-6. Perl holds no private key operation. An absent
+  command must fail the call, and `command_absent` must report 1, per
+  LIB-SIGNER-9.
+- **LIB-SIGNIFY-5** — `verify` and `verify_manifest` must take `keys`, per
+  LIB-SIGNER-6. `verify_manifest` must also take `manifest`, `signature` and
+  `files`, and it must verify the signature before it digests one file. A key of
+  `files` is the key of a manifest line, and the module must hold it as text. It
+  can be a file name, a file path, or a download URL, and the value is the local
+  path to digest.
+- **LIB-SIGNIFY-6** — `generate` must take `comment` beside `public` and
+  `secret`, and must make a pair with no passphrase, per LIB-SIGNER-4. It must
+  reject a comment that holds a newline, before the command runs. The comment
+  reaches the first line of each half, so a newline would forge a line of the
+  key file.
+- **LIB-SIGNIFY-7** — `new` must take no `keys`, and the object must hold no key
+  set. One object must serve the generator, the signer, the verifier and the
+  manifest readers.
 
 <a id="lib-statefile"></a>
 
@@ -487,10 +511,11 @@ Run something under a time limit.
 
 ## Fugu::X509
 
-An X.509 certificate as bytes, and a detached CMS signature over a file. The
-module decodes PEM and DER, computes the SHA-256 fingerprint, and reads the
-subject, the issuer and the validity from the certificate. It runs openssl(1)
-for a signature, through `Fugu::Process`.
+The module follows [Fugu::Signer](#lib-signer) over openssl(1), and it holds the
+self-signed certificate, the private key and the detached CMS signature. Each
+reader is a method of the object: the PEM decoder, the certificate fingerprint,
+and the reader of the names and the validity. The parent holds the three verbs,
+and this unit holds the byte reader and the DER walk.
 
 - **LIB-X509-1** — The reader must take the subject, the issuer, `notBefore` and
   `notAfter` from the DER itself, with no command. A fingerprint check and an
@@ -504,11 +529,19 @@ for a signature, through `Fugu::Process`.
 - **LIB-X509-4** — The module must hold no issuer by name. A code signing
   certificate of Apple Developer ID is one use, and the module treats every
   issuer the same way.
-- **LIB-X509-5** — Each method must take bytes, and must reject a string with a
-  code point above 255, as LIB-OPENPGP-6 holds for the OpenPGP reader.
+- **LIB-X509-5** — A reader must take bytes, and a command method must take
+  paths, per LIB-SIGNER-7. A reader must reject a string with a code point above
+  255, as LIB-OPENPGP-6 holds for the OpenPGP reader.
 - **LIB-X509-6** — The PEM decoder must take one `CERTIFICATE` block, and must
   reject a private key block and a second block. A key directory publishes what
   the decoder accepts.
+- **LIB-X509-7** — `generate` must take `subject` and `days` beside `public` and
+  `secret`, per LIB-SIGNER-2. They name the subject and the validity of the
+  self-signed certificate of LIB-SIGNER-4. LIB-SIGNER-5 holds the `public`
+  argument of `sign`.
+- **LIB-X509-8** — The default `timeout` must be 300 seconds, per LIB-SIGNER-10.
+  A signature reads the whole file, and a file of a few hundred megabytes needs
+  the wider bound.
 
 <a id="lib-protocol"></a>
 
