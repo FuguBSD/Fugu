@@ -431,26 +431,26 @@ manifest methods and the `perl` engine.
 
 ## Fugu::Signify
 
-Make a signify(1) key pair, and sign a file. Verify a file against a small set
-of signify(1) public keys. Verify each file of a signed SHA256 manifest against
-its digest. The module also reads and writes the SHA256 manifest form, so a
-producer and a checker share one implementation. A manifest key is the text
-between the parentheses, and the module holds it as text. The key can be a file
-name, a file path, or a download URL. The caller maps each key to a local path.
-The module holds no private key of its own: a caller names each key file.
+The module follows [Fugu::Signer](#lib-signer) over signify(1), and it holds the
+key pair, the signature file and the SHA256 manifest. It reads a public key
+file, a signature file and a manifest, and it writes the manifest form for a
+producer and a checker. The parent holds the three verbs, and this unit holds
+the two engines, the manifest methods and the file formats.
 
 - **LIB-SIGNIFY-1** — The manifest writer must sort its keys, so two runs write
   one byte sequence. It must reject a key that a stricter reader cannot carry. A
   parenthesis ends the key in a reader that stops at the first one. Whitespace
   breaks a reader that splits a line on space.
 - **LIB-SIGNIFY-2** — The module must verify with two engines, and the `engine`
-  option must name the one to take. The `perl` engine must use
-  [Fugu::Ed25519](#lib-ed25519), and it must be the default. The `signify`
-  engine must run the command, and a caller that names a `command` must get that
-  engine. The three accessors describe verification alone: under the `perl`
-  engine `is_available` must return 1, `command` must return undef, and
-  `command_absent` must return 0. Both engines must answer the same on the same
-  input, and both must write the same error shape.
+  option must name the one to take. The engine must select the verifier alone.
+  The `perl` engine must use [Fugu::Ed25519](#lib-ed25519), and it must be the
+  default. The `signify` engine must run the command, and a caller that names a
+  `command` must get that engine. `generate` and `sign` must run the command
+  under both engines. Under the `perl` engine `is_available` must return 1 with
+  no command, per LIB-SIGNER-1, because `verify` runs. `command` must answer the
+  resolved path, or undef, under both engines, and `command_absent` must follow
+  LIB-SIGNER-9. Both engines must answer the same on the same input, and both
+  must write the same error shape.
 - **LIB-SIGNIFY-3** — The module must parse a signify(1) public key file and a
   signify(1) signature file. Each file holds a comment line and a base64 body.
   The body holds the two letters `Ed`, an 8-byte key number, and the key or the
@@ -458,19 +458,23 @@ The module holds no private key of its own: a caller names each key file.
   the signature must give the reason "checked against wrong key". The walk of
   the key set must then continue.
 - **LIB-SIGNIFY-4** — `generate` and `sign` must run signify(1) under either
-  engine, per LIB-ED25519-6. Each one must resolve the command itself. On an
-  absent command the method must return undef, it must set `error`, and
-  `command_absent` must report 1 for that call.
-- **LIB-SIGNIFY-5** — The signer and the generator must take each private half
-  as a path, and must run the command with an argument list. Neither one must
-  log the bytes of a key.
-- **LIB-SIGNIFY-6** — The generator must make a pair with no passphrase. It must
-  write the private half with no group mode and no other mode. It must reject a
-  comment that holds a newline, before the command runs. The comment reaches the
-  first line of each half, so a newline would forge a line of the key file.
-- **LIB-SIGNIFY-7** — `new` must take an absent or empty `keys` list. A caller
-  then reaches the signer or the generator with no public key. `verify` and
-  `verify_manifest` must die on such an object.
+  engine, per LIB-ED25519-6. Perl holds no private key operation. An absent
+  command must fail the call, and `command_absent` must report 1, per
+  LIB-SIGNER-9.
+- **LIB-SIGNIFY-5** — `verify` and `verify_manifest` must take `keys`, per
+  LIB-SIGNER-6. `verify_manifest` must also take `manifest`, `signature` and
+  `files`, and it must verify the signature before it digests one file. A key of
+  `files` is the key of a manifest line, and the module must hold it as text. It
+  can be a file name, a file path, or a download URL, and the value is the local
+  path to digest.
+- **LIB-SIGNIFY-6** — `generate` must take `comment` beside `public` and
+  `secret`, and must make a pair with no passphrase, per LIB-SIGNER-4. It must
+  reject a comment that holds a newline, before the command runs. The comment
+  reaches the first line of each half, so a newline would forge a line of the
+  key file.
+- **LIB-SIGNIFY-7** — `new` must take no `keys`, and the object must hold no key
+  set. One object must serve the generator, the signer, the verifier and the
+  manifest readers.
 
 <a id="lib-statefile"></a>
 

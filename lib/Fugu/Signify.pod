@@ -6,41 +6,47 @@ Fugu::Signify - make a signify(1) key pair, sign a file, verify a signature, and
 
     use Fugu::Signify;
 
-    my $sig = Fugu::Signify->new(
+    my $sig = Fugu::Signify->new;
+    die $sig->error unless $sig->is_available;
+
+    my $key = $sig->verify(
         keys => [
             '/etc/signify/openbsd-78-base.pub',
             '/etc/signify/openbsd-79-base.pub',
         ],
-    );
-
-    die $sig->error unless $sig->is_available;
-
-    my $key = $sig->verify('/var/cache/SHA256', '/var/cache/SHA256.sig')
-        or die $sig->error;
-
-    $key = $sig->verify_manifest(
-        manifest => '/var/cache/SHA256',
-        files    => { 'miniroot78.img' => $tmp_path },
+        file      => '/var/cache/SHA256',
+        signature => '/var/cache/SHA256.sig',
     ) or die $sig->error;
 
-    # A first key mint holds no public key yet.
-    my $signer = Fugu::Signify->new;
+    $key = $sig->verify_manifest(
+        keys      => ['/etc/signify/openbsd-78-base.pub'],
+        manifest  => '/var/cache/SHA256',
+        signature => '/var/cache/SHA256.sig',
+        files     => { 'miniroot78.img' => $tmp_path },
+    ) or die $sig->error;
 
-    $signer->generate(
+    # One object serves the generator and the signer too.
+    $sig->generate(
         comment => 'example release 01',
         public  => '/etc/signify/example-01.pub',
         secret  => '/etc/signify/example-01.sec',
-    ) or die $signer->error;
+    ) or die $sig->error;
 
-    $signer->sign(
+    $sig->sign(
         secret    => '/etc/signify/example-01.sec',
         file      => '/var/cache/SHA256',
         signature => '/var/cache/SHA256.sig',
-    ) or die $signer->error;
+    ) or die $sig->error;
 
 =head1 DESCRIPTION
 
-Fugu::Signify verifies a file against a signify(1) public key and a
+Fugu::Signify follows L<Fugu::Signer> over signify(1). The parent holds
+the constructor and the command resolution, the three verbs, the run
+through L<Fugu::Process>, the key walk of a verification, and the
+failure convention. This module holds the signify(1) file formats, the
+manifest methods, and the two engines.
+
+The module verifies a file against a signify(1) public key and a
 signature file. It also verifies each named file of a signed SHA256
 manifest against its digest. It reads and writes the manifest form
 itself, so a producer and a checker share one implementation. It
@@ -53,10 +59,14 @@ signify(1) under either engine. Each one names a key file as a path,
 so no key byte enters Perl. The module holds no private key of its
 own.
 
+The object holds no key set. One object serves the generator, the
+signer, the verifier and the manifest readers, and each verification
+names the keys of the call.
+
 =head2 The two engines
 
 The module verifies with two engines, and C<engine> names the one to
-take.
+take. The engine selects the verifier alone.
 
 The C<perl> engine parses the signify(1) file formats itself and
 checks the signature with L<Fugu::Ed25519>. It needs core Perl alone,
@@ -72,19 +82,13 @@ same error shape. C<verify_manifest> calls C<verify>, so both engines
 serve it.
 
 C<generate> and C<sign> run signify(1) under either engine, because
-Perl holds no private key operation. Each one resolves the command of
-the call itself, and C<command_absent> reports 1 when the command
-never ran.
+Perl holds no private key operation.
 
-The three accessors describe verification alone. Under the C<perl>
-engine C<is_available> returns 1, C<command> returns C<undef>, and
-C<command_absent> returns 0. The engine verifies with no command, so
-no command can be absent from a verification.
-
-The object holds a small key set, in trust order. A caller puts the
-current key first and the next key second. The verification methods
-return the key that matched, so a caller learns that a release moved
-to the next key.
+C<new> resolves the command under either engine, so C<command> answers
+the resolved path, or C<undef>. Under the C<perl> engine an absent
+command is no failure of the object: C<is_available> returns 1, and
+C<error> holds no reason. The first C<generate> or C<sign> of such an
+object then reports the absent command itself.
 
 Every recoverable failure returns C<undef>, and C<error> holds the
 reason. An absent signify(1) is a clean failure, and not a die. The
@@ -92,17 +96,9 @@ module never logs. The caller decides what to report.
 
 =head2 new
 
-C<new(keys =E<gt> \@paths, engine =E<gt> $engine, command =E<gt>
-$command)> builds a verifier, a signer and a generator. Under the
-C<signify> engine the method resolves the command once, and it runs no
-process.
-
-C<keys> is an array reference of public key file paths, in trust
-order. The argument can be absent or empty: a first key mint holds no
-public key yet, and it reaches C<generate> and C<sign> with none.
-C<verify> and C<verify_manifest> die on such an object, because a
-verification needs a key set. C<new> dies when C<keys> is not an array
-reference, because that is a programming error.
+C<new(engine =E<gt> $engine, command =E<gt> $command, timeout =E<gt>
+$seconds)> builds a generator, a signer and a verifier. The method
+resolves the command once, and it runs no process.
 
 C<engine> is C<perl> or C<signify>. The default is C<perl>, except
 that a caller who names a C<command> gets C<signify>. C<new> dies for
@@ -110,29 +106,30 @@ any other value, because it is a programming error.
 
 C<command> names the signify command, as a name or as an absolute
 path. Without the argument, the module walks C<$ENV{PATH}> over the
-search list C<signify-openbsd>, then C<signify>. The C<perl> engine
-reads no command, and it walks no search list.
+search list C<signify-openbsd>, then C<signify>.
 
-C<new> must not die for an absent command. It sets C<error> instead,
-and C<is_available> then returns 0.
+C<timeout> is the bound of one run of the command, in seconds, and the
+default is 30.
+
+C<new> must not die for an absent command. Under the C<signify> engine
+it sets C<error> instead, and C<is_available> then returns 0.
 
 =head2 is_available
 
 C<is_available()> returns 1 when the object can verify. The C<perl>
 engine always can, so it returns 1 with an empty C<$ENV{PATH}>. The
-C<signify> engine returns 1 when it resolved an executable command,
-and 0 otherwise. The method runs no process, and it never dies.
+C<signify> engine returns 1 when C<new> resolved an executable
+command, and 0 otherwise. The method runs no process, and it never
+dies.
 
-The answer describes verification alone. C<generate> and C<sign>
-resolve the command of the call themselves, and each one reports its
-own failure.
+The answer describes verification alone. C<generate> and C<sign> need
+the command under either engine, and each one reports its own failure.
 
 =head2 command
 
-C<command()> returns the resolved command, or C<undef>. The C<perl>
-engine runs no command, so it returns C<undef>. An operator who
-installed the wrong C<signify> needs this answer, and a caller can put
-it in a diagnostic.
+C<command()> returns the resolved command path, or C<undef>, under
+either engine. An operator who installed the wrong C<signify> needs
+this answer, and a caller can put it in a diagnostic.
 
 =head2 error
 
@@ -187,16 +184,14 @@ call writes no key.
 signify(1) holds the two paths to one naming scheme: the stem of
 C<public> and the stem of C<secret> must agree, as in
 C<example-01.pub> and C<example-01.sec>. It refuses another pair of
-names.
+names. The parent writes the private half in a directory of its own,
+and the name of that file does not change there.
 
-signify(1) refuses a path that exists, so one call never overwrites a
-key. It writes the private half first, so a call that refuses the
-public path leaves the private half behind. A caller names a fresh
-path for each half.
-
-The method sets the owner-only mode on the private half after the
-run. The file holds no group mode and no other mode under any build
-of the command.
+The parent refuses a path that exists, so one call never overwrites a
+key. It writes the private half in a private directory beside the
+destination, it sets the owner-only mode there, and one rename then
+moves the file into place. A failed run therefore leaves no half
+behind.
 
 =head2 sign
 
@@ -210,25 +205,28 @@ signature file itself, so no key byte enters Perl. A second call over
 one C<signature> path replaces the file, because a rotation signs one
 manifest again.
 
+The parent refuses an input path that is no plain file, before the
+command runs.
+
 =head2 verify
 
-C<verify($file, $sigfile)> verifies one file against the key set, in
-order. C<$sigfile> defaults to C<"$file.sig">, which is the default
-of signify(1) itself.
+C<verify(keys =E<gt> \@paths, file =E<gt> $path, signature =E<gt>
+$path)> verifies one file against the key set, in trust order. Each
+argument is necessary, and the method dies without one. An empty
+C<keys> list is a programming error, and the method dies for it too.
 
 The method returns the public key file that verified the signature.
 It returns C<undef> on every failure. The method fails closed: an
-absent command, an absent file, an absent signature file, and a
-signature that no key verified are each a failure. An empty key set
-is a programming error, so the method dies. C<verify_manifest> calls
-C<verify>, and it dies with it.
+absent command under the C<signify> engine, an absent file, an absent
+signature file, and a signature that no key verified are each a
+failure.
 
 The C<perl> engine reads the signature file under a bound of 4 KiB and
-parses it. It then reads and parses each key file under the same
-bound, in trust order. A key whose number differs from the signature
-gives the reason C<checked against wrong key>, and the walk continues.
-A key whose number matches runs L<Fugu::Ed25519> over the file, and a
-failed check gives the reason C<signature verification failed>.
+parses it. It then reads and parses the key file under the same bound.
+A key whose number differs from the signature gives the reason
+C<checked against wrong key>, and the walk continues. A key whose
+number matches runs L<Fugu::Ed25519> over the file, and a failed check
+gives the reason C<signature verification failed>.
 
 =head2 parse_public_key
 
@@ -261,18 +259,19 @@ line only.
 
 =head2 verify_manifest
 
-C<verify_manifest(manifest =E<gt> $path, signature =E<gt> $path,
-files =E<gt> \%map)> verifies a signed SHA256 manifest, and then
-verifies the digest of each named file.
+C<verify_manifest(keys =E<gt> \@paths, manifest =E<gt> $path,
+signature =E<gt> $path, files =E<gt> \%map)> verifies a signed SHA256
+manifest, and then verifies the digest of each named file.
 
-C<manifest> is the path of the signed SHA256 file. The argument is
-necessary. C<signature> defaults to C<"$manifest.sig">. C<files> is a
-hash reference: each key is a name in the manifest, and each value is
-the local path to digest. C<files> is necessary and must not be
-empty. The module must never choose which file to check, so an empty
-C<files> is a programming error, and the method dies.
+C<manifest> is the path of the signed SHA256 file, and C<signature> is
+the path of its signature. C<files> is a hash reference: each key is a
+name in the manifest, and each value is the local path to digest.
+Each argument is necessary, and C<files> must not be empty. The module
+must never choose which file to check, so an empty C<files> is a
+programming error, and the method dies.
 
-The method verifies the manifest signature first. No file is digested
+The method verifies the manifest signature first, through C<verify>,
+so it dies for an empty C<keys> list as well. No file is digested
 before the manifest verifies. It then refuses a manifest above
 C<MAX_MANIFEST_SIZE>, which is 1 MiB. A name that the manifest does
 not hold, a local file that does not open, and a digest mismatch are
@@ -286,8 +285,10 @@ The manifest name and the local path can differ. A caller therefore
 verifies a file before it moves the file into place:
 
     my $key = $sig->verify_manifest(
-        manifest => "$cache/SHA256",
-        files    => { 'miniroot78.img' => $tmp_path },
+        keys      => [$current_key],
+        manifest  => "$cache/SHA256",
+        signature => "$cache/SHA256.sig",
+        files     => { 'miniroot78.img' => $tmp_path },
     );
 
 =head2 parse_manifest
@@ -342,10 +343,7 @@ hexadecimal characters.
 The method dies when the argument is not a hash reference.
 
 Neither method needs signify(1). An object whose command did not
-resolve still parses and still writes.
-
-Neither method needs a key set either. A caller that only parses or
-writes names no key at all:
+resolve still parses and still writes:
 
     my $manifest = Fugu::Signify->new;
     my $text     = $manifest->write_manifest(\%digests);
@@ -373,15 +371,15 @@ execve(2) under C<perl -T>.
 
 A caller under pledge(2) needs C<rpath> because the module reads
 files. A call that runs signify(1) also needs C<proc exec>: every
-method under the C<signify> engine, and C<generate> and C<sign> under
-either engine. A program that verifies under the C<perl> engine alone
-takes C<rpath> alone, and it therefore pledges less. The pledge
+verification under the C<signify> engine, and C<generate> and C<sign>
+under either engine. A program that verifies under the C<perl> engine
+alone takes C<rpath> alone, and it therefore pledges less. The pledge
 belongs to the program, not to a library method.
 
 =head1 SEE ALSO
 
 signify(1), sha256(1), L<Digest::SHA>, L<Fugu::Ed25519>,
-L<Fugu::File>, L<Fugu::KeyDir>, L<Fugu::Process>
+L<Fugu::File>, L<Fugu::KeyDir>, L<Fugu::Process>, L<Fugu::Signer>
 
 =head1 AUTHORS
 
