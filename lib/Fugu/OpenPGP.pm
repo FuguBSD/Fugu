@@ -22,28 +22,42 @@ use warnings;
 use experimental 'signatures';
 no feature qw(indirect multidimensional bareword_filehandles);
 
-use Digest::SHA  ();
+use Digest::SHA ();
+use File::Path  ();
+use File::Temp  ();
+use Fugu::Process;
 use MIME::Base64 qw(decode_base64);
 
-# Fugu::OpenPGP - read an armored OpenPGP public key as bytes.
+# Fugu::OpenPGP - read an armored OpenPGP public key as bytes, and
+# drive gpg(1) over a key.
 #
-# The module decodes the armor of RFC 4880. It computes the v4
-# fingerprint of a public key packet, and the Web Key Directory hash
-# of an email local part. It runs no command, so a caller needs no
-# gpg(1). It holds class methods only, because it holds no state.
+# The module holds two parts. The byte reader decodes the armor of
+# RFC 4880, and it computes the v4 fingerprint of a public key packet
+# and the Web Key Directory hash of an email local part. It runs no
+# command, and it holds class methods only, because it holds no
+# state.
 #
-# Every recoverable failure returns undef, and the reason goes to the
-# second return value in list context. The module never logs, and it
-# never dies for bad input: a key file comes from outside, so bad
-# bytes are data and not a programming error.
+# The command part runs gpg(1) through an object. It generates a key
+# with an encryption subkey, it exports both halves, it makes a
+# detached signature, it verifies one, and it reads the expiry of a
+# key. Each run takes a temporary home that the run removes, so no
+# run reads a home of the user and no run reads an agent of the user.
 #
-# Every public method needs bytes. Each one rejects a string that
-# holds a code point above 255, because Digest::SHA dies on such a
-# string and unpack 'C*' would take the low byte of each character.
+# Every recoverable failure returns undef. A class method puts the
+# reason in the second return value in list context, and an object
+# method puts it in error. The module never logs: the caller decides
+# what to report. A class method never dies, because a key file comes
+# from outside, so bad bytes are data and not a programming error. An
+# object method dies for a missing necessary argument alone.
 #
-# The module reads a public key only. It holds no private key, it
-# decrypts nothing, and it verifies no signature. gpg(1) owns those
-# acts.
+# Every method that takes armored text needs bytes. Each one rejects
+# a string that holds a code point above 255, because Digest::SHA
+# dies on such a string and unpack 'C*' would take the low byte of
+# each character.
+#
+# The module holds the armored secret half in memory alone. It never
+# logs the half, and it writes it to no file of its own: the half
+# reaches gpg(1) on the standard input.
 
 # The CRC-24 generator polynomial and initial value of RFC 4880
 # section 6.1. The armor checksum line holds this value over the
@@ -69,6 +83,20 @@ use constant MAX_PACKET_BODY => 0xFFFF;
 # holds a few kilobytes. A caller that names a disk image by mistake
 # gets a clean failure, not a decode of 500 MB.
 use constant MAX_ARMOR_SIZE => 1_048_576;
+
+# The time bound of one gpg(1) call, in seconds. A command that a
+# caller named can be the wrong program. A key generation needs
+# entropy, and it can take several seconds on an idle host.
+use constant GPG_TIMEOUT => 60;
+
+# The flags of every gpg(1) call. --batch and --no-tty hold the
+# command away from a terminal, and the loopback pinentry with an
+# empty passphrase holds it away from a prompt. The generator makes a
+# key with no passphrase, so no half ever needs one.
+use constant GPG_FLAGS => (
+	'--batch',  '--no-tty',     '--quiet', '--pinentry-mode',
+	'loopback', '--passphrase', '',
+);
 
 # Fugu::OpenPGP->decode_armor($text):
 #	The binary form of an armored block, or undef with the reason.
@@ -351,6 +379,612 @@ sub zbase32 ( $class, $bytes )
 	    if $bits;
 
 	return $out;
+}
+
+# --- the command part -----------------------------------------------------
+
+# Fugu::OpenPGP->new(%args):
+#	Build a generator, a signer and a verifier over gpg(1). The
+#	method resolves the command once, and it runs no process.
+#
+#	%args:
+#		command => $command # Optional: a name or an absolute path
+#
+#	The method must not die for an absent command. It sets error
+#	instead, and is_available then returns 0. An absent gpg(1) is
+#	an install problem, and a caller reports it as one.
+sub new ( $class, %args )
+{
+	my $self = bless {
+		command_name   => $args{command},
+		command        => undef,
+		command_absent => 0,
+		error          => undef,
+	}, $class;
+
+	my $command = _find_command( $args{command} );
+	if ( defined $command ) {
+		$self->{command} = $command;
+	}
+	else {
+		$self->{error}          = _command_error( $args{command} );
+		$self->{command_absent} = 1;
+	}
+
+	return $self;
+}
+
+# $self->is_available:
+#	Report if the object resolved an executable gpg(1). The method
+#	runs no process, and it never dies. The byte reader needs no
+#	command, so a caller that reads bytes alone needs no object.
+sub is_available ($self)
+{
+	return defined $self->{command} ? 1 : 0;
+}
+
+# $self->command:
+#	The resolved command path, or undef. An operator who installed
+#	the wrong gpg needs this answer in a diagnostic.
+sub command ($self)
+{
+	return $self->{command};
+}
+
+# $self->error:
+#	The reason of the most recent failure, or undef after a
+#	success.
+sub error ($self)
+{
+	return $self->{error};
+}
+
+# $self->command_absent:
+#	Report if the most recent failure means that gpg(1) never ran:
+#	the search list did not resolve the command, or the command
+#	failed to execve(2). An absent command is an install problem,
+#	and a failed signature is an integrity problem. The caller must
+#	tell them apart.
+sub command_absent ($self)
+{
+	return $self->{command_absent} ? 1 : 0;
+}
+
+# $self->generate(%args):
+#	Make one Ed25519 key with one user id, and one Curve25519
+#	encryption subkey. The method returns a hash reference with
+#	public, secret and fingerprint, or undef with the reason in
+#	error. The two halves are armored text.
+#
+#	%args:
+#		email   => $address # Required: the user id
+#		expires => $epoch   # Optional: seconds since the epoch
+#
+#	The user id holds the email alone. A site publishes the public
+#	half, and a correspondent encrypts to the subkey.
+#
+#	The email reaches the user id, and an angle bracket, a line
+#	ending or a NUL byte would forge a second one. The method
+#	refuses each of them before the command runs, so such a call
+#	makes no key.
+#
+#	expires is seconds since the epoch, the unit that expiry
+#	answers. It must be a whole number after the current time. With
+#	no expires the key and the subkey hold no expiry.
+sub generate ( $self, %args )
+{
+	$self->{error}          = undef;
+	$self->{command_absent} = 0;
+
+	my ( $email, $expires ) = @args{qw(email expires)};
+	die "email is a necessary argument\n" unless defined $email;
+
+	return $self->_set_error('the email is empty') unless length $email;
+	return $self->_set_error( 'the email holds a character above 255, '
+		    . 'and this method needs bytes' )
+	    if _wide($email);
+
+	# The generator writes "<$email>" as the user id. An angle
+	# bracket, a line ending or a NUL byte would close that
+	# user id and open a second one, so the key would carry an
+	# address that the caller never named.
+	return $self->_set_error(
+		'the email holds <, >, a line ending or a NUL byte')
+	    if $email =~ /[<>\r\n\0]/;
+
+	my $expire = '0';
+	if ( defined $expires ) {
+		return $self->_set_error(
+			"the expiry $expires is not a whole number")
+		    unless $expires =~ /\A-?[0-9]+\z/;
+		return $self->_set_error(
+			"the expiry $expires is not after the current time")
+		    unless $expires > time();
+		$expire = _iso_utc($expires);
+	}
+
+	$self->_command or return;
+
+	return $self->_with_home(
+		sub ($home) {
+			return $self->_generate( $home, $email, $expire );
+		} );
+}
+
+# $self->sign_detached(%args):
+#	Sign one file with an armored secret half. The method returns
+#	the armored signature, or undef with the reason in error.
+#
+#	%args:
+#		secret => $text # Required: the armored secret half
+#		file   => $path # Required: the file to sign
+#
+#	The secret half reaches gpg(1) on the standard input, so the
+#	method writes it to no file of its own.
+sub sign_detached ( $self, %args )
+{
+	$self->{error}          = undef;
+	$self->{command_absent} = 0;
+
+	my ( $secret, $file ) = @args{qw(secret file)};
+	die "secret and file are necessary arguments\n"
+	    unless defined $secret && defined $file;
+
+	return $self->_set_error( 'the armored secret half holds a character '
+		    . 'above 255, and this method needs bytes' )
+	    if _wide($secret);
+
+	$self->_command or return;
+
+	return $self->_with_home(
+		sub ($home) {
+			$self->_run( $home, ['--import'],
+				'cannot import the secret half', $secret )
+			    or return;
+
+			my $result = $self->_run(
+				$home,
+				[
+					'--armor',  '--detach-sign',
+					'--output', '-',
+					'--',       $file
+				],
+				"cannot sign $file"
+			) or return;
+
+			return $result->{stdout};
+		} );
+}
+
+# $self->verify_detached(%args):
+#	Verify one detached signature against one armored public half.
+#	The method returns 1, or undef with the reason in error.
+#
+#	%args:
+#		public    => $text # Required: the armored public half
+#		file      => $path # Required: the signed file
+#		signature => $text # Required: the armored signature
+#
+#	The home takes the one public half of the signer, so a
+#	signature of another key fails. The home of the user holds no
+#	part in the answer.
+sub verify_detached ( $self, %args )
+{
+	$self->{error}          = undef;
+	$self->{command_absent} = 0;
+
+	my ( $public, $file, $signature ) = @args{qw(public file signature)};
+	die "public, file and signature are necessary arguments\n"
+	    unless defined $public && defined $file && defined $signature;
+
+	for my $pair ( [ 'public half', $public ], [ 'signature', $signature ] )
+	{
+		next unless _wide( $pair->[1] );
+		return $self->_set_error( "the armored $pair->[0] holds a "
+			    . 'character above 255, and this method needs bytes'
+		);
+	}
+
+	$self->_command or return;
+
+	return $self->_with_home(
+		sub ($home) {
+			$self->_run( $home, ['--import'],
+				'cannot import the public half', $public )
+			    or return;
+
+			# gpg(1) reads a detached signature from a file
+			# and never from the standard input, because the
+			# standard input carries the signed data. The
+			# signature is public, and the home holds it.
+			my $sigpath = "$home/signature.asc";
+			unless ( _write_file( $sigpath, $signature ) ) {
+				return $self->_set_error(
+					"cannot write $sigpath: $!");
+			}
+
+			$self->_run(
+				$home,
+				[ '--verify', '--', $sigpath, $file ],
+				"cannot verify $file"
+			) or return;
+
+			return 1;
+		} );
+}
+
+# $self->expiry($public):
+#	The expiry of an armored public half, as seconds since the
+#	epoch. The method returns 0 for a key that holds no expiry, and
+#	undef with the reason in error on a failure.
+#
+#	The three answers differ on purpose. A caller tells "no expiry"
+#	from "cannot read" with one test, and a key with no expiry
+#	never reads as a key that expired.
+#
+#	The read imports nothing: gpg(1) shows the key and drops it, so
+#	the home keeps no keyring.
+sub expiry ( $self, $public )
+{
+	$self->{error}          = undef;
+	$self->{command_absent} = 0;
+
+	die "the armored public half is a necessary argument\n"
+	    unless defined $public;
+
+	return $self->_set_error( 'the armored public half holds a character '
+		    . 'above 255, and this method needs bytes' )
+	    if _wide($public);
+
+	$self->_command or return;
+
+	return $self->_with_home(
+		sub ($home) {
+			return $self->_expiry( $home, $public );
+		} );
+}
+
+# $self->_generate($home, $email, $expire):
+#	The body of generate, under one temporary home. The method
+#	returns the hash reference of generate, or undef with the
+#	reason in error.
+#
+#	--quick-add-key refuses an email, so the subkey needs the
+#	fingerprint. The read of the fingerprint therefore sits between
+#	the two generator runs, and not after the export.
+sub _generate ( $self, $home, $email, $expire )
+{
+	$self->_run(
+		$home,
+		[
+			'--quick-generate-key', '--',
+			"<$email>",             'ed25519',
+			'sign',                 $expire
+		],
+		"cannot generate a key for $email"
+	) or return;
+
+	my $list = $self->_run(
+		$home,
+		[ '--with-colons', '--list-keys' ],
+		"cannot read the key of $email"
+	) or return;
+
+	my $fingerprint = _colon_field( $list->{stdout}, 'fpr', 10 );
+	unless ( defined $fingerprint && length $fingerprint ) {
+		return $self->_set_error(
+			"cannot read the key of $email: no fingerprint line");
+	}
+
+	$self->_run(
+		$home,
+		[ '--quick-add-key', $fingerprint, 'cv25519', 'encr', $expire ],
+		"cannot add the encryption subkey of $email"
+	) or return;
+
+	my %half;
+	for my $part ( [ 'public', '--export' ],
+		[ 'secret', '--export-secret-keys' ] )
+	{
+		my ( $name, $flag ) = @$part;
+		my $result = $self->_run(
+			$home,
+			[ '--armor', $flag, '--', $email ],
+			"cannot export the $name half of $email"
+		) or return;
+
+		# gpg(1) exits 0 with no output when it finds no key of
+		# that name. An empty half is no answer, so the method
+		# fails instead of handing back the empty string.
+		my $text = $result->{stdout} // '';
+		unless ( length $text ) {
+			return $self->_set_error(
+				      "cannot export the $name half of $email: "
+				    . 'the export holds no key' );
+		}
+		$half{$name} = $text;
+	}
+
+	return {
+		public      => $half{public},
+		secret      => $half{secret},
+		fingerprint => $fingerprint,
+	};
+}
+
+# $self->_expiry($home, $public):
+#	The body of expiry, under one temporary home.
+#
+#	The pub line of the colon form holds the creation time in field
+#	6 and the expiry in field 7. An empty field 7 means that the
+#	key holds no expiry.
+sub _expiry ( $self, $home, $public )
+{
+	my $result = $self->_run(
+		$home,
+		[
+			'--with-colons', '--import-options', 'show-only',
+			'--import'
+		],
+		'cannot read the armored public half',
+		$public
+	) or return;
+
+	my $seconds = _colon_field( $result->{stdout}, 'pub', 7 );
+	unless ( defined $seconds ) {
+		return $self->_set_error(
+			'cannot read the armored public half: no key line');
+	}
+
+	return 0 unless length $seconds;
+
+	unless ( $seconds =~ /\A[0-9]+\z/ ) {
+		return $self->_set_error(
+			      "cannot read the armored public half: "
+			    . "the expiry field holds $seconds" );
+	}
+
+	return $seconds + 0;
+}
+
+# $self->_with_home($body):
+#	Make a temporary gpg(1) home, run the body over it, and remove
+#	the home. The method answers what the body answered.
+#
+#	gpg(1) writes a keyring, a trust database and an agent socket
+#	under its home. A run of this module reads no home of the user,
+#	so each call takes a home of its own and removes it.
+#
+#	The home carries a secret half, so it holds no group mode and
+#	no other mode. CLEANUP is the backstop of a die, and the method
+#	removes the tree itself on every other path.
+#
+#	The home sits under TMPDIR with a short name. The agent socket
+#	sits in the home, and a unix socket path holds about 100 bytes.
+sub _with_home ( $self, $body )
+{
+	my $home =
+	    File::Temp::tempdir( 'fugu-XXXXXXXX', TMPDIR => 1, CLEANUP => 1 );
+
+	unless ( chmod 0700, $home ) {
+		my $reason = "cannot set the mode of $home: $!";
+		File::Path::remove_tree($home);
+		return $self->_set_error($reason);
+	}
+
+	my $answer = $body->($home);
+
+	$self->_kill_agent($home);
+	File::Path::remove_tree($home);
+
+	return $answer;
+}
+
+# $self->_kill_agent($home):
+#	Stop the gpg-agent of one temporary home. gpg 2 starts an agent
+#	for a key operation, and that agent outlives a home that the
+#	run removes. An agent that outlives its home leaks a process.
+#
+#	gpgconf(1) ships beside gpg(1), so the method names it beside
+#	the resolved command. The result goes unread: an absent
+#	gpgconf(1) must not fail a signature.
+sub _kill_agent ( $self, $home )
+{
+	# _find_command answers a path that holds a solidus under every
+	# input, so the substitution always names a directory.
+	my $gpgconf = $self->{command} =~ s{[^/]+\z}{gpgconf}r;
+	return unless -f $gpgconf && -x _;
+
+	Fugu::Process->run(
+		cmd => [ $gpgconf, '--homedir', $home, '--kill', 'gpg-agent' ],
+		timeout => GPG_TIMEOUT,
+		env     => _env($home),
+	);
+
+	return;
+}
+
+# $self->_run($home, $args, $what, $stdin):
+#	Run one gpg(1) command under the temporary home. The method
+#	returns the result of the run, or undef with the reason in
+#	error. The reason starts with $what, which names the act that
+#	failed.
+#
+#	The command is a list, so no argument needs quoting and no
+#	argument can become a shell operator.
+#
+#	A run that never reached the child means that gpg(1) never ran,
+#	so command_absent reports 1 for that call.
+sub _run ( $self, $home, $args, $what, $stdin = undef )
+{
+	my $result = Fugu::Process->run(
+		cmd =>
+		    [ $self->{command}, GPG_FLAGS, '--homedir', $home, @$args ],
+		timeout => GPG_TIMEOUT,
+		env     => _env($home),
+		( defined $stdin ? ( stdin => $stdin ) : () ),
+	);
+
+	return $result if $result->{success};
+
+	if ( defined $result->{error} ) {
+		$self->{command_absent} = 1;
+		return $self->_set_error("$what: $result->{error}");
+	}
+
+	return $self->_set_error( "$what: " . _reason($result) );
+}
+
+# _env($home):
+#	The environment of one gpg(1) run. The child takes this set and
+#	nothing else, so no variable of the caller reaches the command.
+#
+#	HOME and GNUPGHOME both name the temporary home: gpg(1) reads
+#	GNUPGHOME, and gpgconf(1) and the agent read either one.
+#	LC_ALL holds the diagnostics in English, because _reason reads
+#	them.
+sub _env ($home)
+{
+	return {
+		PATH      => $ENV{PATH} // '',
+		HOME      => $home,
+		GNUPGHOME => $home,
+		LC_ALL    => 'C',
+	};
+}
+
+# _reason($result):
+#	The reason of a gpg(1) run that reached the child and failed:
+#	the timeout, a line of the diagnostic without the prefix, or
+#	the exit code.
+#
+#	The sub takes the last line that starts with "gpg: ". gpg(1)
+#	writes "Signature made ..." first and the fault last, so the
+#	first line names nothing. A bad signature ends with "BAD
+#	signature from ...", an unknown signer ends with "Can't check
+#	signature: No public key", and a text that is no key gives
+#	"no valid OpenPGP data found.".
+sub _reason ($result)
+{
+	return 'timeout after ' . GPG_TIMEOUT . ' seconds'
+	    if $result->{timed_out};
+
+	my $reason = '';
+	for my $line ( split /\n/, $result->{stderr} // '' ) {
+		next unless index( $line, 'gpg: ' ) == 0;
+		$reason = substr $line, length 'gpg: ';
+	}
+
+	# gpg(1) pads a continuation line after the prefix.
+	$reason =~ s/\A[ \t]+//;
+
+	return length $reason ? $reason : "exit code $result->{exit_code}";
+}
+
+# _colon_field($text, $type, $number):
+#	Field $number of the first record of type $type in the colon
+#	form of gpg(1), or undef when the text holds no such record.
+#
+#	The colon form writes one record in each line, and a colon
+#	separates the fields. Field 1 names the record type. The
+#	fingerprint read takes field 10 of the fpr record, and the
+#	expiry read takes field 7 of the pub record.
+sub _colon_field ( $text, $type, $number )
+{
+	for my $line ( split /\n/, $text // '' ) {
+		my @field = split /:/, $line, -1;
+		next unless @field && $field[0] eq $type;
+		return $field[ $number - 1 ];
+	}
+
+	return;
+}
+
+# _iso_utc($epoch):
+#	The UTC form YYYYMMDDTHHMMSS of an epoch. gpg(1) reads that
+#	form as an expiry, and the key then expires on the exact
+#	second. The seconds=N form is off by one, so the generator
+#	never writes it.
+sub _iso_utc ($epoch)
+{
+	my @time = gmtime $epoch;
+
+	return sprintf '%04d%02d%02dT%02d%02d%02d', $time[5] + 1900,
+	    $time[4] + 1, $time[3], $time[2], $time[1], $time[0];
+}
+
+# _write_file($path, $text):
+#	Write the text to the path, and return 1. The sub returns undef
+#	with the reason in $!, and it never logs.
+sub _write_file ( $path, $text )
+{
+	open my $fh, '>', $path or return;
+	binmode $fh;
+	print {$fh} $text or return;
+	close $fh         or return;
+
+	return 1;
+}
+
+# _find_command($name):
+#	Resolve an executable path, or return undef. With a name that
+#	holds a solidus the sub tests that path only. With a plain name
+#	it walks $ENV{PATH} for that name. With no name it walks
+#	$ENV{PATH} over the search list: gpg, then gpg2. A host that
+#	kept gpg for version 1 carries version 2 under the second
+#	name.
+sub _find_command ( $name = undef )
+{
+	my @names = defined $name ? ($name) : ( 'gpg', 'gpg2' );
+
+	for my $candidate (@names) {
+		if ( index( $candidate, '/' ) >= 0 ) {
+			return $candidate if -f $candidate && -x _;
+			next;
+		}
+		for my $dir ( split /:/, $ENV{PATH} // '' ) {
+			next unless length $dir;
+			my $path = "$dir/$candidate";
+			return $path if -f $path && -x _;
+		}
+	}
+
+	return;
+}
+
+# $self->_command:
+#	The gpg(1) command of one call, or undef with the reason in
+#	error. new resolved the command once, so the method reads that
+#	answer. It sets command_absent for the call, because a command
+#	that never ran is an install problem.
+sub _command ($self)
+{
+	return $self->{command} if defined $self->{command};
+
+	$self->{command_absent} = 1;
+
+	return $self->_set_error( _command_error( $self->{command_name} ) );
+}
+
+# _command_error($name):
+#	The reason that no gpg(1) command resolved. new and each
+#	command method write one shape, so a caller reads one string.
+sub _command_error ( $name = undef )
+{
+	my $named = $name // 'gpg, gpg2';
+
+	return "no executable gpg command: $named";
+}
+
+# $self->_set_error($reason):
+#	The failure return of every object method: the reason goes to
+#	error, and the method answers undef. One helper keeps the two
+#	steps in one place.
+sub _set_error ( $self, $reason )
+{
+	$self->{error} = $reason;
+
+	return;
 }
 
 # _first_packet($binary):

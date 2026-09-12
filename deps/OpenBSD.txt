@@ -3,6 +3,7 @@
 # port for it. An operator on OpenBSD installs it by hand, and the
 # secret gate of CI runs on Linux.
 
+test pkg gnupg
 test pkg p5-Perl-Critic
 test pkg p5-Perl-Tidy
 test pkg p5-Net-SSH2

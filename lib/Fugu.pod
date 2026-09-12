@@ -53,7 +53,7 @@ optional feature, loaded lazily.
 
 =item L<Fugu::Mdnsd> - control mdnsd over its control socket
 
-=item L<Fugu::OpenPGP> - read an armored OpenPGP public key as bytes
+=item L<Fugu::OpenPGP> - read an armored OpenPGP public key as bytes, and drive gpg(1) over a key
 
 =item L<Fugu::Pidfile> - locked PID file
 

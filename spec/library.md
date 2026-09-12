@@ -219,10 +219,14 @@ The wire protocol is in [protocol/MDNS-Control.md](protocol/MDNS-Control.md).
 
 ## Fugu::OpenPGP
 
-An armored OpenPGP public key as bytes. The module holds the armor decoder and
+An armored OpenPGP public key as bytes, and gpg(1) over a key. The module holds
+a byte reader and a command part. The byte reader holds the armor decoder and
 the version 4 fingerprint of a public key packet. It also holds the Web Key
-Directory hash of an email local part. It runs no command, so a caller needs no
-gpg(1). It reads a public key only, and it verifies no signature.
+Directory hash of an email local part. It runs no command, and it holds class
+methods only. The command part runs `gpg(1)` through an object. The object
+generates a key and exports both halves. It makes a detached signature, it
+verifies one, and it reads the expiry of a key. `new` resolves the command once,
+and it never dies for an absent command.
 
 - **LIB-OPENPGP-1** — The armor decoder must compare the CRC-24 checksum line
   against the decoded bytes. A decoder that skips the comparison accepts a
@@ -246,6 +250,25 @@ gpg(1). It reads a public key only, and it verifies no signature.
   reject a string that holds a code point above 255. `Digest::SHA` dies on such
   a string. A byte unpack takes the low byte of each character, which gives a
   wrong answer in place of a failure.
+- **LIB-OPENPGP-7** — Each run of `gpg(1)` must take a temporary home that the
+  run removes. The module must read no home of the user, and no agent of the
+  user. It must kill the agent of the temporary home before it removes the home,
+  because an agent that outlives its home leaks a process.
+- **LIB-OPENPGP-8** — The generator must make one Ed25519 key with one user id,
+  and one Curve25519 encryption subkey. The user id must hold the email alone.
+  The generator must set the same expiry on the key and the subkey, when the
+  caller names one. It must set no expiry when the caller names none. FuguWeb
+  WEB-OPENPGP publishes the key, and a correspondent encrypts to the subkey.
+- **LIB-OPENPGP-9** — The verifier must import the one public key of the signer
+  into an empty home. A signature of another key must fail.
+- **LIB-OPENPGP-10** — The module must never log the armored secret half, and
+  must never write it to a file of its own. It must pass each secret half to
+  `gpg(1)` on the standard input. The temporary home must hold no group mode and
+  no other mode.
+- **LIB-OPENPGP-11** — `expiry` must answer the expiry as seconds since the
+  epoch. It must answer 0 for a key that holds no expiry, and undef with the
+  reason for a failure. A caller then tells "no expiry" from "cannot read" with
+  one test.
 
 <a id="lib-pidfile"></a>
 

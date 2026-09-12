@@ -3,25 +3,48 @@
 # Guards for Fugu::OpenPGP
 #
 # The two fixtures are real armored keys of gpg(1), committed as
-# files. A test must not run gpg(1): the module needs no command, so
-# its test needs none either. The Ed25519 key packs its public key
+# files. The byte reader holds class methods and runs no command, so
+# its subtests run everywhere. The Ed25519 key packs its public key
 # packet behind a one-byte length, and the RSA key needs a two-byte
 # length. Both header paths therefore read a real key.
 #
 # The expected fingerprint of each fixture comes from
 # 'gpg --list-keys --with-colons' at the time the fixture was made.
+#
+# The subtests of the command part run gpg(1), and each one skips
+# when the command is absent. Each one takes a key that the test
+# generated, so the tree carries no secret half.
 
 use v5.34;
 use warnings;
 use experimental 'signatures';
 no feature qw(indirect multidimensional bareword_filehandles);
 use Test::More;
+use File::Path   ();
+use File::Temp   qw(tempdir);
 use MIME::Base64 qw(encode_base64);
 use Digest::SHA  ();
 use FindBin      qw($RealBin);
 use lib "$RealBin/../../lib";
 
 use_ok('Fugu::OpenPGP');
+use Fugu::Process;
+
+# The temporary home of a gpg(1) run sits under TMPDIR. The test
+# points TMPDIR at a directory of its own, before any other code
+# reads the variable, so a home that a run left behind shows up as an
+# entry of that directory. File::Spec caches the answer at its first
+# call, so this assignment stands before every temporary directory.
+my $BASE = $ENV{TMPDIR} // '/tmp';
+$BASE =~ s{/+\z}{};
+my $ROOT = "$BASE/fugu-openpgp-$$";
+mkdir $ROOT or die "Cannot make $ROOT: $!";
+$ENV{TMPDIR} = $ROOT;
+
+my $WORK = "$ROOT/work";
+mkdir $WORK or die "Cannot make $WORK: $!";
+
+END { File::Path::remove_tree($ROOT) if defined $ROOT && -d $ROOT }
 
 # The fixtures, with the fingerprint that gpg(1) reported.
 my %FIXTURE = (
@@ -46,12 +69,6 @@ sub slurp ($name)
 	close $fh;
 	return $text;
 }
-
-subtest 'the module runs no command' => sub {
-	for my $name (qw(new sign import verify)) {
-		ok( !Fugu::OpenPGP->can($name), "no $name method exists" );
-	}
-};
 
 subtest 'decode_armor reads each fixture' => sub {
 	for my $name ( sort keys %FIXTURE ) {
@@ -650,5 +667,398 @@ subtest 'decode_armor bounds the input size' => sub {
 	is( $binary, undef, 'a block above the bound fails' );
 	like( $reason, qr/larger than/, 'and the reason says so' );
 };
+
+# --- the command part -----------------------------------------------------
+
+my $gpg = Fugu::OpenPGP::_find_command();
+
+# write_file($path, $text):
+#	Write a fixture file, and answer the path.
+sub write_file ( $path, $text )
+{
+	open my $fh, '>', $path or die "Cannot write $path: $!";
+	binmode $fh;
+	print {$fh} $text;
+	close $fh or die "Cannot close $path: $!";
+
+	return $path;
+}
+
+# gpg_colons($armored):
+#	The colon form of an armored public half, from gpg(1) itself.
+#	The check drives the command directly, so no assertion rests
+#	on the module that it checks. The home holds no name of the
+#	module, so the leak subtest reads the homes of the module
+#	alone.
+sub gpg_colons ($armored)
+{
+	my $home = tempdir( 'check-XXXXXXXX', DIR => $WORK, CLEANUP => 1 );
+	my %env  = (
+		PATH      => $ENV{PATH} // '',
+		HOME      => $home,
+		GNUPGHOME => $home,
+		LC_ALL    => 'C',
+	);
+
+	my $result = Fugu::Process->run(
+		cmd => [
+			$gpg,   '--batch',
+			'--no-tty', '--quiet',
+			'--homedir', $home,
+			'--with-colons', '--import-options',
+			'show-only', '--import'
+		],
+		stdin => $armored,
+		env   => \%env,
+	);
+	die "Cannot read the key: $result->{stderr}" unless $result->{success};
+
+	Fugu::Process->run(
+		cmd => [
+			$gpg =~ s{[^/]+\z}{gpgconf}r, '--homedir',
+			$home,                        '--kill',
+			'gpg-agent'
+		],
+		env => \%env,
+	);
+	File::Path::remove_tree($home);
+
+	return $result->{stdout};
+}
+
+# homes():
+#	Every temporary home of the module under the root of this
+#	test. Each run makes one and removes it, so the list must stay
+#	empty.
+sub homes ()
+{
+	opendir my $dh, $ROOT or die "Cannot read $ROOT: $!";
+	my @home = grep { /\Afugu-/ } readdir $dh;
+	closedir $dh;
+
+	return @home;
+}
+
+# agents():
+#	Every gpg-agent process that names the root of this test. A
+#	host with no ps(1) gives the empty list, so the check is a
+#	floor.
+sub agents ()
+{
+	open my $fh, '-|', 'ps', '-axww', '-o', 'args=' or return ();
+	my @line = grep { /gpg-agent/ && index( $_, $ROOT ) >= 0 } <$fh>;
+	close $fh;
+
+	return @line;
+}
+
+subtest 'the object answers cleanly for an absent command' => sub {
+
+	# An absent gpg(1) is an install problem, and new must never
+	# die for one. Each command method then answers undef, and it
+	# reports the absent command through command_absent.
+	my $pgp = Fugu::OpenPGP->new( command => "$WORK/no-such-gpg" );
+
+	is( $pgp->is_available,   0,     'is_available answers 0' );
+	is( $pgp->command_absent, 1,     'command_absent answers 1' );
+	is( $pgp->command,        undef, 'command stays undef' );
+	like( $pgp->error, qr/no executable gpg command/,
+		'error names the reason' );
+
+	my $file = write_file( "$WORK/absent.txt", "the body\n" );
+
+	is( $pgp->generate( email => 'a@example.org' ),
+		undef, 'generate answers undef' );
+	is( $pgp->sign_detached( secret => 'x', file => $file ),
+		undef, 'sign_detached answers undef' );
+	is(
+		$pgp->verify_detached(
+			public    => 'x',
+			file      => $file,
+			signature => 'y'
+		),
+		undef,
+		'verify_detached answers undef'
+	);
+	is( $pgp->expiry('x'), undef, 'expiry answers undef' );
+	is( $pgp->command_absent, 1, 'and command_absent still answers 1' );
+};
+
+subtest 'each command method dies for an absent argument' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+
+	ok( !eval { $pgp->generate( expires => time() + 60 ); 1 },
+		'generate dies for an absent email' );
+	like( $@, qr/email/, 'the message names email' );
+
+	ok( !eval { $pgp->sign_detached( file => 'f' ); 1 },
+		'sign_detached dies for an absent secret' );
+	like( $@, qr/secret/, 'the message names secret' );
+
+	ok( !eval { $pgp->verify_detached( file => 'f', signature => 's' ); 1 },
+		'verify_detached dies for an absent public' );
+	like( $@, qr/public/, 'the message names public' );
+
+	ok( !eval { $pgp->expiry(undef); 1 }, 'expiry dies for an absent half' );
+	like( $@, qr/public/, 'the message names the public half' );
+};
+
+subtest 'generate refuses an email that would forge a user id' => sub {
+
+	# The generator writes "<$email>" as the user id. An angle
+	# bracket, a newline or a NUL byte would close that user id
+	# and open a second one, so the key would carry an address
+	# that the caller never named. The refusal stands before the
+	# command runs, so no gpg(1) is needed here.
+	my $pgp = Fugu::OpenPGP->new;
+
+	my @case = (
+		[ 'an angle bracket', 'a<b@example.org' ],
+		[ 'a closing bracket', 'a>b@example.org' ],
+		[ 'a newline',         "a\@example.org\nuid two" ],
+		[ 'a carriage return', "a\@example.org\ruid two" ],
+		[ 'a NUL byte',        "a\@example.org\0uid two" ],
+	);
+
+	for my $case (@case) {
+		my ( $name, $email ) = @$case;
+		is( $pgp->generate( email => $email ),
+			undef, "$name fails" );
+		like( $pgp->error, qr/forge|holds </, 'and error names the fault' );
+	}
+
+	is( $pgp->generate( email => '' ), undef, 'an empty email fails' );
+	like( $pgp->error, qr/empty/, 'and error says so' );
+
+	is( $pgp->generate( email => "caf\x{263A}\@example.org" ),
+		undef, 'a wide email fails' );
+	like( $pgp->error, qr/above 255/, 'and error says so' );
+};
+
+subtest 'generate refuses an expiry that names no future second' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+
+	my @case = (
+		[ 'a past expiry',       time() - 10 ],
+		[ 'the current second',  time() ],
+		[ 'a fraction',          '1893456000.5' ],
+		[ 'a word',              'tomorrow' ],
+	);
+
+	for my $case (@case) {
+		my ( $name, $expires ) = @$case;
+		is( $pgp->generate( email => 'a@example.org', expires => $expires ),
+			undef, "$name fails" );
+		like( $pgp->error, qr/whole number|after the current time/,
+			'and error names the fault' );
+	}
+};
+
+subtest 'the command methods need bytes, and say so' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+	my $file = write_file( "$WORK/wide.txt", "the body\n" );
+
+	is( $pgp->expiry("\x{263A}"), undef, 'a wide public half fails' );
+	like( $pgp->error, qr/above 255/, 'and the reason says so' );
+
+	is( $pgp->sign_detached( secret => "\x{263A}", file => $file ),
+		undef, 'a wide secret half fails' );
+	like( $pgp->error, qr/above 255/, 'and the reason says so' );
+
+	is(
+		$pgp->verify_detached(
+			public    => "\x{263A}",
+			file      => $file,
+			signature => 'x'
+		),
+		undef,
+		'a wide public half fails the verifier'
+	);
+	like( $pgp->error, qr/above 255/, 'and the reason says so' );
+
+	is(
+		$pgp->verify_detached(
+			public    => 'x',
+			file      => $file,
+			signature => "\x{263A}"
+		),
+		undef,
+		'a wide signature fails the verifier'
+	);
+	like( $pgp->error, qr/above 255/, 'and the reason says so' );
+};
+
+# The fixtures of the command part. The test generates each key, so
+# the tree carries no secret half. One generation serves every
+# subtest below, because a key takes a second of entropy.
+my ( $KEY, $OTHER, $DATED, $MESSAGE, $SIGNATURE );
+my $EXPIRES = time() + 86_400 * 30;
+
+if ( defined $gpg ) {
+	my $pgp = Fugu::OpenPGP->new;
+
+	$KEY = $pgp->generate( email => 'signer@example.org' )
+	    or die 'Cannot generate the key: ' . $pgp->error;
+	$OTHER = $pgp->generate( email => 'other@example.org' )
+	    or die 'Cannot generate the second key: ' . $pgp->error;
+	$DATED = $pgp->generate(
+		email   => 'dated@example.org',
+		expires => $EXPIRES
+	) or die 'Cannot generate the dated key: ' . $pgp->error;
+
+	$MESSAGE = write_file( "$WORK/message.txt", "the fixture body\n" );
+	$SIGNATURE =
+	    $pgp->sign_detached( secret => $KEY->{secret}, file => $MESSAGE )
+	    or die 'Cannot sign the message: ' . $pgp->error;
+}
+
+subtest 'generate answers both halves and the fingerprint' => sub {
+	plan skip_all => 'gpg(1) not available' unless defined $gpg;
+
+	like( $KEY->{public}, qr/\A-----BEGIN PGP PUBLIC KEY BLOCK-----/,
+		'the public half is an armored public key block' );
+	like( $KEY->{secret}, qr/\A-----BEGIN PGP PRIVATE KEY BLOCK-----/,
+		'the secret half is an armored private key block' );
+	like( $KEY->{fingerprint}, qr/\A[0-9A-F]{40}\z/,
+		'the fingerprint is 40 hexadecimal characters' );
+
+	# The byte reader and the generator must answer one
+	# fingerprint. A site publishes the one that the reader gives.
+	my $binary = Fugu::OpenPGP->decode_armor( $KEY->{public} );
+	is( scalar Fugu::OpenPGP->fingerprint($binary),
+		$KEY->{fingerprint},
+		'the byte reader gives the fingerprint of the generator' );
+};
+
+subtest 'generate makes the encryption subkey' => sub {
+	plan skip_all => 'gpg(1) not available' unless defined $gpg;
+
+	# FuguWeb publishes the key, and a correspondent encrypts to
+	# the subkey. A primary key alone takes no encrypted mail.
+	my $colons = gpg_colons( $KEY->{public} );
+
+	my @sub = grep { /\Asub:/ } split /\n/, $colons;
+	is( scalar @sub, 1, 'the public half holds one subkey' );
+	like( $sub[0], qr/:cv25519:/, 'and the subkey is a Curve25519 key' );
+
+	my ($flags) = ( split /:/, $sub[0], -1 )[11];
+	is( $flags, 'e', 'and it holds the encryption use alone' );
+
+	my ($pub) = grep { /\Apub:/ } split /\n/, $colons;
+	like( $pub, qr/:ed25519:/, 'the primary key is an Ed25519 key' );
+
+	my @uid = grep { /\Auid:/ } split /\n/, $colons;
+	is( scalar @uid, 1, 'the key holds one user id' );
+	like( $uid[0], qr/:<signer\@example\.org>:/,
+		'and the user id holds the email alone' );
+};
+
+subtest 'expiry tells no expiry from an expiry' => sub {
+	plan skip_all => 'gpg(1) not available' unless defined $gpg;
+
+	my $pgp = Fugu::OpenPGP->new;
+
+	is( $pgp->expiry( $KEY->{public} ),
+		0, 'a key with no expiry answers 0' );
+	is( $pgp->error, undef, 'and the answer is no failure' );
+
+	# The ISO form of the generator lands on the exact second. The
+	# seconds=N form of gpg(1) is off by one, and this comparison
+	# catches that.
+	is( $pgp->expiry( $DATED->{public} ),
+		$EXPIRES, 'a dated key answers the exact second' );
+	is( $pgp->error, undef, 'and the answer is no failure' );
+
+	# A text that is no key is the third answer: undef with the
+	# reason. A caller thus tells "no expiry" from "cannot read".
+	is( $pgp->expiry('the body of no key'), undef, 'a text that is no key fails' );
+	like( $pgp->error, qr/no valid OpenPGP data/,
+		'and the reason comes from gpg(1)' );
+};
+
+subtest 'sign_detached and verify_detached agree' => sub {
+	plan skip_all => 'gpg(1) not available' unless defined $gpg;
+
+	my $pgp = Fugu::OpenPGP->new;
+
+	like( $SIGNATURE, qr/\A-----BEGIN PGP SIGNATURE-----/,
+		'the signature is an armored signature block' );
+
+	is(
+		$pgp->verify_detached(
+			public    => $KEY->{public},
+			file      => $MESSAGE,
+			signature => $SIGNATURE
+		),
+		1,
+		'the verifier takes the signature of the signer'
+	) or diag( $pgp->error );
+	is( $pgp->error,          undef, 'error is undef after a success' );
+	is( $pgp->command_absent, 0,     'and command_absent answers 0' );
+};
+
+subtest 'verify_detached fails for a signature of another key' => sub {
+	plan skip_all => 'gpg(1) not available' unless defined $gpg;
+
+	# The home takes the one public half of the named signer, so
+	# the signature of another key has no key to check against.
+	my $pgp = Fugu::OpenPGP->new;
+
+	is(
+		$pgp->verify_detached(
+			public    => $OTHER->{public},
+			file      => $MESSAGE,
+			signature => $SIGNATURE
+		),
+		undef,
+		'a signature of another key fails'
+	);
+	like( $pgp->error, qr/No public key/, 'and the reason says so' );
+	is( $pgp->command_absent, 0, 'a bad signature is no absent command' );
+};
+
+subtest 'verify_detached fails for a tampered file' => sub {
+	plan skip_all => 'gpg(1) not available' unless defined $gpg;
+
+	my $pgp = Fugu::OpenPGP->new;
+	my $tampered = write_file( "$WORK/tampered.txt", "the other body\n" );
+
+	is(
+		$pgp->verify_detached(
+			public    => $KEY->{public},
+			file      => $tampered,
+			signature => $SIGNATURE
+		),
+		undef,
+		'a tampered file fails'
+	);
+
+	# gpg(1) writes "Signature made ..." first and the fault last,
+	# so the reason must come from the last line of the
+	# diagnostic.
+	like( $pgp->error, qr/BAD signature/, 'and the reason names the fault' );
+};
+
+subtest 'the runs leave no temporary home and no agent' => sub {
+	plan skip_all => 'gpg(1) not available' unless defined $gpg;
+
+	# Every subtest above ran its commands already. A home that a
+	# run left behind carries a secret half, and an agent that
+	# outlives its home leaks a process.
+	is( scalar homes(), 0, 'no temporary home stays behind' )
+	    or diag( join ', ', homes() );
+
+	# gpgconf(1) stops the agent at once, and the wait below is
+	# the margin of a loaded host. An agent that no kill stopped
+	# outlives the wait: gpg-agent notices its lost home seconds
+	# later, and it exits then.
+	for ( 1 .. 5 ) {
+		last unless agents();
+		select undef, undef, undef, 0.2;
+	}
+	is( scalar agents(), 0, 'no gpg-agent stays behind' )
+	    or diag( join '', agents() );
+};
+
 
 done_testing();
