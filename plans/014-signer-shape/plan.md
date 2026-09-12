@@ -1,0 +1,190 @@
+# 014 — One shape for the three signers
+
+## Status
+
+Proposed. It waits on plans 011, 012 and 013, which land the signer of each
+type. FuguWeb WEB-TRUST, WEB-OPENPGP and WEB-X509 wait on it. The change lands
+as a minor release, per REL-VERSION-1: the interface breaks, and no shim keeps
+the old one.
+
+Implements: LIB-SIGNER. Extends: LIB-SIGNIFY. Extends: LIB-OPENPGP. Extends:
+LIB-PROCESS. Extends: LIB-CURL. Defers: LIB-X509.
+
+LIB-X509 stays `open` until plan 013 lands, so this plan cannot cite it under
+`Extends:` yet. The change that lands plan 013 moves the citation, because the
+shape change of `Fugu::X509` waits for that module.
+
+## Purpose
+
+After the three plans, the three modules drive their commands in three shapes.
+The signify signer takes each secret half as a path. The OpenPGP generator
+answers the armored secret half as text, and its signer takes it as text. The
+X.509 plan names neither. The signify signer writes a signature file, and the
+other two answer the signature as a string. `Fugu::OpenPGP` answers a reason in
+list context, and `Fugu::Signify` reports through `error`. Each module resolves
+its command with a copy of one resolver, and `Fugu::Curl` holds a fourth.
+
+This plan gives the three modules one shape, one architecture and one security
+rule set. One parent class, `Fugu::Signer`, holds what the three share. A
+consumer that learns one type then knows the other two.
+
+## Evidence
+
+`Fugu::Signify` verifies over a key set in trust order. When no key verifies, it
+names the file and then one reason for each key. That shape serves each type, so
+the parent holds the walk and each subclass pins one key in one run.
+
+`Fugu::Signify` and `Fugu::Curl` hold one `_find_command` each, byte for byte.
+Plans 012 and 013 add a third and a fourth copy. `Fugu::Process` owns the
+process boundary, so it owns the resolver.
+
+A secret half that passes through Perl sits in the heap of a long process. A
+secret half that a command writes into a private directory, and a rename then
+moves, never does. `Fugu::File->atomic_dir` publishes a directory that way, and
+the generator takes the same idea for one file.
+
+gpg(1) starts an agent under each home it uses. A temporary home that the run
+removes leaves that agent behind. gpgconf(1) ships with gpg(1) and stops it.
+
+FuguWeb WEB-OPENPGP-1 needs an Ed25519 primary key with a Curve25519 encryption
+subkey, and plan 012 makes the primary key alone. FuguWeb waits on this plan, so
+the subkey lands here.
+
+The tests of plan 013 make a certificate with openssl(1), and the tests of
+FuguWeb WEB-X509 make one too. One generator replaces each shell snippet, and it
+gives the third module the same three verbs as the other two.
+
+## The rule changes
+
+### LIB-SIGNER
+
+The unit lands with this plan. It holds the shared shape. The parts are the
+constructor and the resolver, the three verbs and their argument names, and the
+path rule of a secret half. It also holds the private directory of a generator,
+the pinned walk of a verification, the failure convention, `command_absent`, and
+the timeout.
+
+### LIB-SIGNIFY
+
+- The unit text states that the module follows LIB-SIGNER over signify(1). It
+  takes the same three sentences as the other two units: the type and its files,
+  the readers, and the parent.
+- The text of LIB-SIGNIFY-2 changes. The `engine` option selects the verifier
+  alone: `perl` verifies with `Fugu::Ed25519`, and `signify` runs the command.
+  `generate` and `sign` run the command under both. `is_available`, `command`
+  and `command_absent` follow LIB-SIGNER-1 and LIB-SIGNER-9 under both engines,
+  so the perl engine holds no special case for the accessors.
+- The rules of the signer and the generator, which plan 011 adds, change. `new`
+  takes no `keys`. `verify` and `verify_manifest` take `keys` per LIB-SIGNER-6,
+  and `generate` takes `comment` beside `public` and `secret`.
+
+### LIB-OPENPGP
+
+- The unit text states that the module follows LIB-SIGNER over gpg(1), in the
+  same three sentences.
+- The readers become methods of the object, and each one reports through
+  `error`, per LIB-SIGNER-8. The text of LIB-OPENPGP-6 keeps the byte rule.
+- The rules of the command parts, which plan 012 adds, change. `generate` takes
+  `public` and `secret` as paths, and writes the two armored halves there. It
+  makes one Ed25519 primary key with one Curve25519 encryption subkey, per
+  FuguWeb WEB-OPENPGP-1. `sign` and `verify` take the names of LIB-SIGNER-2.
+  `expiry` takes `public` as a path.
+- A new rule: each run stops the agent under its temporary home before it
+  removes the home, per LIB-SIGNER-10.
+
+### LIB-X509
+
+- The unit text states that the module follows LIB-SIGNER over openssl(1), in
+  the same three sentences. The rules keep their text: LIB-SIGNER-4 holds the
+  generator, and LIB-SIGNER-5 holds the `public` argument of `sign`.
+
+### LIB-PROCESS
+
+- A new rule: `find_command` resolves a command. A name with a solidus is a
+  path, and the method tests that path alone. A plain name walks `PATH`. No name
+  walks `PATH` over the default list of the caller. The method answers the path,
+  or undef.
+
+### LIB-CURL
+
+- The text of LIB-CURL-1 changes. The module resolves through
+  `Fugu::Process->find_command`, and holds no resolver of its own.
+
+## The interface
+
+### Fugu::Signer
+
+- `new(%args)` takes an optional `command` and an optional `timeout`, and each
+  subclass adds its own arguments.
+- `is_available`, `command`, `command_absent` and `error` follow LIB-SIGNER-1
+  and LIB-SIGNER-9.
+- `generate(%args)` takes `public` and `secret`, and answers 1 or undef.
+- `sign(%args)` takes `secret`, `file` and `signature`, and answers 1 or undef.
+- `verify(%args)` takes `keys`, `file` and `signature`, and answers the key path
+  or undef.
+
+### Fugu::Signify
+
+- `new` adds `engine`. `generate` adds `comment`.
+- `verify_manifest(%args)` takes `keys`, `manifest`, `signature` and `files`.
+- The readers `parse_public_key`, `parse_signature`, `parse_manifest` and
+  `write_manifest` keep their shape.
+
+### Fugu::OpenPGP
+
+- `generate` adds `email` and an optional `expires`.
+- `expiry(%args)` takes `public`, and answers the seconds since the epoch, 0 for
+  a key with no expiry, or undef with the reason.
+- The readers `decode_armor`, `fingerprint`, `wkd_hash` and `zbase32` become
+  methods of the object, and each one reports through `error`.
+
+### Fugu::X509
+
+- `generate` adds `subject` and `days`, and makes a self-signed certificate.
+- `sign` adds `public`.
+- The readers `decode_pem`, `fingerprint` and `parse` become methods of the
+  object, and each one reports through `error`.
+
+### Fugu::Process
+
+- `find_command($name, @defaults)` answers the resolved path, or undef.
+
+## The change
+
+1. `lib/Fugu/Process.pm` and its sidecar gain `find_command`. `lib/Fugu/Curl.pm`
+   drops its copy. `t/fugu/process.t` covers the three forms of a name.
+2. `lib/Fugu/Signer.pm` and its sidecar hold the parent class. `t/fugu/signer.t`
+   covers the shared shape with a stub subclass over a script that the test
+   writes. It covers the absent command, `command_absent`, the timeout, and the
+   refusal of a path that is no plain file. It also covers the private directory
+   of `generate`, and the key walk with its error shape.
+3. `lib/Fugu/Signify.pm` and its sidecar inherit the parent. `new` drops `keys`,
+   the verifiers take `keys`, and the two engines follow the new text of
+   LIB-SIGNIFY-2. `t/fugu/signify.t` follows.
+4. `lib/Fugu/OpenPGP.pm` and its sidecar inherit the parent. The readers become
+   methods of the object. `generate`, `sign`, `verify` and `expiry` take paths,
+   the generator makes the subkey, and each run stops its agent through
+   gpgconf(1). `t/fugu/openpgp.t` follows, and skips when gpg(1) is absent.
+5. `lib/Fugu/X509.pm` and its sidecar inherit the parent. The readers become
+   methods of the object, `generate` makes a self-signed certificate, and `sign`
+   takes `public`. `t/fugu/x509.t` makes its certificate through `generate`, and
+   skips when openssl(1) is absent.
+6. `lib/Fugu.pod` lists `Fugu::Signer`.
+7. `spec/library.md` carries the rule changes, and each of the three unit texts
+   takes the same three sentences. `spec/STATUS.md` sets LIB-SIGNER, and keeps
+   the other units `done`.
+8. This plan directory goes in the same change.
+
+## What this plan does not do
+
+It keeps no old name and no old argument form. A consumer moves to the new shape
+when it takes the release, in its own repository. FuguWeb and FuguVM hold
+callers of the old shape.
+
+It adds no second engine to `Fugu::OpenPGP` or to `Fugu::X509`. A verifier of an
+OpenPGP signature or of a CMS signature in Perl is a larger change than the
+need.
+
+It changes no rule of `Fugu::KeyDir`, and no binding name.
+
+It reads no PKCS#12 file, makes no revocation certificate, and checks no chain.
