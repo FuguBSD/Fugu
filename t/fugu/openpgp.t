@@ -944,6 +944,30 @@ subtest 'generate makes the encryption subkey' => sub {
 	my ($flags) = ( split /:/, $sub[0], -1 )[11];
 	is( $flags, 'e', 'and it holds the encryption use alone' );
 
+	# LIB-OPENPGP-8 holds one expiry on the key and on the subkey.
+	# Field 7 of the sub line holds that expiry, and an empty
+	# field 7 means no expiry. The caller named no expiry here.
+	is( ( split /:/, $sub[0], -1 )[6],
+		'', 'and it holds no expiry, because the caller named none' );
+
+	my @dated =
+	    grep { /\Asub:/ } split /\n/, gpg_colons( $DATED->{public} );
+	is( scalar @dated, 1, 'the dated key holds one subkey' );
+
+	# A subkey with no expiry outlives the primary key, and it
+	# takes mail after the owner retired that key.
+	my $expiry = ( split /:/, $dated[0], -1 )[6];
+	like( $expiry, qr/\A[0-9]+\z/,
+		'and that subkey holds an expiry' );
+
+	# The generator adds the subkey in a second run of gpg(1), and
+	# gpg(1) counts each expiry from the creation second of its own
+	# run. The two seconds therefore differ by a second of the run,
+	# and this window holds that difference. A subkey with another
+	# expiry falls outside it.
+	cmp_ok( abs( $expiry - $EXPIRES ),
+		'<=', 60, 'and it expires with its primary key' );
+
 	my ($pub) = grep { /\Apub:/ } split /\n/, $colons;
 	like( $pub, qr/:ed25519:/, 'the primary key is an Ed25519 key' );
 

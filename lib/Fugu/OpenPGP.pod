@@ -52,6 +52,12 @@ with an encryption subkey, it exports both halves, it makes a detached
 signature, it verifies one, and it reads the expiry of a key. A caller
 that reads bytes alone needs no object, and needs no gpg(1).
 
+The command part needs GnuPG 2.1 or later. It gives
+C<--quick-generate-key>, C<--quick-add-key>, C<--pinentry-mode> and
+C<--import-options show-only> to the command, and it stops the agent
+with gpgconf(1). GnuPG 1.4 holds none of these, so a host that kept
+C<gpg> for version 1 must carry version 2 as C<gpg2>.
+
 Every recoverable failure returns C<undef>. A class method holds the
 reason in the second value in list context, and an object method holds
 it in C<error>. The module never logs. The caller decides what to
@@ -90,7 +96,7 @@ process.
 
 C<command> names the gpg command, as a name or as an absolute path.
 Without the argument, the module walks C<$ENV{PATH}> over the search
-list C<gpg>, then C<gpg2>.
+list C<gpg2>, then C<gpg>.
 
 C<new> must not die for an absent command. It sets C<error> instead,
 and C<is_available> then returns 0.

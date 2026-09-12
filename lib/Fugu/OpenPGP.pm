@@ -930,12 +930,12 @@ sub _write_file ( $path, $text )
 #	Resolve an executable path, or return undef. With a name that
 #	holds a solidus the sub tests that path only. With a plain name
 #	it walks $ENV{PATH} for that name. With no name it walks
-#	$ENV{PATH} over the search list: gpg, then gpg2. A host that
-#	kept gpg for version 1 carries version 2 under the second
-#	name.
+#	$ENV{PATH} over the search list: gpg2, then gpg. A host that
+#	kept gpg for version 1 carries version 2 under the name gpg2,
+#	and the command part needs version 2.
 sub _find_command ( $name = undef )
 {
-	my @names = defined $name ? ($name) : ( 'gpg', 'gpg2' );
+	my @names = defined $name ? ($name) : ( 'gpg2', 'gpg' );
 
 	for my $candidate (@names) {
 		if ( index( $candidate, '/' ) >= 0 ) {
@@ -971,7 +971,7 @@ sub _command ($self)
 #	command method write one shape, so a caller reads one string.
 sub _command_error ( $name = undef )
 {
-	my $named = $name // 'gpg, gpg2';
+	my $named = $name // 'gpg2, gpg';
 
 	return "no executable gpg command: $named";
 }
