@@ -477,7 +477,8 @@ subtest 'generate publishes the secret half from a private directory' =>
 	is( dirname( dirname($temp) ), $dir,
 		'the private directory sits beside the destination' );
 	is( basename($temp), basename($secret), 'and it holds one name' );
-	ok( !-e dirname($temp), 'the private directory is gone' );
+	my $private = dirname($temp);
+	ok( !-e $private, 'the private directory is gone' );
 
 	is( mode($secret), 0600, 'the secret half is owner-only' );
 	ok( -f $public, 'and the public half is in place' );
