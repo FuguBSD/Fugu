@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed. It waits on plans 012 and 013, which land the signer of each type.
-FuguWeb WEB-TRUST, WEB-OPENPGP and WEB-X509 wait on it. The change lands as a
-minor release: the interface breaks, and no shim keeps the old one.
+Proposed. It waits on plan 013, which lands the X.509 signer. FuguWeb WEB-TRUST,
+WEB-OPENPGP and WEB-X509 wait on it. The change lands as a minor release: the
+interface breaks, and no shim keeps the old one.
 
 Implements: LIB-SIGNER. Extends: LIB-SIGNIFY. Extends: LIB-OPENPGP. Extends:
 LIB-PROCESS. Extends: LIB-CURL. Defers: LIB-X509.
@@ -33,21 +33,14 @@ consumer that learns one type then knows the other two.
 names the file and then one reason for each key. That shape serves each type, so
 the parent holds the walk and each subclass pins one key in one run.
 
-`Fugu::Signify` and `Fugu::Curl` hold one `_find_command` each, and the two
-differ in the default list alone. Plans 012 and 013 add a third and a fourth
-copy. `Fugu::Process` owns the process boundary, so it owns the resolver.
+`Fugu::Signify`, `Fugu::OpenPGP` and `Fugu::Curl` hold one `_find_command` each,
+and they differ in the default list alone. Plan 013 adds a fourth copy.
+`Fugu::Process` owns the process boundary, so it owns the resolver.
 
 A secret half that passes through Perl sits in the heap of a long process. A
 secret half that a command writes into a private directory, and a rename then
 moves, never does. `Fugu::File->atomic_dir` publishes a directory that way, and
 the generator takes the same idea for one file.
-
-gpg(1) starts an agent under each home it uses. A temporary home that the run
-removes leaves that agent behind. gpgconf(1) ships with gpg(1) and stops it.
-
-FuguWeb WEB-OPENPGP-1 needs an Ed25519 primary key with a Curve25519 encryption
-subkey, and plan 012 makes the primary key alone. FuguWeb waits on this plan, so
-the subkey lands here.
 
 The tests of plan 013 make a certificate with openssl(1), and the tests of
 FuguWeb WEB-X509 make one too. One generator replaces each shell snippet, and it
@@ -85,14 +78,12 @@ the timeout.
   same three sentences.
 - The readers become methods of the object, and each one reports through
   `error`, per LIB-SIGNER-8. The text of LIB-OPENPGP-6 keeps the byte rule.
-- The rules of the command parts, which plan 012 adds, change. `generate` takes
-  `public` and `secret` as paths, and writes the two armored halves there. It
-  makes one Ed25519 primary key with one Curve25519 encryption subkey, per
-  FuguWeb WEB-OPENPGP-1. `sign` and `verify` take the names of LIB-SIGNER-2.
-  `expiry` takes `public` as a path. The changed generator rule names `email`
-  and an optional `expires`, per LIB-SIGNER-2.
-- A new rule: each run stops the agent under its temporary home before it
-  removes the home, per LIB-SIGNER-10.
+- The rules of the command parts change. `generate` takes `public` and `secret`
+  as paths, and it writes the two armored halves there. `sign` and `verify` take
+  the names of LIB-SIGNER-2. `expiry` takes `public` as a path. The changed
+  generator rule names `email` and an optional `expires`, per LIB-SIGNER-2.
+- The text of LIB-OPENPGP-7 changes. The agent of the temporary home follows
+  LIB-SIGNER-10.
 
 ### LIB-X509
 
@@ -173,9 +164,8 @@ the Status section.
    the verifiers take `keys`, and the two engines follow the new text of
    LIB-SIGNIFY-2. `t/fugu/signify.t` follows.
 4. `lib/Fugu/OpenPGP.pm` and its sidecar inherit the parent. The readers become
-   methods of the object. `generate`, `sign`, `verify` and `expiry` take paths,
-   the generator makes the subkey, and each run stops its agent through
-   gpgconf(1). `t/fugu/openpgp.t` follows, and skips when gpg(1) is absent.
+   methods of the object. `generate`, `sign`, `verify` and `expiry` take paths.
+   `t/fugu/openpgp.t` follows, and skips when gpg(1) is absent.
 5. `lib/Fugu/X509.pm` and its sidecar inherit the parent. The readers become
    methods of the object, `generate` makes a self-signed certificate, and `sign`
    takes `public`. `t/fugu/x509.t` makes its certificate through `generate`, and

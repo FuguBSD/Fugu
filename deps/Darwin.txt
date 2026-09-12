@@ -5,6 +5,7 @@ tool bin gitleaks https://github.com/gitleaks/gitleaks/releases/download/v8.30.1
 
 test pkg libssh2
 test pkg signify-osx
+test pkg gnupg
 test cpan Perl::Critic
 test cpan Perl::Tidy
 test cpan Net::SSH2
