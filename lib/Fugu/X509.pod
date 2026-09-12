@@ -1,75 +1,85 @@
 =head1 NAME
 
-Fugu::X509 - read an X.509 certificate as bytes, and make and verify a detached CMS signature
+Fugu::X509 - read an X.509 certificate as bytes, and drive openssl(1) over a certificate
 
 =head1 SYNOPSIS
 
     use Fugu::X509;
 
-    my ($der, $reason) = Fugu::X509->decode_pem($pem_text);
-    die $reason unless defined $der;
+    my $x509 = Fugu::X509->new;
+    die $x509->error unless $x509->is_available;
 
-    my $fingerprint = Fugu::X509->fingerprint($der);
+    $x509->generate(
+        public  => '/etc/keys/example.pem',
+        secret  => '/etc/keys/example.key',
+        subject => '/C=SE/O=Example/CN=Example Signer',
+        days    => 365,
+    ) or die $x509->error;
 
-    my $certificate = Fugu::X509->parse($der)
-        or die 'the bytes are no certificate';
+    $x509->sign(
+        public    => '/etc/keys/example.pem',
+        secret    => '/etc/keys/example.key',
+        file      => '/var/www/htdocs/release.tgz',
+        signature => '/var/www/htdocs/release.p7s',
+    ) or die $x509->error;
+
+    my $key = $x509->verify(
+        keys      => ['/etc/keys/example.pem'],
+        file      => '/var/www/htdocs/release.tgz',
+        signature => '/var/www/htdocs/release.p7s',
+    ) or die $x509->error;
+
+    # The byte reader needs no command.
+    my $der = $x509->decode_pem($pem_text)
+        or die $x509->error;
+    my $fingerprint = $x509->fingerprint($der)
+        or die $x509->error;
+
+    my $certificate = $x509->parse($der)
+        or die $x509->error;
     die 'the certificate expired'
         if $certificate->{not_after} < time;
     my $team = $certificate->{subject}{OU};
 
-    my $x509 = Fugu::X509->new;
-    die $x509->error unless $x509->is_available;
-
-    my $signature = $x509->sign_cms(
-        certificate => '/etc/keys/example.pem',
-        secret      => '/etc/keys/example.key',
-        file        => '/var/www/htdocs/release.tgz',
-    ) or die $x509->error;
-
-    $x509->verify_cms(
-        certificate => '/etc/keys/example.pem',
-        file        => '/var/www/htdocs/release.tgz',
-        signature   => $signature,
-    ) or die $x509->error;
-
 =head1 DESCRIPTION
 
-Fugu::X509 holds a byte reader and a command part.
+Fugu::X509 follows L<Fugu::Signer> over openssl(1). The parent holds
+the constructor and the command resolution, the three verbs, the run
+through L<Fugu::Process>, the key walk of a verification, and the
+failure convention. This module holds the byte reader, the DER walk,
+and the arguments of each openssl(1) command line.
 
 The byte reader decodes a PEM certificate block, it computes the
 SHA-256 fingerprint of the DER bytes, and it reads the subject, the
 issuer and the validity from the DER itself. It runs no command, and
-it holds class methods only, because it holds no state. It uses core
-L<Digest::SHA> and core L<MIME::Base64>, so it adds no dependency. A
-fingerprint check and an expiry check therefore run on a host where
-openssl(1) is absent.
+it uses core L<Digest::SHA> and core L<MIME::Base64>, so it adds no
+dependency. Each reader is a method of the object, and a caller that
+reads bytes alone needs no openssl(1).
 
-The command part runs openssl(1) through an object. It makes a
-detached CMS signature over a file, and it verifies one. A caller that
-reads bytes alone needs no object, and needs no openssl(1).
+The command part makes a self-signed certificate, it makes a detached
+CMS signature over a file, and it verifies one. The private key enters
+as a path and leaves as a file, so no key byte enters Perl.
 
 The module holds no issuer by name. A code signing certificate of
 Apple Developer ID is one use, and the module reads every issuer the
 same way. A caller that pins an issuer reads the name that C<parse>
 answers, and it decides by itself.
 
-Every recoverable failure returns C<undef>. A class method holds the
-reason in the second value in list context, and an object method holds
-it in C<error>. The module never logs. The caller decides what to
-report.
+Every recoverable failure returns C<undef>, and C<error> holds the
+reason. No method answers the reason as a second return value. The
+module never logs. The caller decides what to report.
 
-A class method never dies for bad input: a certificate comes from
-outside, so bad bytes are data and not a programming error. An object
-method dies for a missing necessary argument alone, because that is a
-programming error.
+A reader never dies for bad input: a certificate comes from outside,
+so bad bytes are data and not a programming error. A method dies for a
+missing necessary argument alone, because that is a programming error.
 
 =head2 The detached signature
 
-C<sign_cms> makes a detached CMS signature: the signature holds the
-digest of the file and no byte of it. The caller keeps the file and
-the signature apart, and C<verify_cms> reads both again.
+C<sign> makes a detached CMS signature: the signature holds the digest
+of the file and no byte of it. The caller keeps the file and the
+signature apart, and C<verify> reads both again.
 
-C<verify_cms> pins the one certificate that the caller names. A CMS
+C<verify> pins the one certificate of each step of the walk. A CMS
 signature carries the certificate of its signer, and the verifier
 ignores that copy. A signature of another certificate therefore fails
 with C<signer certificate not found>, and a changed file fails with
@@ -82,12 +92,17 @@ a key directory, and it reads the validity with C<parse>.
 
 =head2 new
 
-C<new(command =E<gt> $command)> builds a signer and a verifier. The
-method resolves the command once, and it runs no process.
+C<new(command =E<gt> $command, timeout =E<gt> $seconds)> builds a
+generator, a signer and a verifier. The method resolves the command
+once, and it runs no process.
 
 C<command> names the openssl command, as a name or as an absolute
 path. Without the argument, the module walks C<$ENV{PATH}> for
 C<openssl>.
+
+C<timeout> is the bound of one run of the command, in seconds, and the
+default is C<OPENSSL_TIMEOUT>. A signature reads the whole file, so
+this module raises the default of the parent.
 
 C<new> must not die for an absent command. It sets C<error> instead,
 and C<is_available> then returns 0.
@@ -107,20 +122,22 @@ put it in a diagnostic.
 
 =head2 error
 
-C<error()> returns the reason of the most recent failure of an object
-method. It returns C<undef> after a success. Each method clears the
-reason before it starts.
+C<error()> returns the reason of the most recent failure. It returns
+C<undef> after a success. Each method clears the reason before it
+starts.
 
 The reason of a failed run names the act and then the diagnostic of
 openssl(1):
 
-    cannot verify /var/www/htdocs/release.tgz: signer certificate not found
+    cannot sign /var/www/htdocs/release.tgz: unable to load certificate
 
 openssl(1) writes one error record in each line of a stack, and a
 colon separates the fields. The module takes the reason field of the
 first record, because that record names the fault and each later one
-names what the fault broke. Each run takes C<LC_ALL=C>, so the
-diagnostic arrives in English under any locale of the caller.
+names what the fault broke. The generator writes a progress line of
+dots and a line of dashes first, and the module steps over each line
+that holds no letter. Each run takes C<LC_ALL=C>, so the diagnostic
+arrives in English under any locale of the caller.
 
 =head2 command_absent
 
@@ -132,15 +149,55 @@ otherwise.
 An absent command is an install problem, and a failed signature is an
 integrity problem. The two answers let a caller tell them apart.
 
-=head2 sign_cms
+=head2 generate
 
-C<sign_cms(certificate =E<gt> $path, secret =E<gt> $path, file =E<gt>
-$path)> makes a detached CMS signature over one file. It returns the
-PEM signature, or C<undef> with the reason in C<error>. Each argument
+C<generate(public =E<gt> $path, secret =E<gt> $path, subject =E<gt>
+$text, days =E<gt> $number)> makes one self-signed certificate and its
+private key. It returns 1, or C<undef> with the reason in C<error>.
+Each argument is necessary, and the method dies without one.
+
+openssl(1) writes the certificate and the private key at their paths,
+so no key byte enters Perl. The key is a C<KEY_TYPE> key, and it
+carries no passphrase, so the caller owns the storage of the private
+half.
+
+The parent refuses a path that exists, so one call never overwrites a
+key. It writes the private key in a private directory beside the
+destination, it sets the owner-only mode there, and one rename then
+moves the file into place.
+
+C<subject> takes the form of openssl(1), such as
+C</C=SE/O=Example/CN=Example Signer>. The subject reaches the command
+as one argument: a NUL byte would end that argument, and a line ending
+would open a second line, so the certificate would carry a subject
+that the caller never named. The method refuses each of them, and an
+empty subject, before the command runs.
+
+C<days> is the validity in days, and it must be a whole number of one
+day or more. openssl(1) writes C<notBefore> at the current second, and
+C<notAfter> that many days later.
+
+The certificate is its own issuer, and it holds no chain. A test of a
+signature needs one certificate, and no other generator makes it. A
+production identity comes from an issuer, and the caller names its
+files instead.
+
+=head2 sign
+
+C<sign(public =E<gt> $path, secret =E<gt> $path, file =E<gt> $path,
+signature =E<gt> $path)> makes a detached CMS signature over one file.
+It returns 1, or C<undef> with the reason in C<error>. Each argument
 is necessary, and the method dies without one.
 
-The three arguments are paths. openssl(1) reads the private key from
-the path, so no key byte enters Perl and no key byte reaches a log.
+Each argument is a path. A PEM private key names no certificate, so
+the signer takes C<public> beside C<secret>. openssl(1) reads the
+private key from the path, and it writes the signature file itself, so
+no key byte enters Perl and no key byte reaches a log. A second call
+over one C<signature> path replaces the file, because a rotation signs
+one manifest again.
+
+The parent refuses an input path that is no plain file, before the
+command runs, and the module refuses the certificate the same way.
 
 The module reads no PKCS#12 file. The caller converts one with
 C<openssl pkcs12> before it names the certificate and the private key.
@@ -148,24 +205,29 @@ C<openssl pkcs12> before it names the certificate and the private key.
 The signer names the digest, C<SIGNATURE_DIGEST>, so an old default of
 the command never decides it.
 
-=head2 verify_cms
+=head2 verify
 
-C<verify_cms(certificate =E<gt> $path, file =E<gt> $path, signature
-=E<gt> $text)> verifies a detached CMS signature. It returns 1, or
-C<undef> with the reason in C<error>. Each argument is necessary, and
-the method dies without one.
+C<verify(keys =E<gt> \@paths, file =E<gt> $path, signature =E<gt>
+$path)> verifies one detached CMS signature against a certificate set,
+in trust order. Each argument is necessary, and the method dies
+without one. An empty C<keys> list is a programming error, and the
+method dies for it too.
 
-C<certificate> and C<file> are paths, and C<signature> is the PEM text
-that C<sign_cms> answered. The signature reaches openssl(1) on the
-standard input, so the method writes it to no file of its own.
+The method returns the certificate that verified the signature. It
+returns C<undef> on every failure. The walk pins one certificate in
+one run, so a signature of another certificate fails.
 
 The command writes the content of the signature to the null device,
 because the caller holds the file already. A file of 500 MB therefore
 never enters memory.
 
+For a signature that no certificate verified, C<error> names the file
+and then each certificate with its own reason.
+
 =head2 decode_pem
 
-C<decode_pem($text)> returns the DER bytes of a PEM certificate block.
+C<decode_pem($text)> returns the DER bytes of a PEM certificate block,
+or C<undef> with the reason in C<error>.
 
 The method reads the two delimiter lines and it decodes the base64
 body. A PEM block holds no checksum line, so the method holds the body
@@ -208,7 +270,8 @@ Each of these is a failure:
 =head2 fingerprint
 
 C<fingerprint($der)> returns the SHA-256 of the DER bytes, in
-upper-case hexadecimal with no separator.
+upper-case hexadecimal with no separator, or C<undef> with the reason
+in C<error>.
 
     A09E6F717684F203A8CBBE7AA663A933F3C405F306366917225226383664D780
 
@@ -224,7 +287,8 @@ renewal of the certificate.
 =head2 parse
 
 C<parse($der)> returns a hash reference with C<subject>, C<issuer>,
-C<not_before> and C<not_after>.
+C<not_before> and C<not_after>, or C<undef> with the reason in
+C<error>.
 
 Each name is a hash of attribute type to value. The type is the short
 name of openssl(1) for the common types, such as C<CN>, C<O>, C<OU>
@@ -267,15 +331,21 @@ failure, not a decode of 500 MB.
 
 The one PEM block type that C<decode_pem> takes, C<CERTIFICATE>.
 
+=item C<KEY_TYPE>
+
+The key of a generated certificate, C<rsa:2048>. An RSA key of 2048
+bits makes a CMS signature under openssl(1) and under LibreSSL. A
+newer key type needs a newer command.
+
 =item C<SIGNATURE_DIGEST>
 
 The digest of a CMS signature, C<sha256>.
 
 =item C<OPENSSL_TIMEOUT>
 
-The time bound of one openssl(1) call, 300 seconds. A command that a
-caller named can be the wrong program, and a signature over a file of
-a few hundred megabytes reads the whole file.
+The default time bound of one openssl(1) call, 300 seconds. A command
+that a caller named can be the wrong program, and a signature over a
+file of a few hundred megabytes reads the whole file.
 
 =item C<MAX_LENGTH_BYTES>
 
@@ -285,22 +355,20 @@ The largest number of DER length bytes that the reader takes, 4.
 
 =head1 RETURN VALUES
 
-Each method returns its answer in scalar context, or C<undef> on a
-failure. A class method returns the answer and C<undef> in list
-context, or C<undef> and the reason. An object method holds the reason
-in C<error>.
+Each method returns its answer, or C<undef> on a failure, and C<error>
+holds the reason of that failure. No method answers the reason as a
+second return value.
 
-Each method that takes bytes rejects a string that holds a code point
-above 255. L<Digest::SHA> dies on such a string, and a byte read takes
-the low byte of each character. A caller that holds text must encode
-it first.
+Each reader rejects a string that holds a code point above 255.
+L<Digest::SHA> dies on such a string, and a byte read takes the low
+byte of each character. A caller that holds text must encode it first.
 
 =head1 CAVEATS
 
 A fingerprint proves which bytes the certificate holds. It proves
 nothing about who made them, and nothing about the validity of the
-certificate. C<verify_cms> answers the second question, over the one
-certificate that the caller names.
+certificate. C<verify> answers the second question, over the
+certificate set that the caller names.
 
 The certificate of a code signing identity lives a few years, and the
 fingerprint of the leaf changes at each renewal. A key directory that
@@ -308,13 +376,14 @@ pins a fingerprint therefore publishes the new one at each renewal. A
 caller that pins the subject instead reads C<CN> and C<OU> from
 C<parse>, and those hold across a renewal.
 
-The module makes no certificate and no certificate request. The issuer
-makes both, and a later plan adds a generator when a caller needs one.
+The generator makes a self-signed certificate alone. It makes no
+certificate request, and it reads no PKCS#12 file. An issuer makes a
+chain, and this module never checks one.
 
 =head1 SEE ALSO
 
 openssl(1), L<Digest::SHA>, L<MIME::Base64>, L<Fugu::KeyDir>,
-L<Fugu::OpenPGP>, L<Fugu::Process>, L<Fugu::Signify>
+L<Fugu::OpenPGP>, L<Fugu::Process>, L<Fugu::Signer>, L<Fugu::Signify>
 
 =head1 AUTHORS
 

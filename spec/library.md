@@ -496,10 +496,11 @@ Run something under a time limit.
 
 ## Fugu::X509
 
-An X.509 certificate as bytes, and a detached CMS signature over a file. The
-module decodes PEM and DER, computes the SHA-256 fingerprint, and reads the
-subject, the issuer and the validity from the certificate. It runs openssl(1)
-for a signature, through `Fugu::Process`.
+The module follows [Fugu::Signer](#lib-signer) over openssl(1), and it holds the
+self-signed certificate, the private key and the detached CMS signature. Each
+reader is a method of the object: the PEM decoder, the certificate fingerprint,
+and the reader of the names and the validity. The parent holds the three verbs,
+and this unit holds the byte reader and the DER walk.
 
 - **LIB-X509-1** — The reader must take the subject, the issuer, `notBefore` and
   `notAfter` from the DER itself, with no command. A fingerprint check and an
@@ -513,11 +514,16 @@ for a signature, through `Fugu::Process`.
 - **LIB-X509-4** — The module must hold no issuer by name. A code signing
   certificate of Apple Developer ID is one use, and the module treats every
   issuer the same way.
-- **LIB-X509-5** — Each method must take bytes, and must reject a string with a
-  code point above 255, as LIB-OPENPGP-6 holds for the OpenPGP reader.
+- **LIB-X509-5** — A reader must take bytes, and a command method must take
+  paths, per LIB-SIGNER-7. A reader must reject a string with a code point above
+  255, as LIB-OPENPGP-6 holds for the OpenPGP reader.
 - **LIB-X509-6** — The PEM decoder must take one `CERTIFICATE` block, and must
   reject a private key block and a second block. A key directory publishes what
   the decoder accepts.
+- **LIB-X509-7** — `generate` must take `subject` and `days` beside `public` and
+  `secret`, per LIB-SIGNER-2. They name the subject and the validity of the
+  self-signed certificate of LIB-SIGNER-4. LIB-SIGNER-5 holds the `public`
+  argument of `sign`.
 
 <a id="lib-protocol"></a>
 

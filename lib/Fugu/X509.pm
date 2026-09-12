@@ -24,41 +24,44 @@ no feature qw(indirect multidimensional bareword_filehandles);
 
 use Digest::SHA ();
 use File::Spec  ();
-use Fugu::Process;
+use Fugu::Signer;
 use MIME::Base64 qw(decode_base64);
 
-# Fugu::X509 - read an X.509 certificate as bytes, and make and
-# verify a detached CMS signature with openssl(1).
+our @ISA = ('Fugu::Signer');
+
+# Fugu::X509 - read an X.509 certificate as bytes, and drive
+# openssl(1) over a certificate.
 #
-# The module holds two parts. The byte reader decodes a PEM block,
-# it computes the SHA-256 fingerprint of the DER bytes, and it reads
-# the subject, the issuer and the validity from the DER itself. It
-# runs no command, and it holds class methods only, because it holds
-# no state. A fingerprint check and an expiry check therefore run on
-# a host where openssl(1) is absent.
+# The module follows Fugu::Signer over openssl(1). The parent holds
+# the constructor and the command resolution, the three verbs, the run
+# through Fugu::Process, the key walk of a verification, and the
+# failure convention. This module holds the byte reader, the DER walk,
+# and the arguments of each openssl(1) command line.
 #
-# The command part runs openssl(1) through an object. It makes a
-# detached CMS signature over a file, and it verifies one against
-# the one certificate that the caller names. The verifier checks no
-# chain, so the caller vouches for that certificate by other means.
+# The byte reader decodes a PEM block, it computes the SHA-256
+# fingerprint of the DER bytes, and it reads the subject, the issuer
+# and the validity from the DER itself. It runs no command, so a
+# fingerprint check and an expiry check run on a host where openssl(1)
+# is absent. Each reader is a method of the object, and it reports
+# through error.
+#
+# The command part makes a self-signed certificate, it makes a
+# detached CMS signature over a file, and it verifies one against the
+# one certificate that the caller names. The verifier checks no chain,
+# so the caller vouches for that certificate by other means.
+#
+# The private key enters as a path and leaves as a file, so no key
+# byte enters Perl and no key byte reaches a log.
 #
 # The module holds no issuer by name. A code signing certificate of
-# Apple Developer ID is one use, and the module reads every issuer
-# the same way. It reads no PKCS#12 file, and it reads no extension
-# of the certificate.
+# Apple Developer ID is one use, and the module reads every issuer the
+# same way. It reads no PKCS#12 file, and it reads no extension of the
+# certificate.
 #
-# Every recoverable failure returns undef. A class method puts the
-# reason in the second return value in list context, and an object
-# method puts it in error. The module never logs: the caller decides
-# what to report. A class method never dies, because a certificate
-# comes from outside, so bad bytes are data and not a programming
-# error. An object method dies for a missing necessary argument
-# alone.
-#
-# Every method that takes a certificate needs bytes. Each one
-# rejects a string that holds a code point above 255, because
-# Digest::SHA dies on such a string and a byte read takes the low
-# byte of each character.
+# Every method that takes a certificate needs bytes. Each one rejects
+# a string that holds a code point above 255, because Digest::SHA dies
+# on such a string and a byte read takes the low byte of each
+# character.
 
 # The size bound of a PEM text, 1 MiB. A certificate holds a few
 # kilobytes. A caller that names a disk image by mistake gets a
@@ -70,10 +73,16 @@ use constant MAX_PEM_SIZE => 1_048_576;
 # second block are each a failure.
 use constant PEM_TYPE => 'CERTIFICATE';
 
-# The time bound of one openssl(1) call, in seconds. A command that
-# a caller named can be the wrong program. A signature over a file
-# of a few hundred megabytes reads the whole file.
+# The time bound of one openssl(1) call, in seconds. The default of
+# the parent is 30. A command that a caller named can be the wrong
+# program, and a signature over a file of a few hundred megabytes
+# reads the whole file.
 use constant OPENSSL_TIMEOUT => 300;
+
+# The key of a generated certificate. An RSA key of 2048 bits makes a
+# CMS signature under openssl(1) and under LibreSSL. A newer key type
+# needs a newer command.
+use constant KEY_TYPE => 'rsa:2048';
 
 # The digest of a CMS signature. The signer names it, so an old
 # default of the command never decides it.
@@ -128,9 +137,108 @@ my %STRING_TAG = (
 # day of February.
 my @MONTH_DAYS = ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
 
-# Fugu::X509->decode_pem($text):
+# --- the command part -----------------------------------------------------
+
+# Fugu::X509->new(%args):
+#	Build a generator, a signer and a verifier over openssl(1). The
+#	method resolves the command once, and it runs no process.
+#
+#	%args:
+#		command => $command # Optional: a name or an absolute path
+#		timeout => $seconds # Optional: the bound of one run
+#
+#	The method must not die for an absent command. It sets error
+#	instead, and is_available then returns 0. An absent openssl(1)
+#	is an install problem, and a caller reports it as one.
+sub new ( $class, %args )
+{
+	$args{timeout} //= OPENSSL_TIMEOUT;
+
+	return $class->SUPER::new(%args);
+}
+
+# $self->generate(%args):
+#	Make one self-signed certificate and its private key. The
+#	method returns 1, or undef with the reason in error.
+#
+#	%args:
+#		public  => $path   # Required: the certificate
+#		secret  => $path   # Required: the private key
+#		subject => $text   # Required: the subject
+#		days    => $number # Required: the validity in days
+#
+#	openssl(1) writes each half at its path, so no key byte enters
+#	Perl. The parent writes the private key in a directory of its
+#	own, and one rename then moves it into place. The parent also
+#	refuses a path that exists, so one call never overwrites a key.
+#
+#	The subject takes the form of openssl(1), such as
+#	/C=SE/O=Example/CN=Example Signer. A line ending or a NUL byte
+#	would cut the argument, so the method refuses each of them
+#	before the command runs.
+#
+#	The certificate is its own issuer, and it holds no chain. A
+#	test of a signature needs one certificate, and no other
+#	generator makes it.
+sub generate ( $self, %args )
+{
+	my ( $subject, $days ) = @args{qw(subject days)};
+	die "subject and days are necessary arguments\n"
+	    unless defined $subject && defined $days;
+
+	$self->_begin;
+
+	return $self->_set_error('the subject is empty') unless length $subject;
+	return $self->_set_error( 'the subject holds a character above 255, '
+		    . 'and this method needs bytes' )
+	    if $self->_wide($subject);
+
+	# The subject reaches the command as one argument. A NUL byte
+	# ends that argument, and a line ending opens a second line of
+	# a configuration form, so the certificate would carry a
+	# subject that the caller never named.
+	return $self->_set_error(
+		'the subject holds a line ending or a NUL byte')
+	    if $subject =~ /[\r\n\0]/;
+
+	return $self->_set_error("the validity $days is not a whole number")
+	    unless $days =~ /\A[0-9]+\z/;
+	return $self->_set_error("the validity $days is not one day or more")
+	    unless $days > 0;
+
+	return $self->SUPER::generate(%args);
+}
+
+# $self->sign(%args):
+#	Make a detached CMS signature over one file. The method returns
+#	1, or undef with the reason in error.
+#
+#	%args:
+#		public    => $path # Required: the certificate of the key
+#		secret    => $path # Required: the PEM private key
+#		file      => $path # Required: the file to sign
+#		signature => $path # Required: the signature file
+#
+#	A PEM private key names no certificate, so the signer takes
+#	public beside it, per LIB-SIGNER-5. openssl(1) reads the
+#	private key from the path, and it writes the signature file
+#	itself, so no key byte enters Perl. The caller converts a
+#	PKCS#12 file with openssl pkcs12 before it names the two.
+#
+#	The signature is detached: it holds the digest of the file and
+#	no byte of it. The verifier therefore needs the file again.
+sub sign ( $self, %args )
+{
+	die "public is a necessary argument\n" unless defined $args{public};
+
+	return $self->SUPER::sign(%args);
+}
+
+# --- the byte reader ------------------------------------------------------
+
+# $self->decode_pem($text):
 #	The DER bytes of a PEM certificate block, or undef with the
-#	reason.
+#	reason in error.
 #
 #	The method takes one CERTIFICATE block. It reads the two
 #	delimiter lines and it decodes the base64 body. A PEM block
@@ -141,19 +249,18 @@ my @MONTH_DAYS = ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
 #
 #	A private key block and a second block are each a failure,
 #	because a key directory publishes what this method accepts.
-#
-#	The method returns the bytes in scalar context. In list
-#	context it returns the bytes and undef on a success, and undef
-#	and the reason on a failure.
-sub decode_pem ( $class, $text )
+sub decode_pem ( $self, $text )
 {
-	return _fail('the PEM text is undef') unless defined $text;
-	return _fail( 'the PEM text holds a character above 255, '
+	$self->_begin;
+
+	return $self->_set_error('the PEM text is undef') unless defined $text;
+	return $self->_set_error( 'the PEM text holds a character above 255, '
 		    . 'and this method needs bytes' )
-	    if _wide($text);
+	    if $self->_wide($text);
 
 	if ( length($text) > MAX_PEM_SIZE ) {
-		return _fail( sprintf 'the PEM text is larger than %d bytes',
+		return $self->_set_error(
+			sprintf 'the PEM text is larger than %d bytes',
 			MAX_PEM_SIZE );
 	}
 
@@ -164,18 +271,18 @@ sub decode_pem ( $class, $text )
 	$text =~ s/\r\n/\n/g;
 
 	my @type = $text =~ /^-----BEGIN ([A-Z0-9 ]+)-----[ \t]*$/mg;
-	return _fail( 'no BEGIN ' . PEM_TYPE . ' delimiter line' )
+	return $self->_set_error( 'no BEGIN ' . PEM_TYPE . ' delimiter line' )
 	    unless @type;
 
 	for my $type (@type) {
 		next if $type eq PEM_TYPE;
-		return _fail( "the text holds a $type block, and this "
-			    . 'method takes a '
+		return $self->_set_error( "the text holds a $type block, and "
+			    . 'this method takes a '
 			    . PEM_TYPE
 			    . ' block' );
 	}
 
-	return _fail(
+	return $self->_set_error(
 		sprintf 'the text holds %d %s blocks, and this '
 		    . 'method takes one',
 		scalar @type,
@@ -185,7 +292,7 @@ sub decode_pem ( $class, $text )
 	my $begin  = '-----BEGIN ' . PEM_TYPE . '-----';
 	my $end    = '-----END ' . PEM_TYPE . '-----';
 	my ($body) = $text =~ /^\Q$begin\E[ \t]*\n(.*?)^\Q$end\E[ \t]*$/ms;
-	return _fail( 'no END ' . PEM_TYPE . ' delimiter line' )
+	return $self->_set_error( 'no END ' . PEM_TYPE . ' delimiter line' )
 	    unless defined $body;
 
 	# A mailer pads a line with a space or a tab, and the trim
@@ -195,10 +302,11 @@ sub decode_pem ( $class, $text )
 	# of them.
 	my @line = grep { length } map { s/\A[ \t]+|[ \t]+\z//gr }
 	    split /\n/, $body, -1;
-	return _fail('no text between the delimiter lines') unless @line;
+	return $self->_set_error('no text between the delimiter lines')
+	    unless @line;
 
 	for my $line (@line) {
-		return _fail("a body line is no base64 text: $line")
+		return $self->_set_error("a body line is no base64 text: $line")
 		    unless $line =~ m{\A[A-Za-z0-9+/]*={0,2}\z};
 	}
 
@@ -207,41 +315,43 @@ sub decode_pem ( $class, $text )
 	# The padding of base64 ends the data, so it sits at the end
 	# of the body alone. A body with interior padding decodes to a
 	# truncated certificate.
-	return _fail('the base64 padding sits before the end of the body')
+	return $self->_set_error(
+		'the base64 padding sits before the end of the body')
 	    if $base64 =~ /=(?!=*\z)/;
 
-	return _fail('the base64 body is no whole number of groups')
+	return $self->_set_error('the base64 body is no whole number of groups')
 	    if length($base64) % 4;
 
 	my $der = decode_base64($base64);
-	return _fail('the base64 body decodes to no byte') unless length $der;
+	return $self->_set_error('the base64 body decodes to no byte')
+	    unless length $der;
 
-	return wantarray ? ( $der, undef ) : $der;
+	return $der;
 }
 
-# Fugu::X509->fingerprint($der):
+# $self->fingerprint($der):
 #	The SHA-256 of the DER bytes, in upper-case hexadecimal with
-#	no separator, or undef with the reason.
+#	no separator, or undef with the reason in error.
 #
 #	openssl(1) and the tools of other vendors print the hash of a
 #	leaf certificate in that form, so a caller compares two
 #	strings and not two encodings. The digest covers the bytes
 #	that decode_pem answered, and it reads no field of them.
-sub fingerprint ( $class, $der )
+sub fingerprint ( $self, $der )
 {
-	return _fail('the DER form is undef') unless defined $der;
-	return _fail( 'the DER form holds a character above 255, '
+	$self->_begin;
+
+	return $self->_set_error('the DER form is undef') unless defined $der;
+	return $self->_set_error( 'the DER form holds a character above 255, '
 		    . 'and this method needs bytes' )
-	    if _wide($der);
+	    if $self->_wide($der);
 
-	my $hex = Digest::SHA::sha256_hex($der);
-
-	return wantarray ? ( uc $hex, undef ) : uc $hex;
+	return uc Digest::SHA::sha256_hex($der);
 }
 
-# Fugu::X509->parse($der):
+# $self->parse($der):
 #	The names and the validity of a certificate, or undef with the
-#	reason.
+#	reason in error.
 #
 #	The method returns a hash reference with subject, issuer,
 #	not_before and not_after. Each name is a hash of attribute type
@@ -254,22 +364,24 @@ sub fingerprint ( $class, $der )
 #	The walk takes the fields of RFC 5280 section 4.1 in order,
 #	and it stops after the subject. It reads no extension, and it
 #	reads no public key.
-sub parse ( $class, $der )
+sub parse ( $self, $der )
 {
-	return _fail('the DER form is undef') unless defined $der;
-	return _fail( 'the DER form holds a character above 255, '
+	$self->_begin;
+
+	return $self->_set_error('the DER form is undef') unless defined $der;
+	return $self->_set_error( 'the DER form holds a character above 255, '
 		    . 'and this method needs bytes' )
-	    if _wide($der);
+	    if $self->_wide($der);
 
 	my ( $certificate, $reason ) =
 	    _expect( $der, 0, TAG_SEQUENCE, 'the certificate' );
-	return _fail($reason) unless defined $certificate;
-	return _fail('bytes follow the certificate')
+	return $self->_set_error($reason) unless defined $certificate;
+	return $self->_set_error('bytes follow the certificate')
 	    unless $certificate->{next} == length $der;
 
 	my ( $tbs, $tbs_reason ) = _expect( $certificate->{content},
 		0, TAG_SEQUENCE, 'the tbsCertificate' );
-	return _fail($tbs_reason) unless defined $tbs;
+	return $self->_set_error($tbs_reason) unless defined $tbs;
 
 	my $body = $tbs->{content};
 
@@ -277,7 +389,7 @@ sub parse ( $class, $der )
 	# version 1 certificate holds none. Every other field of the
 	# walk is necessary.
 	my ( $version, $version_reason ) = _element( $body, 0 );
-	return _fail("the tbsCertificate: $version_reason")
+	return $self->_set_error("the tbsCertificate: $version_reason")
 	    unless defined $version;
 
 	my $offset = $version->{tag} == TAG_VERSION ? $version->{next} : 0;
@@ -288,27 +400,27 @@ sub parse ( $class, $der )
 	{
 		my ( $element, $skip_reason ) =
 		    _expect( $body, $offset, @$field );
-		return _fail($skip_reason) unless defined $element;
+		return $self->_set_error($skip_reason) unless defined $element;
 		$offset = $element->{next};
 	}
 
 	my ( $issuer, $issuer_reason ) =
 	    _expect( $body, $offset, TAG_SEQUENCE, 'the issuer' );
-	return _fail($issuer_reason) unless defined $issuer;
+	return $self->_set_error($issuer_reason) unless defined $issuer;
 
 	my ( $validity, $validity_reason ) =
 	    _expect( $body, $issuer->{next}, TAG_SEQUENCE, 'the validity' );
-	return _fail($validity_reason) unless defined $validity;
+	return $self->_set_error($validity_reason) unless defined $validity;
 
 	my ( $subject, $subject_reason ) =
 	    _expect( $body, $validity->{next}, TAG_SEQUENCE, 'the subject' );
-	return _fail($subject_reason) unless defined $subject;
+	return $self->_set_error($subject_reason) unless defined $subject;
 
 	my %parsed;
 	for my $pair ( [ issuer => $issuer ], [ subject => $subject ] ) {
 		my ( $name, $name_reason ) =
 		    _name( $pair->[1]{content}, "the $pair->[0]" );
-		return _fail($name_reason) unless defined $name;
+		return $self->_set_error($name_reason) unless defined $name;
 		$parsed{ $pair->[0] } = $name;
 	}
 
@@ -318,187 +430,183 @@ sub parse ( $class, $der )
 	{
 		my ( $element, $element_reason ) =
 		    _element( $validity->{content}, $at );
-		return _fail("the validity: $element_reason")
+		return $self->_set_error("the validity: $element_reason")
 		    unless defined $element;
 
 		my ( $epoch, $time_reason ) =
 		    _time( $element, "the $pair->[1]" );
-		return _fail($time_reason) unless defined $epoch;
+		return $self->_set_error($time_reason) unless defined $epoch;
 
 		$parsed{ $pair->[0] } = $epoch;
 		$at = $element->{next};
 	}
 
-	return wantarray ? ( \%parsed, undef ) : \%parsed;
+	return \%parsed;
 }
 
-# --- the command part -----------------------------------------------------
+# --- the hooks of the parent class ----------------------------------------
 
-# Fugu::X509->new(%args):
-#	Build a signer and a verifier over openssl(1). The method
-#	resolves the command once, and it runs no process.
+# $self->_command_label:
+#	The name of the command in a diagnostic.
+sub _command_label ($)
+{
+	return 'openssl';
+}
+
+# $self->_command_defaults:
+#	The search list of the command. Every host that holds the
+#	command holds it under the plain name.
+sub _command_defaults ($)
+{
+	return ('openssl');
+}
+
+# $self->_generate(%args):
+#	Run the generator of openssl(1) over the subject and the two
+#	paths. The parent holds secret to a private directory, and it
+#	moves that file into place.
 #
-#	%args:
-#		command => $command # Optional: a name or an absolute path
+#	-nodes writes a private key with no passphrase. LibreSSL takes
+#	that name, and openssl(1) takes it beside the newer -noenc.
+sub _generate ( $self, %args )
+{
+	my ( $public, $secret, $subject, $days ) =
+	    @args{qw(public secret subject days)};
+
+	$self->_openssl( [
+			'req',    '-x509',   '-newkey', KEY_TYPE,
+			'-nodes', '-days',   $days,     '-subj',
+			$subject, '-keyout', $secret,   '-out',
+			$public,
+		],
+		"cannot generate $public"
+	) or return;
+
+	return 1;
+}
+
+# $self->_sign(%args):
+#	Run the signer of openssl(1) over the certificate, the private
+#	key and the file. The command writes the signature file itself,
+#	and a second run over one path replaces it.
 #
-#	The method must not die for an absent command. It sets error
-#	instead, and is_available then returns 0. An absent openssl(1)
-#	is an install problem, and a caller reports it as one.
-sub new ( $class, %args )
+#	The parent checks secret and file, so this hook checks the
+#	certificate of the key alone.
+sub _sign ( $self, %args )
 {
-	my $self = bless {
-		command_name   => $args{command},
-		command        => undef,
-		command_absent => 0,
-		error          => undef,
-	}, $class;
+	my ( $public, $secret, $file, $signature ) =
+	    @args{qw(public secret file signature)};
 
-	my $command = _find_command( $args{command} );
-	if ( defined $command ) {
-		$self->{command} = $command;
-	}
-	else {
-		$self->{error}          = _command_error( $args{command} );
-		$self->{command_absent} = 1;
-	}
+	$self->_check_input($public) or return;
 
-	return $self;
-}
-
-# $self->is_available:
-#	Report if the object resolved an executable openssl(1). The
-#	method runs no process, and it never dies. The byte reader
-#	needs no command, so a caller that reads bytes alone needs no
-#	object.
-sub is_available ($self)
-{
-	return defined $self->{command} ? 1 : 0;
-}
-
-# $self->command:
-#	The resolved command path, or undef. An operator who installed
-#	the wrong openssl needs this answer in a diagnostic.
-sub command ($self)
-{
-	return $self->{command};
-}
-
-# $self->error:
-#	The reason of the most recent failure, or undef after a
-#	success.
-sub error ($self)
-{
-	return $self->{error};
-}
-
-# $self->command_absent:
-#	Report if the most recent failure means that openssl(1) never
-#	ran: the search list did not resolve the command, or the
-#	command failed to execve(2). An absent command is an install
-#	problem, and a failed signature is an integrity problem. The
-#	caller must tell them apart.
-sub command_absent ($self)
-{
-	return $self->{command_absent} ? 1 : 0;
-}
-
-# $self->sign_cms(%args):
-#	Make a detached CMS signature over one file. The method
-#	returns the PEM signature, or undef with the reason in error.
-#
-#	%args:
-#		certificate => $path # Required: the PEM certificate
-#		secret      => $path # Required: the PEM private key
-#		file        => $path # Required: the file to sign
-#
-#	The command reads the private key from the path, so no key
-#	byte enters Perl and no key byte reaches a log. The caller
-#	converts a PKCS#12 file with openssl pkcs12 before it names
-#	the private key.
-#
-#	The signature is detached: it holds the digest of the file and
-#	no byte of it. The verifier therefore needs the file again.
-sub sign_cms ( $self, %args )
-{
-	$self->{error}          = undef;
-	$self->{command_absent} = 0;
-
-	my ( $certificate, $secret, $file ) =
-	    @args{qw(certificate secret file)};
-	die "certificate, secret and file are necessary arguments\n"
-	    unless defined $certificate && defined $secret && defined $file;
-
-	$self->_command or return;
-
-	my $result = $self->_run( [
+	$self->_openssl( [
 			'cms',            '-sign',
 			'-binary',        '-md',
 			SIGNATURE_DIGEST, '-signer',
-			$certificate,     '-inkey',
+			$public,          '-inkey',
 			$secret,          '-in',
 			$file,            '-outform',
-			'PEM',
+			'PEM',            '-out',
+			$signature,
 		],
 		"cannot sign $file"
 	) or return;
 
-	return $self->_set_error(
-		"cannot sign $file: the command wrote no" . ' signature' )
-	    unless length $result->{stdout};
-
-	return $result->{stdout};
+	return 1;
 }
 
-# $self->verify_cms(%args):
-#	Verify a detached CMS signature over one file. The method
-#	returns 1, or undef with the reason in error.
+# $self->_verify($key, %args):
+#	Verify one file against one certificate. The hook answers undef
+#	when the certificate verified, and the reason that it did not.
 #
-#	%args:
-#		certificate => $path # Required: the PEM certificate
-#		file        => $path # Required: the signed file
-#		signature   => $text # Required: the PEM signature
-#
-#	The verifier pins the one certificate that the caller names.
 #	A CMS signature carries the certificate of its signer, and
 #	-nointern holds the command away from it, so a signature of
 #	another certificate fails. -noverify then checks no chain and
 #	no revocation: the caller vouches for the certificate by other
 #	means, such as the fingerprint of a key directory.
 #
-#	The signature reaches the command on the standard input, so
-#	the method writes it to no file of its own. The command writes
-#	the content of the signature to the null device, because the
-#	caller holds the file already.
-sub verify_cms ( $self, %args )
+#	The command writes the content of the signature to the null
+#	device, because the caller holds the file already. A file of
+#	500 MB therefore never enters memory.
+sub _verify ( $self, $key, %args )
 {
-	$self->{error}          = undef;
-	$self->{command_absent} = 0;
+	$self->_command or return $self->error;
 
-	my ( $certificate, $file, $signature ) =
-	    @args{qw(certificate file signature)};
-	die "certificate, file and signature are necessary arguments\n"
-	    unless defined $certificate && defined $file && defined $signature;
-
-	return $self->_set_error( 'the PEM signature holds a character above '
-		    . '255, and this method needs bytes' )
-	    if _wide($signature);
-
-	$self->_command or return;
-
-	$self->_run( [
-			'cms',        '-verify',
-			'-binary',    '-inform',
-			'PEM',        '-content',
-			$file,        '-certfile',
-			$certificate, '-nointern',
-			'-noverify',  '-out',
+	$self->_openssl( [
+			'cms',            '-verify',
+			'-binary',        '-inform',
+			'PEM',            '-in',
+			$args{signature}, '-content',
+			$args{file},      '-certfile',
+			$key,             '-nointern',
+			'-noverify',      '-out',
 			File::Spec->devnull,
-		],
-		"cannot verify $file",
-		$signature
-	) or return;
+		] ) or return $self->error;
 
-	return 1;
+	return;
+}
+
+# $self->_reason($result):
+#	The reason of an openssl(1) run that reached the child and
+#	failed: the reason of the first error record, the first line of
+#	the diagnostic, or the exit code. The parent holds the timeout.
+#
+#	openssl(1) writes one error record in each line of a stack,
+#	and a colon separates the fields: the process, the word error,
+#	the code, the library, the function, the reason, the file and
+#	the line. The first record names the fault, and each later one
+#	names what the fault broke. A wrong certificate therefore
+#	gives "signer certificate not found", and a changed file gives
+#	"verification failure".
+#
+#	The generator writes a progress line of dots and a line of
+#	dashes before its diagnostic. Such a line holds no letter, and
+#	it names no fault, so the reader steps over it.
+sub _reason ( $, $result )
+{
+	my $first = '';
+	for my $line ( split /\n/, $result->{stderr} // '' ) {
+		next unless $line =~ /[A-Za-z]/;
+
+		my @field = split /:/, $line, -1;
+		return $field[5]
+		    if @field >= 7
+		    && $field[1] eq 'error'
+		    && length $field[5];
+
+		$first = $line unless length $first;
+	}
+
+	return length $first ? $first : "exit code $result->{exit_code}";
+}
+
+# --- the parts of this module alone ---------------------------------------
+
+# $self->_openssl($args, $what):
+#	Run one openssl(1) command, and answer the result of the run.
+#	The method returns undef with the reason in error when the run
+#	fails.
+#
+#	Each run takes the environment of the module. With no $what the
+#	reason stands alone, because the key walk of the parent writes
+#	a prefix of its own.
+sub _openssl ( $self, $args, $what = undef )
+{
+	return $self->_run( $args, $what, env => _env() );
+}
+
+# _env():
+#	The environment of one openssl(1) run. The child takes this
+#	set and nothing else, so no variable of the caller reaches the
+#	command. OPENSSL_CONF of the caller names a configuration file,
+#	and no command of this module needs one. LC_ALL holds the
+#	diagnostics in English, because _reason reads them.
+sub _env ()
+{
+	return {
+		PATH   => $ENV{PATH} // '',
+		LC_ALL => 'C',
+	};
 }
 
 # --- the DER reader -------------------------------------------------------
@@ -769,165 +877,6 @@ sub _epoch ( $year, $month, $day, $hour, $minute, $second )
 	my $days = $era * 146_097 + $day_of_era - 719_468;
 
 	return ( ( $days * 24 + $hour ) * 60 + $minute ) * 60 + $second;
-}
-
-# --- the process boundary -------------------------------------------------
-
-# _find_command($name):
-#	Resolve an executable path, or return undef. With a name that
-#	holds a solidus the sub tests that path only. With a plain name
-#	it walks $ENV{PATH} for that name. With no name it walks
-#	$ENV{PATH} for openssl.
-sub _find_command ( $name = undef )
-{
-	my @names = defined $name ? ($name) : ('openssl');
-
-	for my $candidate (@names) {
-		if ( index( $candidate, '/' ) >= 0 ) {
-			return $candidate if -f $candidate && -x _;
-			next;
-		}
-		for my $dir ( split /:/, $ENV{PATH} // '' ) {
-			next unless length $dir;
-			my $path = "$dir/$candidate";
-			return $path if -f $path && -x _;
-		}
-	}
-
-	return;
-}
-
-# $self->_command:
-#	The openssl(1) command of one call, or undef with the reason
-#	in error. new resolved the command once, so the method reads
-#	that answer. It sets command_absent for the call, because a
-#	command that never ran is an install problem.
-sub _command ($self)
-{
-	return $self->{command} if defined $self->{command};
-
-	$self->{command_absent} = 1;
-
-	return $self->_set_error( _command_error( $self->{command_name} ) );
-}
-
-# _command_error($name):
-#	The reason that no openssl(1) command resolved. new and each
-#	command method write one shape, so a caller reads one string.
-sub _command_error ( $name = undef )
-{
-	my $named = $name // 'openssl';
-
-	return "no executable openssl command: $named";
-}
-
-# $self->_run($args, $what, $stdin):
-#	Run one openssl(1) command. The method returns the result of
-#	the run, or undef with the reason in error. The reason starts
-#	with $what, which names the act that failed and the file of
-#	it.
-#
-#	The command is a list, so no argument needs quoting and no
-#	argument can become a shell operator.
-#
-#	A run that never reached the child means that openssl(1) never
-#	ran, so command_absent reports 1 for that call.
-sub _run ( $self, $args, $what, $stdin = undef )
-{
-	my $result = Fugu::Process->run(
-		cmd     => [ $self->{command}, @$args ],
-		timeout => OPENSSL_TIMEOUT,
-		env     => _env(),
-		( defined $stdin ? ( stdin => $stdin ) : () ),
-	);
-
-	return $result if $result->{success};
-
-	if ( defined $result->{error} ) {
-		$self->{command_absent} = 1;
-		return $self->_set_error("$what: $result->{error}");
-	}
-
-	return $self->_set_error( "$what: " . _reason($result) );
-}
-
-# _env():
-#	The environment of one openssl(1) run. The child takes this
-#	set and nothing else, so no variable of the caller reaches the
-#	command. OPENSSL_CONF of the caller names a configuration file,
-#	and a CMS signature needs none. LC_ALL holds the diagnostics in
-#	English, because _reason reads them.
-sub _env ()
-{
-	return {
-		PATH   => $ENV{PATH} // '',
-		LC_ALL => 'C',
-	};
-}
-
-# _reason($result):
-#	The reason of an openssl(1) run that reached the child and
-#	failed: the timeout, the reason of the first error record, the
-#	first line of the diagnostic, or the exit code.
-#
-#	openssl(1) writes one error record in each line of a stack,
-#	and a colon separates the fields: the process, the word error,
-#	the code, the library, the function, the reason, the file and
-#	the line. The first record names the fault, and each later one
-#	names what the fault broke. A wrong certificate therefore
-#	gives "signer certificate not found", and a changed file gives
-#	"verification failure".
-sub _reason ($result)
-{
-	return 'timeout after ' . OPENSSL_TIMEOUT . ' seconds'
-	    if $result->{timed_out};
-
-	my $first = '';
-	for my $line ( split /\n/, $result->{stderr} // '' ) {
-		next unless length $line;
-
-		my @field = split /:/, $line, -1;
-		return $field[5]
-		    if @field >= 7
-		    && $field[1] eq 'error'
-		    && length $field[5];
-
-		$first = $line unless length $first;
-	}
-
-	return length $first ? $first : "exit code $result->{exit_code}";
-}
-
-# $self->_set_error($reason):
-#	The failure return of every object method: the reason goes to
-#	error, and the method answers undef. One helper keeps the two
-#	steps in one place.
-sub _set_error ( $self, $reason )
-{
-	$self->{error} = $reason;
-
-	return;
-}
-
-# _wide($text):
-#	True when the string holds a code point above 255. Such a
-#	string is character data and not bytes. Digest::SHA dies on it
-#	with "Wide character in subroutine entry", and a byte read
-#	takes the low byte of each character. The contract of this
-#	module is a clean failure, so every method that takes bytes
-#	tests this. A caller that holds text must encode it.
-sub _wide ($text)
-{
-	return $text =~ /[^\x00-\xFF]/ ? 1 : 0;
-}
-
-# _fail($reason):
-#	The failure return of every class method: undef in scalar
-#	context, and undef with the reason in list context. One helper
-#	keeps the two contexts in step.
-sub _fail ($reason)
-{
-	return wantarray ? ( undef, $reason ) : undef;
 }
 
 1;
