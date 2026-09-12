@@ -430,10 +430,10 @@ manifest methods and the `perl` engine.
 ## Fugu::Signify
 
 The module follows [Fugu::Signer](#lib-signer) over signify(1), and it holds the
-key pair, the signature file and the SHA256 manifest. It reads a public key
-file, a signature file and a manifest, and it writes the manifest form for a
-producer and a checker. The parent holds the three verbs, and this unit holds
-the two engines, the manifest methods and the file formats.
+key pair, the signature file and the SHA256 manifest. Each reader is a method of
+the object: the public key reader, the signature reader, and the manifest
+reader. The parent holds the three verbs, and this unit holds the two engines,
+the manifest methods and the file formats.
 
 - **LIB-SIGNIFY-1** — The manifest writer must sort its keys, so two runs write
   one byte sequence. It must reject a key that a stricter reader cannot carry. A
