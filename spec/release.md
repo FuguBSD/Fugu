@@ -40,3 +40,25 @@ builds once, and publishes the one tarball.
 
 - **REL-BUILD-1** — The build workflow must build the dist on every merged
   commit and must keep it as a workflow artifact. It releases nothing.
+
+<a id="rel-port"></a>
+
+## The OpenBSD port
+
+- **REL-PORT-1** — The repository holds the OpenBSD port `devel/p5-Fugu` under
+  `ports/devel/p5-Fugu`. The submission to the ports tree is the operator's act.
+- **REL-PORT-2** — The port must build from the distribution tarball on CPAN
+  through the `cpan` port module. It must pin one released version and its
+  checksums, and a change after a release updates the pin.
+- **REL-PORT-3** — The port must declare no run dependency outside the base
+  system, because the library loads with core Perl only
+  ([ARC-COREPERL](architecture.md#arc-coreperl)). A test dependency can name a
+  tool that a test drives.
+- **REL-PORT-4** — The test target of the port must run the test suite of the
+  tarball. Every test must pass or skip in the port build.
+- **REL-PORT-5** — The developer must build the port on OpenBSD/amd64 and on
+  OpenBSD/arm64, and must run the test target there. The `fuguvm` tool can
+  supply the guest, as a command only. The port must not depend on `fuguvm`.
+
+FuguPass PROG-PORT and FuguTTX HRN-PKG name the package as a run dependency, so
+this port precedes those ports in the tree.

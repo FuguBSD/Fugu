@@ -61,6 +61,7 @@ phase applies.
 | [REL-VERSION](release.md#rel-version)            | done  | —       | [perl.mk](../mk/perl.mk), [dist](../scripts/dist), [dist.t](../t/scripts/dist.t)                                                      |
 | [REL-ASSETS](release.md#rel-assets)              | done  | —       | [release.yml](../.github/workflows/release.yml)                                                                                       |
 | [REL-BUILD](release.md#rel-build)                | done  | —       | [build.yml](../.github/workflows/build.yml)                                                                                           |
+| [REL-PORT](release.md#rel-port)                  | open  | —       | —                                                                                                                                     |
 
 ## Update protocol
 
@@ -73,11 +74,11 @@ phase applies.
 
 The drift gate maps each document to the code that implements it.
 
-| Document        | Roots                                                                  |
-| --------------- | ---------------------------------------------------------------------- |
-| architecture.md | `lib`, `t`, `scripts`, `.github/workflows/test.yml`                    |
-| library.md      | `lib`, `t`                                                             |
-| release.md      | `GNUmakefile`, `mk`, `scripts`, `.github/workflows`, `.toolingrc`, `t` |
+| Document        | Roots                                                                           |
+| --------------- | ------------------------------------------------------------------------------- |
+| architecture.md | `lib`, `t`, `scripts`, `.github/workflows/test.yml`                             |
+| library.md      | `lib`, `t`                                                                      |
+| release.md      | `GNUmakefile`, `mk`, `scripts`, `.github/workflows`, `.toolingrc`, `t`, `ports` |
 
 ## Retired IDs
 
