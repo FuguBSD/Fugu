@@ -69,6 +69,8 @@ holds the design, and the plan holds the steps.
 - Merge a minor-level or major-level change with
   [pull-it](.claude/skills/pull-it/SKILL.md). It runs the
   [review panel](.claude/skills/review-panel/SKILL.md).
+- Carry the work while the context has room. Start a new session when it does
+  not.
 
 ## Documentation
 

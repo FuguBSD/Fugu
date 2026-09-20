@@ -35,7 +35,3 @@ settle.
 6. Put the round table and the residue in the pull request body. The operator
    decides each residue entry.
 7. Squash merge: `gh pr merge --squash --delete-branch`.
-
-## Stop
-
-Stop after the merge. The next change starts in a new session.
