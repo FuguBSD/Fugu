@@ -38,8 +38,8 @@
 #
 # SPC-SCOPE holds the interface and the scan scope, under no number.
 #
-# Like scripts/deps, this script is bootstrap tooling: core modules
-# only, and v5.34 because macOS still ships perl 5.34.
+# This script is bootstrap tooling: core modules only, and v5.34
+# because macOS still ships perl 5.34 (SYNC-BOOTSTRAP-1).
 
 use v5.34;
 use warnings;

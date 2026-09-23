@@ -340,8 +340,8 @@ sub parse_manifest ( $self, $bytes )
 #	key back without a change. A stricter reader does not: a
 #	parenthesis ends the key in a reader that stops at the first
 #	one, and whitespace breaks a reader that splits a line on
-#	space. A manifest travels to sha256(1) and to scripts/deps, so
-#	the writer holds a key to the strict form.
+#	space. A manifest travels to sha256(1) and to `fugubench
+#	deps`, so the writer holds a key to the strict form.
 sub write_manifest ( $self, $digests )
 {
 	$self->_begin;

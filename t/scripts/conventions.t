@@ -4,7 +4,7 @@
 #
 # Names in scripts/ carry no extension. Thus only the shebang says
 # what language a file is in. Several call sites invoke them as bare
-# paths: the Makefile, scripts/deps, CI. A lost exec bit or a broken
+# paths: mk/org.mk, mk/perl.mk, CI. A lost exec bit or a broken
 # shebang thus fails at use, not at build.
 
 use v5.34;
@@ -20,7 +20,7 @@ my $dir  = "$root/scripts";
 
 # Named, not globbed: a script that disappears must fail here. The
 # list must not shrink silently.
-my @scripts = qw(deps dist ftp fugubench spec-check spec-coverage ste-lint);
+my @scripts = qw(dist fugubench spec-check spec-coverage ste-lint);
 
 # The pragma block of the repository floor, in order. lib/CLAUDE.md
 # states it, and spec/architecture.md states the floor.
@@ -253,18 +253,17 @@ subtest 'every Fugu-owned Perl file holds the pragma block' => sub {
 	}
 
 	# The exempt set, pinned by name. It holds the pack-owned Perl
-	# files alone. The shebang gate above drops `scripts/ftp` and
-	# `scripts/fugubench` before this point, because a shell script is
-	# no Perl file. `t/scripts/dist.t` holds "The perl pack of
-	# FuguBSD/Tooling owns `scripts/dist`" in its own head block, one
-	# word away from the sentence, so it must stay out. This file
-	# quotes the sentence below its head, so a marker that reads the
-	# whole file puts this file in.
+	# files alone. The shebang gate above drops `scripts/fugubench`
+	# before this point, because a shell script is no Perl file.
+	# `t/scripts/dist.t` holds "The perl pack of FuguBSD/Tooling
+	# owns `scripts/dist`" in its own head block, one word away
+	# from the sentence, so it must stay out. This file quotes the
+	# sentence below its head, so a marker that reads the whole
+	# file puts this file in.
 	is_deeply(
 		\@exempt,
 		[
-			qw(scripts/deps scripts/dist),
-			qw(scripts/spec-check scripts/ste-lint),
+			qw(scripts/dist scripts/spec-check scripts/ste-lint),
 			qw(t/ci/local.t t/ci/workflows.t),
 		],
 		'exactly the pack-owned files are exempt'

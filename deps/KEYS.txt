@@ -1,10 +1,10 @@
 # The org pack of FuguBSD/Tooling owns this file. Do not edit a
 # synced copy. Edit the canonical copy in FuguBSD/Tooling.
 #
-# The signify public keys that verify a signed release. scripts/deps
-# reads this file for the signify tier, and it reads deps/KEYS.local.txt
-# after it. A consumer pins a third-party key in the local file, which
-# sync never touches.
+# The signify public keys that verify a signed release. The fugubench
+# deps verb reads this file for the signify tier, and it reads
+# deps/KEYS.local.txt after it. A consumer pins a third-party key in
+# the local file, which sync never touches.
 #
 # A line holds a name and then one of two forms:
 #

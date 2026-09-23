@@ -76,7 +76,8 @@ use Getopt::Long qw(GetOptions);
 #	                                    5.036
 #	  dist.exe          bin/fuguvm      repeatable
 #	  dist.testdir      t/fuguvm        repeatable
-#	  dist.share-extra  scripts/ftp     repeatable; files outside
+#	  dist.share-extra  t/fuguseed/fixtures/sheet.html
+#	                                    repeatable; files outside
 #	                                    share/ that ship in the
 #	                                    installed share tree under
 #	                                    their own path

@@ -14,8 +14,8 @@ Applies when working on files under `t/`.
 Module tests follow the unit-test rules in `lib/CLAUDE.md` (skip gracefully on
 missing dependencies) and need no citations.
 
-Tooling tests are named after what they cover, such as `t/scripts/deps.t` for
-`scripts/deps`. They drive the script as a subprocess, and they load no module.
+Tooling tests are named after what they cover, such as `t/scripts/dist.t` for
+`scripts/dist`. They drive the script as a subprocess, and they load no module.
 They assert on exit status and output. `t/scripts/conventions.t` covers the
 directory as a whole: exec bits, shebangs, and that every Perl script compiles.
 It also sweeps `lib/`, `t/` and `scripts/` for the four-line pragma block of the

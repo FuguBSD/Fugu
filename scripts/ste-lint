@@ -43,8 +43,8 @@
 # one table. The tables hold no word that correct technical prose
 # needs. Fix the prose, never the tables.
 #
-# Like scripts/deps, this script is bootstrap tooling: core modules
-# only, and v5.34 because macOS still ships perl 5.34.
+# This script is bootstrap tooling: core modules only, and v5.34
+# because macOS still ships perl 5.34 (SYNC-BOOTSTRAP-1).
 
 use v5.34;
 use warnings;

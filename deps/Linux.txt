@@ -1,4 +1,4 @@
-# External dependencies of Fugu. scripts/deps installs each line.
+# External dependencies of Fugu. `fugubench deps` installs each line.
 # The secret gate of make check runs gitleaks, so the tool environment
 # installs it before every other environment.
 tool bin gitleaks https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_{os}_{arch}.tar.gz gitleaks
