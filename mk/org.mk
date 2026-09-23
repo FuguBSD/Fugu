@@ -8,7 +8,7 @@
 
 SPEC_CHECK	?= scripts/spec-check
 STE_LINT	?= scripts/ste-lint
-DEPS		?= scripts/deps
+DEPS		?= scripts/fugubench deps
 GITLEAKS	?= gitleaks
 PRETTIER	?= bunx prettier@3.9.6
 PROVE		?= prove -l
@@ -37,7 +37,7 @@ test-prove:
 	$(PROVE) $(TEST_GLOBS)
 
 # The deps targets install the dependencies that deps/<OS>.txt names.
-# Without a manifest, scripts/deps reports and exits zero.
+# Without a manifest, scripts/fugubench deps reports and exits zero.
 # The tool environment installs before every other one, so a
 # gate tool such as gitleaks is present for each chain. No
 # deps-tool target exists, because MK-VERBS-4 fixes the names.

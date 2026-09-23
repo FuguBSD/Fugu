@@ -1,0 +1,59 @@
+#!/bin/sh
+# The wrapper shim of fugubench 0.1.0. `fugubench shim` wrote it,
+# and the org pack of FuguBSD/Tooling syncs it into a consumer. To
+# take another release, sync the pack again.
+set -eu
+
+version=0.1.0
+url=https://github.com/FuguBSD/FuguBench/releases/download/v0.1.0/fugubench
+want=9f7cb4153a6b90b1171fa74e871dfcf48ffed854ab3a92726fcc192b2a10a57e
+
+if [ -n "${FUGUBENCH+x}" ]; then
+	if [ -x "$FUGUBENCH" ]; then exec "$FUGUBENCH" "$@"; fi
+	echo "fugubench: FUGUBENCH=$FUGUBENCH is no executable" >&2
+	exit 1
+fi
+
+dir=$HOME/.cache/fugubench/$version
+file=$dir/fugubench
+if [ ! -x "$file" ]; then
+	# A value of the environment must never pass for a tool.
+	get= sum= got=
+	for c in curl wget ftp; do
+		if command -v "$c" >/dev/null 2>&1; then get=$c; break; fi
+	done
+	for c in sha256 shasum sha256sum; do
+		if command -v "$c" >/dev/null 2>&1; then sum=$c; break; fi
+	done
+	if [ -z "$get" ]; then
+		echo "fugubench: install curl, wget or ftp" >&2
+		exit 1
+	fi
+	if [ -z "$sum" ]; then
+		echo "fugubench: install sha256, shasum or sha256sum" >&2
+		exit 1
+	fi
+	mkdir -p "$dir"
+	tmp=$dir/.download.$$
+	trap 'rm -f "$tmp"' EXIT HUP INT TERM
+	case $get in
+	curl)	curl -fsSL -o "$tmp" "$url" ;;
+	wget)	wget -q -O "$tmp" "$url" ;;
+	ftp)	ftp -o "$tmp" "$url" ;;
+	esac
+	case $sum in
+	sha256)		got=$(sha256 -q "$tmp") ;;
+	shasum)		got=$(shasum -a 256 "$tmp") ;;
+	sha256sum)	got=$(sha256sum "$tmp") ;;
+	esac
+	if [ "${got%% *}" != "$want" ]; then
+		echo "fugubench: $url" >&2
+		echo "fugubench: want $want" >&2
+		echo "fugubench: got ${got%% *}" >&2
+		exit 1
+	fi
+	chmod 755 "$tmp"
+	mv "$tmp" "$file"
+fi
+
+exec "$file" "$@"

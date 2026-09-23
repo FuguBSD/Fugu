@@ -20,7 +20,7 @@ my $dir  = "$root/scripts";
 
 # Named, not globbed: a script that disappears must fail here. The
 # list must not shrink silently.
-my @scripts = qw(deps dist ftp spec-check spec-coverage ste-lint);
+my @scripts = qw(deps dist ftp fugubench spec-check spec-coverage ste-lint);
 
 # The pragma block of the repository floor, in order. lib/CLAUDE.md
 # states it, and spec/architecture.md states the floor.
@@ -213,10 +213,12 @@ subtest 'every Fugu-owned Perl file holds the pragma block' => sub {
 		"$root/t"
 	);
 
-	# ARC-COREPERL-3 governs every Fugu-owned script, not one name.
-	# @scripts holds every script, and the marker below drops the
-	# ones that a Tooling pack owns.
-	push @files, map {"$dir/$_"} @scripts;
+	# ARC-COREPERL-3 governs every Fugu-owned Perl script, not one
+	# name. @scripts holds every script, and the shebang gate below
+	# drops a shell script. The marker then drops the scripts that a
+	# Tooling pack owns.
+	push @files, grep { ( _slurp($_) // q{} ) =~ /\A\#!.*perl/ }
+	    map {"$dir/$_"} @scripts;
 
 	my ( @exempt, @violations, $checked );
 	for my $path ( sort @files ) {
@@ -250,15 +252,18 @@ subtest 'every Fugu-owned Perl file holds the pragma block' => sub {
 		}
 	}
 
-	# The exempt set, pinned by name. `t/scripts/dist.t` holds "The
-	# perl pack of FuguBSD/Tooling owns `scripts/dist`" in its own head
-	# block, one word away from the sentence, so it must stay out. This
-	# file quotes the sentence below its head, so a marker that reads
-	# the whole file puts this file in.
+	# The exempt set, pinned by name. It holds the pack-owned Perl
+	# files alone. The shebang gate above drops `scripts/ftp` and
+	# `scripts/fugubench` before this point, because a shell script is
+	# no Perl file. `t/scripts/dist.t` holds "The perl pack of
+	# FuguBSD/Tooling owns `scripts/dist`" in its own head block, one
+	# word away from the sentence, so it must stay out. This file
+	# quotes the sentence below its head, so a marker that reads the
+	# whole file puts this file in.
 	is_deeply(
 		\@exempt,
 		[
-			qw(scripts/deps scripts/dist scripts/ftp),
+			qw(scripts/deps scripts/dist),
 			qw(scripts/spec-check scripts/ste-lint),
 			qw(t/ci/local.t t/ci/workflows.t),
 		],
