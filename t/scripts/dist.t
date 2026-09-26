@@ -83,6 +83,16 @@ subtest 'the staged tree is a standard Perl distribution' => sub {
 	ok( -f "$tree/lib/Fugu/Daemon.pod",  'a sidecar ships' );
 	ok( -f "$tree/t/fugu/daemon.t",      'a test ships' );
 
+	# Every non-.t file under a dist.testdir directory is a fixture that
+	# a test reads, so each one ships beside its test.
+	for my $fixture (
+		qw(openpgp-ed25519.asc openpgp-rsa.asc signify-a.msg
+		signify-a.msg.sig signify-a.pub signify-b.pub)
+	    )
+	{
+		ok( -f "$tree/t/fugu/$fixture", "the fixture $fixture ships" );
+	}
+
 	my $output = `$^X -c "$tree/Makefile.PL" 2>&1`;
 	is( $? >> 8, 0, 'Makefile.PL compiles' ) or diag($output);
 };
