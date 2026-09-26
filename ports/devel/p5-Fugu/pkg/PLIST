@@ -1,0 +1,98 @@
+${P5SITE}/Fugu/
+${P5SITE}/Fugu.pm
+${P5SITE}/Fugu.pod
+${P5SITE}/Fugu/CLI.pm
+${P5SITE}/Fugu/CLI.pod
+${P5SITE}/Fugu/Config.pm
+${P5SITE}/Fugu/Config.pod
+${P5SITE}/Fugu/Control.pm
+${P5SITE}/Fugu/Control.pod
+${P5SITE}/Fugu/Curl.pm
+${P5SITE}/Fugu/Curl.pod
+${P5SITE}/Fugu/Daemon.pm
+${P5SITE}/Fugu/Daemon.pod
+${P5SITE}/Fugu/Ed25519.pm
+${P5SITE}/Fugu/Ed25519.pod
+${P5SITE}/Fugu/EventLoop.pm
+${P5SITE}/Fugu/EventLoop.pod
+${P5SITE}/Fugu/File.pm
+${P5SITE}/Fugu/File.pod
+${P5SITE}/Fugu/Imsg.pm
+${P5SITE}/Fugu/Imsg.pod
+${P5SITE}/Fugu/JSONSocket.pm
+${P5SITE}/Fugu/JSONSocket.pod
+${P5SITE}/Fugu/KeyDir.pm
+${P5SITE}/Fugu/KeyDir.pod
+${P5SITE}/Fugu/Log.pm
+${P5SITE}/Fugu/Log.pod
+${P5SITE}/Fugu/MQTT.pm
+${P5SITE}/Fugu/MQTT.pod
+${P5SITE}/Fugu/Mdnsd.pm
+${P5SITE}/Fugu/Mdnsd.pod
+${P5SITE}/Fugu/OpenPGP.pm
+${P5SITE}/Fugu/OpenPGP.pod
+${P5SITE}/Fugu/Pidfile.pm
+${P5SITE}/Fugu/Pidfile.pod
+${P5SITE}/Fugu/Privdrop.pm
+${P5SITE}/Fugu/Privdrop.pod
+${P5SITE}/Fugu/Process.pm
+${P5SITE}/Fugu/Process.pod
+${P5SITE}/Fugu/Proxy.pm
+${P5SITE}/Fugu/Proxy.pod
+${P5SITE}/Fugu/REPL.pm
+${P5SITE}/Fugu/REPL.pod
+${P5SITE}/Fugu/Random.pm
+${P5SITE}/Fugu/Random.pod
+${P5SITE}/Fugu/SSH.pm
+${P5SITE}/Fugu/SSH.pod
+${P5SITE}/Fugu/Sandbox.pm
+${P5SITE}/Fugu/Sandbox.pod
+${P5SITE}/Fugu/Signal.pm
+${P5SITE}/Fugu/Signal.pod
+${P5SITE}/Fugu/Signer.pm
+${P5SITE}/Fugu/Signer.pod
+${P5SITE}/Fugu/Signify.pm
+${P5SITE}/Fugu/Signify.pod
+${P5SITE}/Fugu/StateFile.pm
+${P5SITE}/Fugu/StateFile.pod
+${P5SITE}/Fugu/TestLog.pm
+${P5SITE}/Fugu/TestLog.pod
+${P5SITE}/Fugu/Timeout.pm
+${P5SITE}/Fugu/Timeout.pod
+${P5SITE}/Fugu/X509.pm
+${P5SITE}/Fugu/X509.pod
+${P5SITE}/Protocol/
+${P5SITE}/Protocol/Imsg.pm
+${P5SITE}/Protocol/Imsg.pod
+@man man/man3p/Fugu.3p
+@man man/man3p/Fugu::CLI.3p
+@man man/man3p/Fugu::Config.3p
+@man man/man3p/Fugu::Control.3p
+@man man/man3p/Fugu::Curl.3p
+@man man/man3p/Fugu::Daemon.3p
+@man man/man3p/Fugu::Ed25519.3p
+@man man/man3p/Fugu::EventLoop.3p
+@man man/man3p/Fugu::File.3p
+@man man/man3p/Fugu::Imsg.3p
+@man man/man3p/Fugu::JSONSocket.3p
+@man man/man3p/Fugu::KeyDir.3p
+@man man/man3p/Fugu::Log.3p
+@man man/man3p/Fugu::MQTT.3p
+@man man/man3p/Fugu::Mdnsd.3p
+@man man/man3p/Fugu::OpenPGP.3p
+@man man/man3p/Fugu::Pidfile.3p
+@man man/man3p/Fugu::Privdrop.3p
+@man man/man3p/Fugu::Process.3p
+@man man/man3p/Fugu::Proxy.3p
+@man man/man3p/Fugu::REPL.3p
+@man man/man3p/Fugu::Random.3p
+@man man/man3p/Fugu::SSH.3p
+@man man/man3p/Fugu::Sandbox.3p
+@man man/man3p/Fugu::Signal.3p
+@man man/man3p/Fugu::Signer.3p
+@man man/man3p/Fugu::Signify.3p
+@man man/man3p/Fugu::StateFile.3p
+@man man/man3p/Fugu::TestLog.3p
+@man man/man3p/Fugu::Timeout.3p
+@man man/man3p/Fugu::X509.3p
+@man man/man3p/Protocol::Imsg.3p
