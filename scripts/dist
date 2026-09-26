@@ -203,8 +203,13 @@ sub _stage ($file)
 my @modules = _files_under( 'lib',   qr/\.(?:pm|pod)\z/ );
 my @share   = _files_under( 'share', qr/./ );
 push @share, grep { -f } @share_extra;
+
+# A test reads its fixtures from its own directory, so every file of
+# a test directory ships. A share-extra file under a test directory
+# stages through both lists, and the MANIFEST walk of the staged tree
+# lists it once.
 my @tests;
-push @tests, _files_under( $_, qr/\.t\z/ ) for @test_dirs;
+push @tests, _files_under( $_, qr/./ ) for @test_dirs;
 my @manuals = _files_under( 'man', qr/\.[0-9]p?\z/ );
 my @docs    = grep { -f } qw(README.md LICENSE cpanfile);
 
