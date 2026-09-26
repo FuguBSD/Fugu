@@ -1,0 +1,9 @@
+Fugu gives a Perl daemon the plumbing that OpenBSD daemons share. The
+parts are daemonize, privilege drop, signals, logging, process control,
+and pledge(2) and unveil(2). It adds an event loop, a caching HTTP
+proxy, SSH and MQTT clients, an mdnsd(8) control client, and signify(1)
+key generation, signing and verification. The distribution also ships
+Protocol::Imsg, a sans-IO codec for the imsg(3) frame.
+
+Fugu needs core Perl only. Each CPAN module that it can use is an
+optional feature, loaded on demand.

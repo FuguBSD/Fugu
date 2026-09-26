@@ -61,7 +61,7 @@ phase applies.
 | [REL-VERSION](release.md#rel-version)            | done  | —       | [perl.mk](../mk/perl.mk), [dist](../scripts/dist), [dist.t](../t/scripts/dist.t)                                                      |
 | [REL-ASSETS](release.md#rel-assets)              | done  | —       | [release.yml](../.github/workflows/release.yml)                                                                                       |
 | [REL-BUILD](release.md#rel-build)                | done  | —       | [build.yml](../.github/workflows/build.yml)                                                                                           |
-| [REL-PORT](release.md#rel-port)                  | open  | —       | —                                                                                                                                     |
+| [REL-PORT](release.md#rel-port)                  | done  | —       | [p5-Fugu](../ports/devel/p5-Fugu). The port builds and its tests pass on OpenBSD/amd64 and on OpenBSD/arm64 (2026-09-26).             |
 
 ## Update protocol
 
