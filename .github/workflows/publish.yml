@@ -12,6 +12,9 @@ on:
       - "web/**"
       - "lib/**.pod"
       - ".github/workflows/publish.yml"
+  # A manual run publishes the site again, for example after a release
+  # of the renderer.
+  workflow_dispatch:
 
 permissions:
   contents: read
