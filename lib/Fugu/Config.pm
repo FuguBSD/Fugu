@@ -25,6 +25,12 @@ no feature qw(indirect multidimensional bareword_filehandles);
 use File::Basename qw(dirname);
 use File::Spec;
 
+# The parser reads bytes and decodes nothing. The v5.34 bundle turns on
+# unicode_strings, so a bare \s would also match 0x85 and 0xA0, two
+# bytes inside a UTF-8 character. ASCII rules for every regex in this
+# file keep each byte of a value.
+use re '/a';
+
 # Fugu::Config - the OpenBSD-style configuration grammar.
 #
 # A file holds top-level settings and blocks:
@@ -37,9 +43,10 @@ use File::Spec;
 #		topic = tasmota/bedroom
 #	}
 #
-# Both "key value" and "key = value" parse. A double-quoted value
-# loses its quotes. A comment starts with # and runs to the end of the
-# line. Blocks nest one level; a block inside a block is an error.
+# Both "key value" and "key = value" parse. A key ends at white space
+# or at the "=". A double-quoted value loses its quotes. A comment
+# starts with # and runs to the end of the line. Blocks nest one
+# level; a block inside a block is an error.
 #
 # A block header is a type, then one or more arguments, then an
 # opening brace. The parser keeps the arguments in order and also
@@ -306,7 +313,7 @@ sub _tokenize ($string)
 #	setting.
 sub _parse_setting ($line)
 {
-	return unless $line =~ /^(\w+)\s*(?:=\s*)?(.*)$/;
+	return unless $line =~ /^(\w+)(?:\s*=\s*|\s+)(.*)$/;
 
 	my ( $key, $value ) = ( $1, $2 );
 	$value =~ s/^\s+|\s+$//g;

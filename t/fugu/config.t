@@ -195,6 +195,57 @@ CONF
 	is( $vm->{settings}{memory}, '512', 'and its settings parsed' );
 };
 
+# The parser reads bytes. A UTF-8 character can hold 0x85 or 0xA0, and
+# neither byte is white space here.
+subtest 'a value keeps each byte of the file' => sub {
+	my $config = fixture( "grave = voil\xc3\xa0\n"
+		  . "han = \xe4\xb8\x85\n"
+		  . "nbsp = a\xc2\xa0b\xc2\xa0\n" )->load;
+
+	ok( $config, 'the file loaded' );
+	is( unpack( 'H*', $config->get('grave') ),
+		'766f696cc3a0', 'a value that ends in U+00E0' );
+	is( unpack( 'H*', $config->get('han') ),
+		'e4b885', 'a value that ends in U+4E05' );
+	is( unpack( 'H*', $config->get('nbsp') ),
+		'61c2a062c2a0', 'a value that holds U+00A0' );
+};
+
+subtest 'a block argument keeps each byte, quoted or not' => sub {
+	my $config = fixture( "device \"voil\xc3\xa0\" \xe4\xb8\x85 {\n}\n"
+		  . "device light a\xc2\xa0b {\n}\n"
+		  . "device light voil\xc3\xa0{\n}\n" )->load;
+
+	ok( $config, 'the file loaded' );
+	my @args = map {
+		[ map { unpack 'H*', $_ } @{ $_->{args} } ]
+	} $config->blocks('device');
+	is_deeply( $args[0], [ '766f696cc3a0', 'e4b885' ],
+		'a quoted and a bare argument' );
+	is_deeply( $args[1], [ '6c69676874', '61c2a062' ],
+		'a bare argument that holds U+00A0' );
+	is_deeply( $args[2], [ '6c69676874', '766f696cc3a0' ],
+		'a bare argument against the brace' );
+};
+
+subtest 'only ASCII is white space or a word character' => sub {
+	my $config = fixture("a = yes\n")->load;
+
+	is( $config->parse_bool("yes\xa0"), 0, 'a 0xA0 byte is not a blank' );
+	like( $config->error, qr/not a yes\/no value/, 'and records why' );
+
+	my $key = fixture("cl\xc3\xa9 = 1\n");
+	is( $key->load, undef, 'a key that holds U+00E9 fails' );
+	like( $key->error, qr/:1: cannot parse/, 'and says where' );
+
+	my $micro = fixture("\xc2\xb5 = 1\n");
+	is( $micro->load, undef, 'a key of Latin-1 word bytes fails' );
+
+	my $type = fixture("\xc2\xb5 name {\n}\n");
+	is( $type->load, undef, 'a block type of Latin-1 word bytes fails' );
+	like( $type->error, qr/not a block type/, 'and says why' );
+};
+
 subtest 'parse_bool' => sub {
 	my $config = fixture(<<'CONF')->load;
 a = yes

@@ -16,6 +16,11 @@ Subcommand dispatch for a command-line tool.
 
 The OpenBSD-style configuration grammar.
 
+- **LIB-CONFIG-1** — A value and a block argument must keep each byte of the
+  file, and the module must not decode them. The parser must read ASCII white
+  space alone as white space. A key and a block type must hold ASCII word
+  characters alone.
+
 <a id="lib-control"></a>
 
 ## Fugu::Control

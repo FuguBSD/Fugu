@@ -32,8 +32,16 @@ A file holds top-level settings and blocks:
     }
 
 Both C<key value> and C<key = value> parse.
+A key ends at white space or at the C<=>.
 A double-quoted value loses its quotes.
 A C<#> starts a comment that runs to the end of the line.
+
+The parser reads bytes and does not decode the file.
+Only ASCII white space separates the parts of a line.
+A key and a block type hold ASCII word characters only.
+A value and a block argument keep each byte of the file, so a UTF-8
+value comes back as its UTF-8 bytes.
+The caller decodes it.
 
 A block header is a type, then one or more arguments, then an opening
 brace.
