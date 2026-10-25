@@ -103,6 +103,13 @@ C<get($key, $default)> returns a top-level setting, or the default.
 
 C<setting_names()> returns the names of the top-level settings, sorted.
 
+=head2 block_types
+
+C<block_types()> returns the type of each block, sorted, each type one
+time.
+A caller that accepts a fixed set of types can use it to find a type
+outside that set.
+
 =head2 parse_bool
 
 C<parse_bool($value, $default)> parses a value as a switch.
@@ -171,7 +178,7 @@ the grammar does not accept, with the reason in C<error()>.
 
 C<get()>, C<file()> and C<error()> return a string or C<undef>.
 C<parse_bool()> returns 1 or 0.
-C<blocks()> and C<setting_names()> return a list.
+C<blocks()>, C<setting_names()> and C<block_types()> return a list.
 C<block()> returns a hash reference or C<undef>.
 
 =head1 EXAMPLES

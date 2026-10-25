@@ -191,6 +191,15 @@ sub setting_names ($self)
 	return @names;
 }
 
+# $self->block_types:
+#	Return the type of each block, sorted, each type once.
+sub block_types ($self)
+{
+	my @types = sort keys %{ $self->{blocks} };
+
+	return @types;
+}
+
 # $self->parse_bool($value, $default):
 #	The same switch grammar, for a value that a caller already
 #	holds. A block setting comes through here.

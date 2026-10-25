@@ -144,6 +144,40 @@ CONF
 	is( $blocks[0]{order}, 0, 'the count starts at zero' );
 };
 
+# A caller that accepts a fixed set of types reads the types of the
+# parse, and refuses each type outside that set.
+subtest 'block_types lists each type once, sorted' => sub {
+	my $config = fixture(<<'CONF')->load;
+log_level debug
+
+modules "First" {
+	dir = lib/one
+}
+
+manuals "Second" {
+	dir = man/two
+}
+
+modules "Third" {
+	dir = lib/three
+}
+CONF
+
+	ok( $config, 'the file loaded' );
+	is_deeply( [ $config->block_types ], [qw(manuals modules)],
+		'two types, sorted, each one time' );
+};
+
+subtest 'a file with no block has no block type' => sub {
+	my $config = fixture(<<'CONF')->load;
+log_level debug
+hap_port = 51827
+CONF
+
+	ok( $config, 'the file loaded' );
+	is_deeply( [ $config->block_types ], [], 'the list is empty' );
+};
+
 # The FuguVM grammar: blocks addressed by name, and settings with no
 # equals sign.
 subtest 'a FuguVM named-VM file' => sub {
