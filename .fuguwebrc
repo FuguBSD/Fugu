@@ -1,6 +1,8 @@
 # The website, built by fuguweb(1).
 
-site = Fugu
+site   = Fugu
+url    = https://lib.fugubsd.org/
+footer = footer.body.html
 
 nav "index.html" {
 	label = Home
