@@ -32,7 +32,7 @@ web/build/
 build/
 local/
 external/
-*.cat1
+*.cat[1-9]
 
 # Python build
 .venv/

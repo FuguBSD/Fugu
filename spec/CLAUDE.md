@@ -37,6 +37,8 @@ unit, and the unit ID is the anchor in upper case:
 
 - The anchor starts with the document code, in lower case, followed by a hyphen.
   [index.md](index.md) holds the codes.
+- When an area grows too large for one document, split it into sibling documents
+  that share the code. Each sibling gets its own row in the index.
 - A unit runs from its anchor to the next unit anchor or heading.
 - A rule ID names one requirement inside a unit, as a bold-lead list item.
 - Rule numbers only append: never renumber, and never reuse a number.
