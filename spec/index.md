@@ -60,11 +60,15 @@ unit, and the unit ID is the anchor in upper case:
 Each document specifies one area of work. The code of a document prefixes the
 IDs of its units.
 
-| Code | Document                           | Area                                       |
-| ---- | ---------------------------------- | ------------------------------------------ |
-| ARC  | [architecture.md](architecture.md) | Namespaces, boundaries, and load contract  |
-| LIB  | [library.md](library.md)           | The modules and their concerns             |
-| REL  | [release.md](release.md)           | Versioning, the dist, and the release flow |
+| Code | Document                                 | Area                                                            |
+| ---- | ---------------------------------------- | --------------------------------------------------------------- |
+| ARC  | [architecture.md](architecture.md)       | Namespaces, boundaries, and load contract                       |
+| LIB  | [library.md](library.md)                 | The module contract, and the command-line modules               |
+| LIB  | [library-crypto.md](library-crypto.md)   | The Ed25519 verifier, the key directory, and random bytes       |
+| LIB  | [library-io.md](library-io.md)           | The sockets, the files, the event loop, and the network clients |
+| LIB  | [library-process.md](library-process.md) | The daemon and its child processes                              |
+| LIB  | [library-signer.md](library-signer.md)   | The signer class and its three signing modules                  |
+| REL  | [release.md](release.md)                 | Versioning, the dist, and the release flow                      |
 
 ## Governance documents
 
